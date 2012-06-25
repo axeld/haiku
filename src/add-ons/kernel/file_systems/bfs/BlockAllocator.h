@@ -31,6 +31,10 @@ public:
 
 			void			Uninitialize();
 
+			void			SetRange(off_t beginBlock, off_t endBlock);
+			bool			IsBlockRunInRange(block_run run) const;
+			bool			IsBlockRunOutsideRange(block_run run) const;
+
 			status_t		AllocateForInode(Transaction& transaction,
 								const block_run* parent, mode_t type,
 								block_run& run);
@@ -83,6 +87,9 @@ private:
 			int32			fNumGroups;
 			uint32			fBlocksPerGroup;
 			uint32			fNumBitmapBlocks;
+
+			off_t			fBeginBlock;
+			off_t			fEndBlock;
 };
 
 #ifdef BFS_DEBUGGER_COMMANDS
