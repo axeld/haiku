@@ -49,6 +49,8 @@ public:
 
 			status_t		Trim(uint64 offset, uint64 size,
 								uint64& trimmedSize);
+			status_t		AllocateBlockRun(Transaction& transaction,
+								block_run run);
 
 			status_t		CheckBlocks(off_t start, off_t length,
 								bool allocated = true,
