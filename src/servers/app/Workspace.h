@@ -13,6 +13,7 @@
 
 
 class Desktop;
+class ServerBitmap;
 class Window;
 
 
@@ -30,6 +31,15 @@ public:
 			const rgb_color&	Color() const;
 			void				SetColor(const rgb_color& color,
 									bool makeDefault);
+
+			const char*			ImagePath() const;
+			ServerBitmap*		Bitmap() const;
+			uint32				BitmapOptions() const;
+			const BPoint&		BitmapOffset() const;
+			void				SetImage(const char* path,
+									ServerBitmap* bitmap, uint32 options,
+									const BPoint& offset, bool makeDefault);
+
 			bool				IsCurrent() const
 									{ return fCurrentWorkspace; }
 

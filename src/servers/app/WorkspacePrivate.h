@@ -1,5 +1,5 @@
 /*
- * Copyright 2005-2009, Haiku.
+ * Copyright 2005-2013, Haiku.
  * Distributed under the terms of the MIT License.
  *
  * Authors:
@@ -47,6 +47,21 @@ public:
 
 			const rgb_color&	Color() const { return fColor; }
 			void				SetColor(const rgb_color& color);
+			const BString&		ImagePath() const { return fImagePath; }
+			ServerBitmap*		Bitmap() const { return fBitmap; }
+			uint32				BitmapOptions() const { return fBitmapOptions; }
+			const BPoint&		BitmapOffset() const { return fBitmapOffset; }
+			void				SetImage(const char* path,
+									ServerBitmap* bitmap, uint32 options,
+									const BPoint& offset);
+
+			const rgb_color&	StoredColor() const { return fStoredColor; }
+			const BString&		StoredImagePath() const
+									{ return fStoredImagePath; }
+			uint32				StoredBitmapOptions() const
+									{ return fStoredBitmapOptions; }
+			const BPoint&		StoredBitmapOffset() const
+									{ return fStoredBitmapOffset; }
 
 			ScreenConfigurations& CurrentScreenConfiguration()
 									{ return fCurrentScreenConfiguration; }
@@ -65,7 +80,18 @@ private:
 
 			ScreenConfigurations fStoredScreenConfiguration;
 			ScreenConfigurations fCurrentScreenConfiguration;
+
 			rgb_color			fColor;
+			BString				fImagePath;
+			ServerBitmap*		fBitmap;
+			uint32				fBitmapOptions;
+			BPoint				fBitmapOffset;
+
+			rgb_color			fStoredColor;
+			BString				fStoredImagePath;
+			uint32				fStoredBitmapOptions;
+			BPoint				fStoredBitmapOffset;
 };
+
 
 #endif	/* WORKSPACE_PRIVATE_H */
