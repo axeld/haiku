@@ -1,5 +1,5 @@
 /*
- * Copyright 2007-2009, Haiku, Inc. All rights reserved.
+ * Copyright 2007-2013, Haiku, Inc. All rights reserved.
  * Distributed under the terms of the MIT License.
  */
 #ifndef _SCREEN_H
@@ -21,7 +21,7 @@ namespace BPrivate {
 
 
 class BScreen {
-public:  
+public:
 								BScreen(screen_id id = B_MAIN_SCREEN_ID);
 								BScreen(BWindow* window);
 								~BScreen();
@@ -53,10 +53,30 @@ public:
 
 			rgb_color			DesktopColor();
 			rgb_color			DesktopColor(uint32 workspace);
-			void				SetDesktopColor(rgb_color color,
-									bool stick = true);
-			void				SetDesktopColor(rgb_color color,
-									uint32 workspace, bool stick = true);
+			status_t			SetDesktopColor(rgb_color color,
+									bool makeDefault = true);
+			status_t			SetDesktopColor(rgb_color color,
+									uint32 workspace, bool makeDefault = true);
+
+			const char*			DesktopImage() const;
+			const char*			DesktopImage(uint32 workspace) const;
+			BPoint				DesktopImageOffset() const;
+			BPoint				DesktopImageOffset(uint32 workspace) const;
+			uint32				DesktopImageOptions() const;
+			uint32				DesktopImageOptions(uint32 workspace) const;
+			status_t			SetDesktopBitmap(BBitmap* bitmap,
+									uint32 options, BPoint offset = BPoint());
+			status_t			SetDesktopBitmap(uint32 workspace,
+									BBitmap* bitmap, uint32 options,
+									BPoint offset = BPoint());
+			status_t			SetDesktopImage(const char* path,
+									BBitmap* bitmap, uint32 options,
+									BPoint offset = BPoint(),
+									bool makeDefault = true);
+			status_t			SetDesktopImage(uint32 workspace,
+									const char* path, BBitmap* bitmap,
+									uint32 options, BPoint offset = BPoint(),
+									bool makeDefault = true);
 
 			status_t			ProposeMode(display_mode* target,
 									const display_mode* low,
@@ -104,5 +124,6 @@ BScreen::IndexForColor(rgb_color color)
 {
 	return IndexForColor(color.red, color.green, color.blue, color.alpha);
 }
+
 
 #endif // _SCREEN_H

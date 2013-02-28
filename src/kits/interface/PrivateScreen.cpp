@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2009, Haiku Inc.
+ * Copyright 2002-2013, Haiku Inc.
  * Distributed under the terms of the MIT License.
  *
  * Authors:
@@ -24,6 +24,7 @@
 #include <Bitmap.h>
 #include <Locker.h>
 #include <ObjectList.h>
+#include <String.h>
 #include <Window.h>
 
 #include <AutoLocker.h>
@@ -83,6 +84,20 @@ pthread_once_t Screens::sDefaultInitOnce = PTHREAD_ONCE_INIT;
 Screens* Screens::sDefaultInstance = NULL;
 
 }	// unnamed namespace
+
+
+namespace BPrivate {
+
+
+struct desktop_image_config {
+	BString	path;
+	BPoint	offset;
+	uint32	options;
+	int32	bitmap_id;
+};
+
+
+// #pragma mark -
 
 
 BPrivateScreen*
@@ -418,15 +433,14 @@ BPrivateScreen::DesktopColor(uint32 workspace)
 	link.Attach<uint32>(workspace);
 
 	int32 code;
-	if (link.FlushWithReply(code) == B_OK
-		&& code == B_OK)
+	if (link.FlushWithReply(code) == B_OK && code == B_OK)
 		link.Read<rgb_color>(&color);
 
 	return color;
 }
 
 
-void
+status_t
 BPrivateScreen::SetDesktopColor(rgb_color color, uint32 workspace,
 	bool makeDefault)
 {
@@ -436,7 +450,75 @@ BPrivateScreen::SetDesktopColor(rgb_color color, uint32 workspace,
 	link.Attach<rgb_color>(color);
 	link.Attach<uint32>(workspace);
 	link.Attach<bool>(makeDefault);
-	link.Flush();
+	return link.Flush();
+}
+
+
+BBitmap*
+BPrivateScreen::DesktopBitmap(uint32 workspace)
+{
+	desktop_image_config config;
+	if (_GetDesktopImage(workspace, config) != B_OK)
+		return NULL;
+
+	// TODO: get bitmap pointer, we only have the ID here; we might need to
+	// clone the bitmap, first
+	return NULL;
+}
+
+
+const char*
+BPrivateScreen::DesktopImage(uint32 workspace)
+{
+	desktop_image_config config;
+	if (_GetDesktopImage(workspace, config) != B_OK)
+		return NULL;
+
+	return config.path.String();
+}
+
+
+BPoint
+BPrivateScreen::DesktopImageOffset(uint32 workspace)
+{
+	desktop_image_config config;
+	if (_GetDesktopImage(workspace, config) != B_OK)
+		return BPoint();
+
+	return config.offset;
+}
+
+
+uint32
+BPrivateScreen::DesktopImageOptions(uint32 workspace)
+{
+	desktop_image_config config;
+	if (_GetDesktopImage(workspace, config) != B_OK)
+		return 0;
+
+	return config.options;
+}
+
+
+status_t
+BPrivateScreen::SetDesktopImage(uint32 workspace, const char* path,
+	BBitmap* bitmap, uint32 options, BPoint offset, bool makeDefault)
+{
+	BPrivate::AppServerLink link;
+	link.StartMessage(AS_SET_DESKTOP_IMAGE);
+	link.Attach<int32>(workspace);
+	link.Attach<uint32>(options);
+	link.Attach<BPoint>(offset);
+	link.Attach<int32>(bitmap != NULL ? bitmap->fServerToken : 0);
+	link.Attach<bool>(makeDefault);
+	link.AttachString(path);
+
+	status_t result;
+	status_t status = link.FlushWithReply(result);
+	if (status != B_OK)
+		return status;
+
+	return result;
 }
 
 
@@ -755,6 +837,27 @@ BPrivateScreen::_GetFrameBufferConfig(frame_buffer_config& config)
 }
 
 
+status_t
+BPrivateScreen::_GetDesktopImage(uint32 workspace, desktop_image_config& config)
+{
+	BPrivate::AppServerLink link;
+	link.StartMessage(AS_GET_DESKTOP_IMAGE);
+	link.Attach<uint32>(workspace);
+
+	int32 code;
+	status_t status = link.FlushWithReply(code);
+	if (status != B_OK)
+		return status;
+	if (code != B_OK)
+		return code;
+
+	link.Read<uint32>(&config.options);
+	link.Read<BPoint>(&config.offset);
+	link.Read<int32>(&config.bitmap_id);
+	return link.ReadString(config.path);
+}
+
+
 BPrivateScreen::BPrivateScreen(int32 id)
 	:
 	fID(id),
@@ -774,3 +877,6 @@ BPrivateScreen::~BPrivateScreen()
 	if (fOwnsColorMap)
 		free(fColorMap);
 }
+
+
+}	// namespace BPrivate

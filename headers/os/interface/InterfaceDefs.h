@@ -1,5 +1,5 @@
 /*
- * Copyright 2001-2008, Haiku, Inc. All rights reserved.
+ * Copyright 2001-2013, Haiku, Inc. All rights reserved.
  * Distributed under the terms of the MIT License.
  */
 #ifndef	_INTERFACE_DEFS_H
@@ -276,6 +276,12 @@ enum overlay_options {
 	B_OVERLAY_TRANSFER_CHANNEL	= 0x00080000
 };
 
+enum view_bitmap_options {
+	B_VIEW_BITMAP_AT_OFFSET		= 0x00001000,
+	B_VIEW_BITMAP_CENTERED		= 0x00002000,
+	B_VIEW_BITMAP_SCALED_TO_FIT	= 0x00004000,
+};
+
 enum bitmap_drawing_options {
 	B_FILTER_BITMAP_BILINEAR	= 0x00000100,
 
@@ -424,5 +430,6 @@ rgb_color		tint_color(rgb_color color, float tint);
 extern "C" status_t _init_interface_kit_();
 	// for convenience, should be removed including the friend declarations
 	// in Menu.h, ...
+
 
 #endif	// _INTERFACE_DEFS_H

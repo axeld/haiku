@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2009, Haiku Inc.
+ * Copyright 2003-2013, Haiku Inc.
  * Distributed under the terms of the MIT License.
  *
  * Authors:
@@ -186,19 +186,131 @@ BScreen::DesktopColor(uint32 workspace)
 }
 
 
-void
-BScreen::SetDesktopColor(rgb_color color, bool stick)
+status_t
+BScreen::SetDesktopColor(rgb_color color, bool makeDefault)
 {
-	if (fScreen != NULL)
-		fScreen->SetDesktopColor(color, B_CURRENT_WORKSPACE_INDEX, stick);
+	return SetDesktopColor(color, B_CURRENT_WORKSPACE_INDEX, makeDefault);
 }
 
 
-void
-BScreen::SetDesktopColor(rgb_color color, uint32 workspace, bool stick)
+status_t
+BScreen::SetDesktopColor(rgb_color color, uint32 workspace, bool makeDefault)
+{
+	if (fScreen == NULL)
+		return B_ERROR;
+
+	return fScreen->SetDesktopColor(color, workspace, makeDefault);
+}
+
+
+// TODO: these would need a bit more work to clone bitmaps locally
+#if 0
+BBitmap*
+BScreen::DesktopBitmap() const
+{
+	return DesktopBitmap(B_CURRENT_WORKSPACE_INDEX);
+}
+
+
+BBitmap*
+BScreen::DesktopBitmap(uint32 workspace) const
 {
 	if (fScreen != NULL)
-		fScreen->SetDesktopColor(color, workspace, stick);
+		return fScreen->DesktopBitmap(workspace);
+
+	return NULL;
+}
+#endif
+
+
+const char*
+BScreen::DesktopImage() const
+{
+	return DesktopImage(B_CURRENT_WORKSPACE_INDEX);
+}
+
+
+const char*
+BScreen::DesktopImage(uint32 workspace) const
+{
+	if (fScreen != NULL)
+		return fScreen->DesktopImage(workspace);
+
+	return NULL;
+}
+
+
+BPoint
+BScreen::DesktopImageOffset() const
+{
+	return DesktopImageOffset(B_CURRENT_WORKSPACE_INDEX);
+}
+
+
+BPoint
+BScreen::DesktopImageOffset(uint32 workspace) const
+{
+	if (fScreen != NULL)
+		return fScreen->DesktopImageOffset(workspace);
+
+	return BPoint();
+}
+
+
+uint32
+BScreen::DesktopImageOptions() const
+{
+	return DesktopImageOptions(B_CURRENT_WORKSPACE_INDEX);
+}
+
+
+uint32
+BScreen::DesktopImageOptions(uint32 workspace) const
+{
+	if (fScreen != NULL)
+		return fScreen->DesktopImageOptions(workspace);
+
+	return 0;
+}
+
+
+status_t
+BScreen::SetDesktopBitmap(BBitmap* bitmap, uint32 options, BPoint offset)
+{
+	return SetDesktopBitmap(B_CURRENT_WORKSPACE_INDEX, bitmap, options, offset);
+}
+
+
+status_t
+BScreen::SetDesktopBitmap(uint32 workspace, BBitmap* bitmap, uint32 options,
+	BPoint offset)
+{
+	if (fScreen == NULL)
+		return B_ERROR;
+
+	return fScreen->SetDesktopImage(workspace, NULL, bitmap, options, offset,
+		false);
+}
+
+
+status_t
+BScreen::SetDesktopImage(const char* path, BBitmap* bitmap, uint32 options,
+	BPoint offset, bool makeDefault)
+{
+	return SetDesktopImage(B_CURRENT_WORKSPACE_INDEX, path, bitmap, options,
+		offset, makeDefault);
+}
+
+
+status_t
+BScreen::SetDesktopImage(uint32 workspace, const char* path, BBitmap* bitmap,
+	uint32 options, BPoint offset, bool makeDefault)
+{
+	if (fScreen != NULL) {
+		return fScreen->SetDesktopImage(workspace, path, bitmap, options,
+			offset, makeDefault);
+	}
+	return B_ERROR;
 }
 
 

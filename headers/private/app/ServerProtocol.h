@@ -1,5 +1,5 @@
 /*
- * Copyright 2001-2012, Haiku.
+ * Copyright 2001-2013, Haiku.
  * Distributed under the terms of the MIT License.
  *
  * Authors:
@@ -163,6 +163,8 @@ enum {
 	AS_SCREEN_GET_COLORMAP,
 	AS_GET_DESKTOP_COLOR,
 	AS_SET_DESKTOP_COLOR,
+	AS_GET_DESKTOP_IMAGE,
+	AS_SET_DESKTOP_IMAGE,
 	AS_GET_SCREEN_ID_FROM_WINDOW,
 
 	AS_READ_BITMAP,
@@ -357,5 +359,6 @@ enum {
 	kHeap				= 0x4,
 	kNewAllocatorArea	= 0x8,
 };
+
 
 #endif	// APP_SERVER_PROTOCOL_H

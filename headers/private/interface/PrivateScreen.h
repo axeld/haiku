@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2009, Haiku Inc.
+ * Copyright 2002-2013, Haiku Inc.
  * Distributed under the terms of the MIT License.
  *
  * Authors:
@@ -26,6 +26,10 @@ class BWindow;
 
 
 namespace BPrivate {
+
+
+struct desktop_image_config;
+
 
 class BPrivateScreen {
 public:
@@ -58,8 +62,18 @@ public:
 			status_t			ReadBitmap(BBitmap* bitmap, bool drawCursor,
 									BRect* bounds);
 
-			rgb_color			DesktopColor(uint32 index);
-			void				SetDesktopColor(rgb_color, uint32, bool);
+			rgb_color			DesktopColor(uint32 workspace);
+			status_t			SetDesktopColor(rgb_color color,
+									uint32 workspace, bool makeDefault);
+
+			BBitmap*			DesktopBitmap(uint32 workspace);
+			const char*			DesktopImage(uint32 workspace);
+			BPoint				DesktopImageOffset(uint32 workspace);
+			uint32				DesktopImageOptions(uint32 workspace);
+			status_t			SetDesktopImage(uint32 workspace,
+									const char* path, BBitmap* bitmap,
+									uint32 options, BPoint offset,
+									bool makeDefault);
 
 			status_t			ProposeMode(display_mode* target,
 									const display_mode* low,
@@ -97,6 +111,8 @@ private:
 			sem_id				_RetraceSemaphore();
 			status_t			_GetFrameBufferConfig(
 									frame_buffer_config& config);
+			status_t			_GetDesktopImage(uint32 workspace,
+									desktop_image_config& config);
 
 	static	BPrivateScreen*		_Get(int32 id, bool check);
 	static	bool				_IsValid(int32 id);
@@ -112,6 +128,8 @@ private:
 			bigtime_t			fLastUpdate;
 };
 
+
 }	// namespace BPrivate
+
 
 #endif // _PRIVATE_SCREEN_H_
