@@ -2813,6 +2813,76 @@ ServerApp::_DispatchMessage(int32 code, BPrivate::LinkReceiver& link)
 			break;
 		}
 
+		case AS_GET_DESKTOP_IMAGE:
+		{
+			STRACE(("ServerApp %s: get desktop image\n", Signature()));
+
+			uint32 index;
+			link.Read<uint32>(&index);
+
+			fDesktop->LockSingleWindow();
+
+			// we're nice to our children (and also take the default case
+			// into account which asks for the current workspace)
+			if (index >= (uint32)kMaxWorkspaces)
+				index = fDesktop->CurrentWorkspace();
+
+			Workspace workspace(*fDesktop, index, true);
+
+			fLink.StartMessage(B_OK);
+			fLink.Attach<uint32>(workspace.BitmapOptions());
+			fLink.Attach<BPoint>(workspace.BitmapOffset());
+			fLink.Attach<int32>(workspace.Bitmap() != NULL
+				? workspace.Bitmap()->Token() : -1);
+			fLink.AttachString(workspace.ImagePath());
+
+			fDesktop->UnlockSingleWindow();
+			fLink.Flush();
+			break;
+		}
+
+		case AS_SET_DESKTOP_IMAGE:
+		{
+			STRACE(("ServerApp %s: set desktop image\n", Signature()));
+
+			uint32 bitmapOptions;
+			BPoint bitmapOffset;
+			int32 bitmapToken;
+			BString imagePath;
+			uint32 index;
+			bool makeDefault;
+
+			link.Read<uint32>(&index);
+			link.Read<uint32>(&bitmapOptions);
+			link.Read<BPoint>(&bitmapOffset);
+			link.Read<int32>(&bitmapToken);
+			link.Read<bool>(&makeDefault);
+			if (link.ReadString(imagePath) != B_OK)
+				break;
+
+			fDesktop->LockAllWindows();
+
+			// we're nice to our children (and also take the default case
+			// into account which asks for the current workspace)
+			if (index >= (uint32)kMaxWorkspaces)
+				index = fDesktop->CurrentWorkspace();
+
+			ServerBitmap* bitmap = GetBitmap(bitmapToken);
+
+			Workspace workspace(*fDesktop, index);
+			workspace.SetImage(imagePath.String(), bitmap, bitmapOptions,
+				bitmapOffset, makeDefault);
+
+			if (bitmap != NULL)
+				bitmap->ReleaseReference();
+
+			fDesktop->UnlockAllWindows();
+
+			fLink.StartMessage(B_OK);
+			fLink.Flush();
+			break;
+		}
+
 		case AS_SET_UI_COLOR:
 		{
 			STRACE(("ServerApp %s: Set UI Color\n", Signature()));
