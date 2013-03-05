@@ -31,6 +31,8 @@ Workspace::Private::Private()
 
 Workspace::Private::~Private()
 {
+	if (fBitmap != NULL)
+		fBitmap->ReleaseReference();
 }
 
 
@@ -51,10 +53,16 @@ void
 Workspace::Private::SetImage(const char* path, ServerBitmap* bitmap,
 	uint32 options, const BPoint& offset)
 {
+	if (fBitmap != NULL)
+		fBitmap->ReleaseReference();
+
 	fImagePath = path;
 	fBitmap = bitmap;
 	fBitmapOptions = options;
 	fBitmapOffset = offset;
+
+	if (fBitmap != NULL)
+		fBitmap->AcquireReference();
 }
 
 
@@ -103,6 +111,7 @@ void
 Workspace::Private::_SetDefaults()
 {
 	fColor = kDefaultColor;
+	fBitmap = NULL;
 }
 
 

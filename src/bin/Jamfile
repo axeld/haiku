@@ -166,6 +166,7 @@ StdBinCommands
 
 # standard commands that need libbe.so, libtranslation.so, libsupc++.so
 StdBinCommands
+	setbackground.cpp
 	translate.cpp
 	: be translation $(TARGET_LIBSUPC++) : $(haiku-utils_rsrc) ;
 

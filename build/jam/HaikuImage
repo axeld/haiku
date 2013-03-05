@@ -31,9 +31,9 @@ SYSTEM_BIN = [ FFilterByBuildFeatures
 	query quit
 	rc readlink reindex release renice rlog rm rmattr rmindex rmdir roster
 	route
-	safemode screen_blanker screenmode screenshot sdiff setdecor setmime settype
-	setversion setvolume seq sha1sum shar shred shuf shutdown sleep sort
-	spamdbm split stat strace stty su sum sync sysinfo
+	safemode screen_blanker screenmode screenshot sdiff setbackground setdecor
+	setmime settype setversion setvolume seq sha1sum shar shred shuf shutdown
+	sleep sort spamdbm split stat strace stty su sum sync sysinfo
 	tac tail tcpdump tcptester tee telnet telnetd test timeout top touch
 	tput tr traceroute translate trash true truncate tsort tty
 	uname unchop unexpand unmount uniq unlink unshar unzip unzipsfx

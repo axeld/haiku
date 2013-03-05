@@ -401,6 +401,27 @@ workspace_in_workspaces(int32 index, uint32 workspaces)
 }
 
 
+/*!	Draws a bitmap using the view bitmap options into the specified target
+	frame. This will only update the region that is covered by \a redrawRegion.
+*/
+void
+drawViewBitmap(DrawingEngine& drawingEngine, ServerBitmap* bitmap,
+	uint32 options, const BPoint& offset, const BRect& bitmapRect,
+	const BRect& viewRect, BRegion& redrawRegion)
+{
+	drawingEngine.ConstrainClippingRegion(&redrawRegion);
+
+	// TODO: actually implement all options
+	// TODO: move this into a shared utility source file
+	// TODO: use from within View::Draw() as well
+	drawing_mode oldMode;
+	drawingEngine.SetDrawingMode(B_OP_COPY, oldMode);
+	drawingEngine.DrawBitmap(bitmap, bitmapRect, viewRect, options);
+
+	drawingEngine.SetDrawingMode(oldMode);
+}
+
+
 //	#pragma mark -
 
 
@@ -3223,8 +3244,16 @@ Desktop::_SetBackground(BRegion& background)
 	fBackgroundRegion = background;
 	if (dirtyBackground.Frame().IsValid()) {
 		if (GetDrawingEngine()->LockParallelAccess()) {
-			GetDrawingEngine()->FillRegion(dirtyBackground,
-				fWorkspaces[fCurrentWorkspace].Color());
+			const Workspace::Private& workspace = fWorkspaces[fCurrentWorkspace];
+			if (workspace.Bitmap() != NULL) {
+				drawViewBitmap(*GetDrawingEngine(), workspace.Bitmap(),
+					workspace.BitmapOptions(), workspace.BitmapOffset(),
+					workspace.Bitmap()->Bounds(), fVirtualScreen.Frame(),
+					dirtyBackground);
+			} else {
+				GetDrawingEngine()->FillRegion(dirtyBackground,
+					workspace.Color());
+			}
 
 			GetDrawingEngine()->UnlockParallelAccess();
 		}
