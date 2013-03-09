@@ -1,5 +1,5 @@
 /*
- * Copyright 2006-2012, Haiku, Inc. All Rights Reserved.
+ * Copyright 2006-2013, Haiku, Inc. All Rights Reserved.
  * Distributed under the terms of the MIT License.
  *
  * Authors:
@@ -300,6 +300,7 @@ ClientMemoryAllocator::_AllocateChunk(size_t size, bool& newArea)
 
 ClientMemory::ClientMemory()
 	:
+	fAllocator(NULL),
 	fBlock(NULL)
 {
 }
@@ -309,6 +310,8 @@ ClientMemory::~ClientMemory()
 {
 	if (fBlock != NULL)
 		fAllocator->Free(fBlock);
+	if (fAllocator != NULL)
+		fAllocator->ReleaseReference();
 }
 
 
@@ -317,6 +320,8 @@ ClientMemory::Allocate(ClientMemoryAllocator* allocator, size_t size,
 	bool& newArea)
 {
 	fAllocator = allocator;
+	fAllocator->AcquireReference();
+
 	return fAllocator->Allocate(size, &fBlock, newArea);
 }
 
