@@ -16,10 +16,12 @@ Addon intel_extreme.accelerant :
 	mode.cpp
 	overlay.cpp
 #	overlay_3d_i965.cpp
-	: be libaccelerantscommon.a
+
+	# classes
+#	DisplayPipe.cpp
+#	FlexibleDisplayInterface.cpp
+#	PanelFitter.cpp
+	Ports.cpp
+
+	: be $(TARGET_LIBSTDC++) libaccelerantscommon.a
 ;
-
-Package haiku-intel_extreme-cvs :
-	intel_extreme.accelerant :
-	boot home config add-ons accelerants ;
-

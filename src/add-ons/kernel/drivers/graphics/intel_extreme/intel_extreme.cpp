@@ -59,6 +59,7 @@ read_settings(bool &hardwareCursor)
 }
 
 
+#if 0
 static int32
 release_vblank_sem(intel_info &info)
 {
@@ -72,6 +73,7 @@ release_vblank_sem(intel_info &info)
 
 	return B_HANDLED_INTERRUPT;
 }
+#endif
 
 
 static int32
@@ -85,6 +87,7 @@ intel_interrupt_handler(void* data)
 
 	int32 handled = B_HANDLED_INTERRUPT;
 
+#if 0
 	// TODO: verify that these aren't actually the same
 	bool hasPCH = info.device_type.HasPlatformControlHub();
 	uint16 mask = hasPCH ? PCH_INTERRUPT_VBLANK_PIPEA : INTERRUPT_VBLANK_PIPEA;
@@ -104,6 +107,7 @@ intel_interrupt_handler(void* data)
 		write32(info, INTEL_DISPLAY_B_PIPE_STATUS,
 			DISPLAY_PIPE_VBLANK_STATUS | DISPLAY_PIPE_VBLANK_ENABLED);
 	}
+#endif
 
 	// setting the bit clears it!
 	write16(info, find_reg(info, INTEL_INTERRUPT_IDENTITY), identity);
@@ -327,8 +331,6 @@ intel_extreme_init(intel_info &info)
 			// 350 MHz RAM DAC speed
 		info.shared_info->pll_info.min_frequency = 25000;		// 25 MHz
 	}
-
-	info.shared_info->pll_info.divisor_register = INTEL_DISPLAY_A_PLL_DIVISOR_0;
 
 	info.shared_info->device_type = info.device_type;
 #ifdef __HAIKU__

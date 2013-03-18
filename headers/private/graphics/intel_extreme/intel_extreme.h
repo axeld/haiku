@@ -126,6 +126,23 @@ struct DeviceType {
 		return (type & INTEL_TYPE_MODEL_MASK) == model;
 	}
 
+	bool IsMobile() const
+	{
+		return (type & INTEL_TYPE_MOBILE) != 0;
+	}
+
+	bool SupportsHDMI() const
+	{
+		switch (type & INTEL_TYPE_GROUP_MASK) {
+			case INTEL_TYPE_G4x:
+			case INTEL_TYPE_ILK:
+			case INTEL_TYPE_SNB:
+				return true;
+		}
+
+		return false;
+	}
+
 	bool HasPlatformControlHub() const
 	{
 		return InGroup(INTEL_TYPE_ILK) || InGroup(INTEL_TYPE_SNB)
@@ -356,7 +373,7 @@ struct intel_free_graphics_memory {
 #define PCH_INTERRUPT_VBLANK_PIPEB		(1 << 15)
 
 // display ports
-#define INTEL_DISPLAY_A_ANALOG_PORT		(0x1100 | REGS_SOUTH_TRANSCODER_PORT)
+#define INTEL_ANALOG_PORT				(0x1100 | REGS_SOUTH_TRANSCODER_PORT)
 #define DISPLAY_MONITOR_PORT_ENABLED	(1UL << 31)
 #define DISPLAY_MONITOR_PIPE_B			(1UL << 30)
 #define DISPLAY_MONITOR_VGA_POLARITY	(1UL << 15)
@@ -368,8 +385,9 @@ struct intel_free_graphics_memory {
 #define DISPLAY_MONITOR_POLARITY_MASK	(3UL << 3)
 #define DISPLAY_MONITOR_POSITIVE_HSYNC	(1UL << 3)
 #define DISPLAY_MONITOR_POSITIVE_VSYNC	(2UL << 3)
-#define INTEL_DISPLAY_A_DIGITAL_PORT	(0x1120 | REGS_SOUTH_TRANSCODER_PORT)
-#define INTEL_DISPLAY_C_DIGITAL			(0x1160 | REGS_SOUTH_TRANSCODER_PORT)
+#define INTEL_DIGITAL_PORT_A			(0x1120 | REGS_SOUTH_TRANSCODER_PORT)
+#define INTEL_DIGITAL_PORT_B			(0x1140 | REGS_SOUTH_TRANSCODER_PORT)
+#define INTEL_DIGITAL_PORT_C			(0x1160 | REGS_SOUTH_TRANSCODER_PORT)
 #define INTEL_DISPLAY_LVDS_PORT			(0x1180 | REGS_SOUTH_TRANSCODER_PORT)
 #define LVDS_POST2_RATE_SLOW			14 // PLL Divisors
 #define LVDS_POST2_RATE_FAST			7
@@ -381,6 +399,23 @@ struct intel_free_graphics_memory {
 #define LVDS_B0B3PAIRS_POWER_UP			(3 << 2)
 #define LVDS_PLL_MODE_LVDS				(2 << 26)
 #define LVDS_18BIT_DITHER				(1 << 25)
+
+#define INTEL_HDMI_PORT_B				0x61140
+#define INTEL_HDMI_PORT_C				0x61160
+
+// on PCH HDMI B overlaps with digital B, but digital C is HDMI D because
+// they seem to have sandwiched in another port inbetween
+#define PCH_HDMI_PORT_B					0xe1140
+#define PCH_HDMI_PORT_C					0xe1150
+#define PCH_HDMI_PORT_D					0xe1160
+
+#define INTEL_DISPLAY_PORT_A			(0x4000 | REGS_NORTH_PIPE_AND_PORT)
+#define INTEL_DISPLAY_PORT_B			(0x4100 | REGS_NORTH_PIPE_AND_PORT)
+#define INTEL_DISPLAY_PORT_C			(0x4200 | REGS_NORTH_PIPE_AND_PORT)
+#define INTEL_DISPLAY_PORT_D			(0x4300 | REGS_NORTH_PIPE_AND_PORT)
+
+// valid for both DVI/HDMI and DisplayPort
+#define PORT_DETECTED					(1 << 2)
 
 // PLL flags
 #define DISPLAY_PLL_ENABLED				(1UL << 31)
@@ -427,14 +462,26 @@ struct intel_free_graphics_memory {
 #define INTEL_DISPLAY_B_DIGITAL_PORT	(0x1140 | REGS_SOUTH_TRANSCODER_PORT)
 
 // planes
-#define INTEL_DISPLAY_A_PIPE_CONTROL	(0x0008 | REGS_NORTH_PLANE_CONTROL)
-#define INTEL_DISPLAY_B_PIPE_CONTROL	(0x1008 | REGS_NORTH_PLANE_CONTROL)
-#define DISPLAY_PIPE_ENABLED			(1UL << 31)
+#define INTEL_PIPE_BASE_REGISTER		(0x0000 | REGS_NORTH_PLANE_CONTROL)
+#define INTEL_PIPE_PIPE_OFFSET			0x1000
 
-#define INTEL_DISPLAY_A_PIPE_STATUS		(0x0024 | REGS_NORTH_PLANE_CONTROL)
-#define INTEL_DISPLAY_B_PIPE_STATUS		(0x1024 | REGS_NORTH_PLANE_CONTROL)
-#define DISPLAY_PIPE_VBLANK_ENABLED		(1UL << 17)
-#define DISPLAY_PIPE_VBLANK_STATUS		(1UL << 1)
+#define INTEL_PIPE_CONTROL				0x08
+#define PIPE_ENABLED					(1UL << 31)
+
+#define INTEL_PIPE_STATUS				0x24
+#define PIPE_VBLANK_ENABLED				(1UL << 17)
+#define PIPE_VBLANK_STATUS				(1UL << 1)
+
+#define INTEL_DISPLAY_A_PIPE_CONTROL \
+	(INTEL_PIPE_CONTROL | INTEL_PIPE_BASE_REGISTER)
+#define INTEL_DISPLAY_B_PIPE_CONTROL \
+	(INTEL_PIPE_CONTROL | INTEL_PIPE_PIPE_OFFSET | INTEL_PIPE_BASE_REGISTER)
+
+#define INTEL_DISPLAY_A_PIPE_STATUS	\
+	(INTEL_PIPE_STATUS | INTEL_PIPE_BASE_REGISTER)
+#define INTEL_DISPLAY_B_PIPE_STATUS \
+	(INTEL_PIPE_STATUS | INTEL_PIPE_PIPE_OFFSET | INTEL_PIPE_BASE_REGISTER)
+
 
 #define INTEL_DISPLAY_A_CONTROL			(0x0180 | REGS_NORTH_PLANE_CONTROL)
 #define INTEL_DISPLAY_A_BASE			(0x0184 | REGS_NORTH_PLANE_CONTROL)
@@ -532,6 +579,43 @@ struct intel_free_graphics_memory {
 #define PCH_PANEL_STATUS				0xc7204
 #define PANEL_REGISTER_UNLOCK			(0xabcd << 16)
 #define PCH_LVDS_DETECTED				(1 << 1)
+
+// FDI - Flexible Display Interface, the interface between the (CPU-internal)
+// GPU and the PCH display outputs. Proprietary interface, based on DisplayPort
+// though, so similar link training and all...
+// There's an FDI transmitter (TX) on the CPU and an FDI receiver (RX) on the
+// PCH for each display pipe.
+// FDI receiver A is hooked up to transcoder A, FDI receiver B is hooked up to
+// transcoder B, so we have the same mapping as with the display pipes.
+#define PCH_FDI_RX_BASE_REGISTER		0xf0000
+#define PCH_FDI_RX_PIPE_OFFSET			0x01000
+
+#define PCH_FDI_RX_CONTROL				0x0c
+#define FDI_RX_CLOCK_MASK				(1 << 4)
+#define FDI_RX_CLOCK_RAW				(0 << 4)
+#define FDI_RX_CLOCK_PCD				(1 << 4)
+
+#define PCH_FDI_RX_TRANS_UNIT_SIZE_1	0x30
+#define PCH_FDI_RX_TRANS_UNIT_SIZE_2	0x38
+#define FDI_RX_TRANS_UNIT_SIZE(x)		((x - 1) << 25)
+#define FDI_RX_TRANS_UNIT_MASK			0x7e000000
+	// Transfer unit size 1 is the primary and fixed transfer unit size,
+	// TU size 2 is the lower power state transfer unit size when using dynamic
+	// refresh rates (we don't do that though).
+
+// CPU Panel Fitters - These are for IronLake and up and are the CPU internal
+// panel fitters.
+#define PCH_PANEL_FITTER_BASE_REGISTER	0x68000
+#define PCH_PANEL_FITTER_PIPE_OFFSET	0x00800
+
+#define PCH_PANEL_FITTER_WINDOW_POS		0x70
+#define PCH_PANEL_FITTER_WINDOW_SIZE	0x74
+#define PCH_PANEL_FITTER_CONTROL		0x80
+#define PCH_PANEL_FITTER_V_SCALE		0x84
+#define PCH_PANEL_FITTER_H_SCALE		0x90
+
+#define PANEL_FITTER_ENABLED			(1 << 31)
+#define PANEL_FITTER_FILTER_MASK		(3 << 23)
 
 
 // ring buffer commands

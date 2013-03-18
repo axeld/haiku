@@ -10,19 +10,25 @@
  */
 
 
-#include "accelerant_protos.h"
-#include "accelerant.h"
-#include "utility.h"
-
-#include <Debug.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include <math.h>
+
+#include <Debug.h>
 
 #include <create_display_modes.h>
 #include <ddc.h>
 #include <edid.h>
 #include <validate_display_mode.h>
+
+#include "accelerant_protos.h"
+#include "accelerant.h"
+#if 0
+#include "DisplayPipe.h"
+#include "FlexibleDisplayInterface.h"
+#endif
+#include "Ports.h"
+#include "utility.h"
 
 
 #undef TRACE
@@ -36,23 +42,6 @@
 #define ERROR(x...) _sPrintf("intel_extreme accelerant: " x)
 #define CALLED(x...) TRACE("CALLED %s\n", __PRETTY_FUNCTION__)
 
-
-struct display_registers {
-	uint32	pll;
-	uint32	divisors;
-	uint32	control;
-	uint32	pipe_config;
-	uint32	horiz_total;
-	uint32	horiz_blank;
-	uint32	horiz_sync;
-	uint32	vert_total;
-	uint32	vert_blank;
-	uint32	vert_sync;
-	uint32	size;
-	uint32	stride;
-	uint32	position;
-	uint32	pipe_source;
-};
 
 struct pll_divisors {
 	uint32	post;
@@ -72,55 +61,6 @@ struct pll_limits {
 	uint32			min_vco;
 	uint32			max_vco;
 };
-
-
-static status_t
-get_i2c_signals(void* cookie, int* _clock, int* _data)
-{
-	uint32 ioRegister = (uint32)cookie;
-	uint32 value = read32(ioRegister);
-
-	*_clock = (value & I2C_CLOCK_VALUE_IN) != 0;
-	*_data = (value & I2C_DATA_VALUE_IN) != 0;
-
-	return B_OK;
-}
-
-
-static status_t
-set_i2c_signals(void* cookie, int clock, int data)
-{
-	uint32 ioRegister = (uint32)cookie;
-	uint32 value;
-
-	if (gInfo->shared_info->device_type.InGroup(INTEL_TYPE_83x)) {
-		// on these chips, the reserved values are fixed
-		value = 0;
-	} else {
-		// on all others, we have to preserve them manually
-		value = read32(ioRegister) & I2C_RESERVED;
-	}
-
-	if (data != 0)
-		value |= I2C_DATA_DIRECTION_MASK;
-	else {
-		value |= I2C_DATA_DIRECTION_MASK | I2C_DATA_DIRECTION_OUT
-			| I2C_DATA_VALUE_MASK;
-	}
-
-	if (clock != 0)
-		value |= I2C_CLOCK_DIRECTION_MASK;
-	else {
-		value |= I2C_CLOCK_DIRECTION_MASK | I2C_CLOCK_DIRECTION_OUT
-			| I2C_CLOCK_VALUE_MASK;
-	}
-
-	write32(ioRegister, value);
-	read32(ioRegister);
-		// make sure the PCI bus has flushed the write
-
-	return B_OK;
-}
 
 
 static void
@@ -548,51 +488,38 @@ set_frame_buffer_base()
 status_t
 create_mode_list(void)
 {
-	i2c_bus bus;
-	bus.cookie = (void*)INTEL_I2C_IO_A;
-	bus.set_signals = &set_i2c_signals;
-	bus.get_signals = &get_i2c_signals;
-	ddc2_init_timing(&bus);
+	for (uint32 i = 0; i < gInfo->port_count; i++) {
+		if (gInfo->ports[i] == NULL)
+			continue;
 
-	status_t error = ddc2_read_edid1(&bus, &gInfo->edid_info, NULL, NULL);
-	if (error == B_OK) {
-		edid_dump(&gInfo->edid_info);
-		gInfo->has_edid = true;
-	} else {
-		TRACE("getting EDID on port A (analog) failed : %s. "
-			"Trying on port C (lvds)\n", strerror(error));
-		bus.cookie = (void*)INTEL_I2C_IO_C;
-		error = ddc2_read_edid1(&bus, &gInfo->edid_info, NULL, NULL);
-		if (error == B_OK) {
-			edid_dump(&gInfo->edid_info);
+		status_t status = gInfo->ports[i]->GetEDID(&gInfo->edid_info);
+		if (status == B_OK)
 			gInfo->has_edid = true;
-		} else {
-			TRACE("getting EDID on port C failed : %s\n",
-				strerror(error));
+	}
 
-			// We could not read any EDID info. Fallback to creating a list with
-			// only the mode set up by the BIOS.
-			// TODO: support lower modes via scaling and windowing
-			if ((gInfo->head_mode & HEAD_MODE_LVDS_PANEL) != 0
-					&& (gInfo->head_mode & HEAD_MODE_A_ANALOG) == 0) {
-				size_t size = (sizeof(display_mode) + B_PAGE_SIZE - 1)
-					& ~(B_PAGE_SIZE - 1);
+	if (!gInfo->has_edid) {
+		// We could not read any EDID info. Fallback to creating a list with
+		// only the mode set up by the BIOS.
+		// TODO: support lower modes via scaling and windowing
+		if ((gInfo->head_mode & HEAD_MODE_LVDS_PANEL) != 0
+			&& (gInfo->head_mode & HEAD_MODE_A_ANALOG) == 0) {
+			size_t size = (sizeof(display_mode) + B_PAGE_SIZE - 1)
+				& ~(B_PAGE_SIZE - 1);
 
-				display_mode* list;
-				area_id area = create_area("intel extreme modes",
-					(void**)&list, B_ANY_ADDRESS, size, B_NO_LOCK,
-					B_READ_AREA | B_WRITE_AREA);
-				if (area < B_OK)
-					return area;
+			display_mode* list;
+			area_id area = create_area("intel extreme modes",
+				(void**)&list, B_ANY_ADDRESS, size, B_NO_LOCK,
+				B_READ_AREA | B_WRITE_AREA);
+			if (area < 0)
+				return area;
 
-				memcpy(list, &gInfo->lvds_panel_mode, sizeof(display_mode));
+			memcpy(list, &gInfo->lvds_panel_mode, sizeof(display_mode));
 
-				gInfo->mode_list_area = area;
-				gInfo->mode_list = list;
-				gInfo->shared_info->mode_list_area = gInfo->mode_list_area;
-				gInfo->shared_info->mode_count = 1;
-				return B_OK;
-			}
+			gInfo->mode_list_area = area;
+			gInfo->mode_list = list;
+			gInfo->shared_info->mode_list_area = gInfo->mode_list_area;
+			gInfo->shared_info->mode_count = 1;
+			return B_OK;
 		}
 	}
 
@@ -769,6 +696,86 @@ if (first) {
 	memset((uint8*)base, 0, bytesPerRow * target.virtual_height);
 	sharedInfo.frame_buffer = base;
 	sharedInfo.frame_buffer_offset = base - (addr_t)sharedInfo.graphics_memory;
+
+#if 0
+	if ((gInfo->head_mode & HEAD_MODE_TESTING) != 0) {
+		// 1. Enable panel power as needed to retrieve panel configuration
+		// (use AUX VDD enable bit)
+			// skip, did detection already, might need that before that though
+
+		// 2. Enable PCH clock reference source and PCH SSC modulator,
+		// wait for warmup (Can be done anytime before enabling port)
+			// skip, most certainly already set up by bios to use other ports,
+			// will need for coldstart though
+
+		// 3. If enabling CPU embedded DisplayPort A: (Can be done anytime
+		// before enabling CPU pipe or port)
+		//	a.	Enable PCH 120MHz clock source output to CPU, wait for DMI
+		//		latency
+		//	b.	Configure and enable CPU DisplayPort PLL in the DisplayPort A
+		//		register, wait for warmup
+			// skip, not doing eDP right now, should go into
+			// EmbeddedDisplayPort class though
+
+		// 4. If enabling port on PCH: (Must be done before enabling CPU pipe
+		// or FDI)
+		//	a.	Enable PCH FDI Receiver PLL, wait for warmup plus DMI latency
+		//	b.	Switch from Rawclk to PCDclk in FDI Receiver (FDI A OR FDI B)
+		//	c.	[DevSNB] Enable CPU FDI Transmitter PLL, wait for warmup
+		//	d.	[DevILK] CPU FDI PLL is always on and does not need to be
+		//		enabled
+		FDILink* link = pipe->FDILink();
+		if (link != NULL) {
+			link->Receiver().EnablePLL();
+			link->Receiver().SwitchClock(true);
+			link->Transmitter().EnablePLL();
+		}
+
+		// 5. Enable CPU panel fitter if needed for hires, required for VGA
+		// (Can be done anytime before enabling CPU pipe)
+		PanelFitter* fitter = pipe->PanelFitter();
+		if (fitter != NULL)
+			fitter->Enable(mode);
+
+		// 6. Configure CPU pipe timings, M/N/TU, and other pipe settings
+		// (Can be done anytime before enabling CPU pipe)
+		pll_divisors divisors;
+		compute_pll_divisors(target, divisors, false);
+		pipe->ConfigureTimings(divisors);
+
+		// 7. Enable CPU pipe
+		pipe->Enable();
+
+8. Configure and enable CPU planes (VGA or hires)
+9. If enabling port on PCH:
+		//	a.   Program PCH FDI Receiver TU size same as Transmitter TU size for TU error checking
+		//	b.   Train FDI
+		//		i. Set pre-emphasis and voltage (iterate if training steps fail)
+                    ii. Enable CPU FDI Transmitter and PCH FDI Receiver with Training Pattern 1 enabled.
+                   iii. Wait for FDI training pattern 1 time
+                   iv. Read PCH FDI Receiver ISR ([DevIBX-B+] IIR) for bit lock in bit 8 (retry at least once if no lock)
+                    v. Enable training pattern 2 on CPU FDI Transmitter and PCH FDI Receiver
+                   vi.  Wait for FDI training pattern 2 time
+                  vii. Read PCH FDI Receiver ISR ([DevIBX-B+] IIR) for symbol lock in bit 9 (retry at least once if no
+                        lock)
+                  viii. Enable normal pixel output on CPU FDI Transmitter and PCH FDI Receiver
+                   ix.  Wait for FDI idle pattern time for link to become active
+         c.   Configure and enable PCH DPLL, wait for PCH DPLL warmup (Can be done anytime before enabling
+              PCH transcoder)
+         d.   [DevCPT] Configure DPLL SEL to set the DPLL to transcoder mapping and enable DPLL to the
+              transcoder.
+         e.   [DevCPT] Configure DPLL_CTL DPLL_HDMI_multipler.
+         f.   Configure PCH transcoder timings, M/N/TU, and other transcoder settings (should match CPU settings).
+         g.   [DevCPT] Configure and enable Transcoder DisplayPort Control if DisplayPort will be used
+         h.   Enable PCH transcoder
+10. Enable ports (DisplayPort must enable in training pattern 1)
+11. Enable panel power through panel power sequencing
+12. Wait for panel power sequencing to reach enabled steady state
+13. Disable panel power override
+14. If DisplayPort, complete link training
+15. Enable panel backlight
+	}
+#endif
 
 	// make sure VGA display is disabled
 	write32(INTEL_VGA_DISPLAY_CONTROL, VGA_DISPLAY_DISABLED);
@@ -1017,8 +1024,96 @@ if (first) {
 			| colorMode);
 
 		write32(INTEL_DISPLAY_B_PIPE_CONTROL,
-			read32(INTEL_DISPLAY_B_PIPE_CONTROL) | DISPLAY_PIPE_ENABLED);
+			read32(INTEL_DISPLAY_B_PIPE_CONTROL) | PIPE_ENABLED);
 		read32(INTEL_DISPLAY_B_PIPE_CONTROL);
+	}
+
+	if ((gInfo->head_mode & HEAD_MODE_STIPPI) != 0) {
+		pll_divisors divisors;
+		compute_pll_divisors(target, divisors, false);
+
+		if (gInfo->shared_info->device_type.InGroup(INTEL_TYPE_IGD)) {
+			write32(INTEL_DISPLAY_B_PLL_DIVISOR_0,
+				(((1 << divisors.n) << DISPLAY_PLL_N_DIVISOR_SHIFT)
+					& DISPLAY_PLL_IGD_N_DIVISOR_MASK)
+				| (((divisors.m2 - 2) << DISPLAY_PLL_M2_DIVISOR_SHIFT)
+					& DISPLAY_PLL_IGD_M2_DIVISOR_MASK));
+		} else {
+			write32(INTEL_DISPLAY_B_PLL_DIVISOR_0,
+				(((divisors.n - 2) << DISPLAY_PLL_N_DIVISOR_SHIFT)
+					& DISPLAY_PLL_N_DIVISOR_MASK)
+				| (((divisors.m1 - 2) << DISPLAY_PLL_M1_DIVISOR_SHIFT)
+					& DISPLAY_PLL_M1_DIVISOR_MASK)
+				| (((divisors.m2 - 2) << DISPLAY_PLL_M2_DIVISOR_SHIFT)
+					& DISPLAY_PLL_M2_DIVISOR_MASK));
+		}
+
+		uint32 pll = DISPLAY_PLL_ENABLED | DISPLAY_PLL_NO_VGA_CONTROL;
+		if (gInfo->shared_info->device_type.InFamily(INTEL_TYPE_9xx)) {
+			if (gInfo->shared_info->device_type.InGroup(INTEL_TYPE_IGD)) {
+				pll |= ((1 << (divisors.post1 - 1))
+						<< DISPLAY_PLL_IGD_POST1_DIVISOR_SHIFT)
+					& DISPLAY_PLL_IGD_POST1_DIVISOR_MASK;
+			} else {
+				pll |= ((1 << (divisors.post1 - 1))
+						<< DISPLAY_PLL_POST1_DIVISOR_SHIFT)
+					& DISPLAY_PLL_9xx_POST1_DIVISOR_MASK;
+//				pll |= ((divisors.post1 - 1) << DISPLAY_PLL_POST1_DIVISOR_SHIFT)
+//					& DISPLAY_PLL_9xx_POST1_DIVISOR_MASK;
+			}
+			if (divisors.post2_high)
+				pll |= DISPLAY_PLL_DIVIDE_HIGH;
+
+			if (gInfo->shared_info->device_type.InGroup(INTEL_TYPE_96x))
+				pll |= 6 << DISPLAY_PLL_PULSE_PHASE_SHIFT;
+		} else {
+			if (!divisors.post2_high)
+				pll |= DISPLAY_PLL_DIVIDE_4X;
+
+			pll |= DISPLAY_PLL_2X_CLOCK;
+
+			if (divisors.post1 > 2) {
+				pll |= ((divisors.post1 - 2) << DISPLAY_PLL_POST1_DIVISOR_SHIFT)
+					& DISPLAY_PLL_POST1_DIVISOR_MASK;
+			} else
+				pll |= DISPLAY_PLL_POST1_DIVIDE_2;
+		}
+
+		write32(INTEL_DISPLAY_B_PLL, pll);
+		read32(INTEL_DISPLAY_B_PLL);
+		spin(150);
+		write32(INTEL_DISPLAY_B_PLL, pll);
+		read32(INTEL_DISPLAY_B_PLL);
+		spin(150);
+
+		// update timing parameters
+		write32(INTEL_DISPLAY_B_HTOTAL,
+			((uint32)(target.timing.h_total - 1) << 16)
+			| ((uint32)target.timing.h_display - 1));
+		write32(INTEL_DISPLAY_B_HBLANK,
+			((uint32)(target.timing.h_total - 1) << 16)
+			| ((uint32)target.timing.h_display - 1));
+		write32(INTEL_DISPLAY_B_HSYNC,
+			((uint32)(target.timing.h_sync_end - 1) << 16)
+			| ((uint32)target.timing.h_sync_start - 1));
+
+		write32(INTEL_DISPLAY_B_VTOTAL,
+			((uint32)(target.timing.v_total - 1) << 16)
+			| ((uint32)target.timing.v_display - 1));
+		write32(INTEL_DISPLAY_B_VBLANK,
+			((uint32)(target.timing.v_total - 1) << 16)
+			| ((uint32)target.timing.v_display - 1));
+		write32(INTEL_DISPLAY_B_VSYNC,
+			((uint32)(target.timing.v_sync_end - 1) << 16)
+			| ((uint32)target.timing.v_sync_start - 1));
+
+		write32(INTEL_DISPLAY_B_IMAGE_SIZE,
+			((uint32)(target.virtual_width - 1) << 16)
+			| ((uint32)target.virtual_height - 1));
+
+		write32(INTEL_DISPLAY_B_CONTROL, (read32(INTEL_DISPLAY_B_CONTROL)
+				& ~(DISPLAY_CONTROL_COLOR_MASK | DISPLAY_CONTROL_GAMMA))
+			| colorMode);
 	}
 
 	if ((gInfo->head_mode & HEAD_MODE_A_ANALOG) != 0) {
@@ -1106,8 +1201,7 @@ if (first) {
 			((uint32)(target.virtual_width - 1) << 16)
 			| ((uint32)target.virtual_height - 1));
 
-		write32(INTEL_DISPLAY_A_ANALOG_PORT,
-			(read32(INTEL_DISPLAY_A_ANALOG_PORT)
+		write32(INTEL_ANALOG_PORT, (read32(INTEL_ANALOG_PORT)
 				& ~(DISPLAY_MONITOR_POLARITY_MASK
 					| DISPLAY_MONITOR_VGA_POLARITY))
 			| ((target.timing.flags & B_POSITIVE_HSYNC) != 0
@@ -1136,18 +1230,20 @@ if (first) {
 		}
 	}
 
-	set_display_power_mode(sharedInfo.dpms_mode);
+	if ((gInfo->head_mode & HEAD_MODE_TESTING) == 0) {
+		set_display_power_mode(sharedInfo.dpms_mode);
 
-	// Changing bytes per row seems to be ignored if the plane/pipe is turned
-	// off
+		// Changing bytes per row seems to be ignored if the plane/pipe is turned
+		// off
 
-	if (gInfo->head_mode & HEAD_MODE_A_ANALOG)
-		write32(INTEL_DISPLAY_A_BYTES_PER_ROW, bytesPerRow);
-	if (gInfo->head_mode & HEAD_MODE_B_DIGITAL)
-		write32(INTEL_DISPLAY_B_BYTES_PER_ROW, bytesPerRow);
+		if (gInfo->head_mode & HEAD_MODE_A_ANALOG)
+			write32(INTEL_DISPLAY_A_BYTES_PER_ROW, bytesPerRow);
+		if (gInfo->head_mode & HEAD_MODE_B_DIGITAL)
+			write32(INTEL_DISPLAY_B_BYTES_PER_ROW, bytesPerRow);
 
-	set_frame_buffer_base();
-		// triggers writing back double-buffered registers
+		set_frame_buffer_base();
+			// triggers writing back double-buffered registers
+	}
 
 	// update shared info
 	sharedInfo.bytes_per_row = bytesPerRow;

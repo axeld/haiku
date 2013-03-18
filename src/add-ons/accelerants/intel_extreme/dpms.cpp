@@ -69,25 +69,17 @@ enable_display_pipe(bool enable)
 	uint32 pipeBControl = read32(INTEL_DISPLAY_B_PIPE_CONTROL);
 
 	if (enable) {
-		if (gInfo->head_mode & HEAD_MODE_A_ANALOG) {
-			write32(INTEL_DISPLAY_A_PIPE_CONTROL,
-				pipeAControl | DISPLAY_PIPE_ENABLED);
-		}
+		if (gInfo->head_mode & HEAD_MODE_A_ANALOG)
+			write32(INTEL_DISPLAY_A_PIPE_CONTROL, pipeAControl | PIPE_ENABLED);
 
-		if (gInfo->head_mode & HEAD_MODE_B_DIGITAL) {
-			write32(INTEL_DISPLAY_B_PIPE_CONTROL,
-				pipeBControl | DISPLAY_PIPE_ENABLED);
-		}
+		if (gInfo->head_mode & HEAD_MODE_B_DIGITAL)
+			write32(INTEL_DISPLAY_B_PIPE_CONTROL, pipeBControl | PIPE_ENABLED);
 	} else {
-		if (gInfo->head_mode & HEAD_MODE_A_ANALOG) {
-			write32(INTEL_DISPLAY_A_PIPE_CONTROL,
-				pipeAControl & ~DISPLAY_PIPE_ENABLED);
-		}
+		if (gInfo->head_mode & HEAD_MODE_A_ANALOG)
+			write32(INTEL_DISPLAY_A_PIPE_CONTROL, pipeAControl & ~PIPE_ENABLED);
 
-		if (gInfo->head_mode & HEAD_MODE_B_DIGITAL) {
-			write32(INTEL_DISPLAY_B_PIPE_CONTROL,
-				pipeBControl & ~DISPLAY_PIPE_ENABLED);
-		}
+		if (gInfo->head_mode & HEAD_MODE_B_DIGITAL)
+			write32(INTEL_DISPLAY_B_PIPE_CONTROL, pipeBControl & ~PIPE_ENABLED);
 	}
 
 	read32(INTEL_DISPLAY_A_BASE);
@@ -188,16 +180,14 @@ set_display_power_mode(uint32 mode)
 	}
 
 	if (gInfo->head_mode & HEAD_MODE_A_ANALOG) {
-		write32(INTEL_DISPLAY_A_ANALOG_PORT,
-			(read32(INTEL_DISPLAY_A_ANALOG_PORT)
+		write32(INTEL_ANALOG_PORT, (read32(INTEL_ANALOG_PORT)
 				& ~(DISPLAY_MONITOR_MODE_MASK | DISPLAY_MONITOR_PORT_ENABLED))
 			| monitorMode
 			| (mode != B_DPMS_OFF ? DISPLAY_MONITOR_PORT_ENABLED : 0));
 	}
 	if (gInfo->head_mode & HEAD_MODE_B_DIGITAL) {
-		write32(INTEL_DISPLAY_B_DIGITAL_PORT,
-			(read32(INTEL_DISPLAY_B_DIGITAL_PORT)
-				& ~(DISPLAY_MONITOR_MODE_MASK | DISPLAY_MONITOR_PORT_ENABLED))
+		write32(INTEL_DIGITAL_PORT_B, (read32(INTEL_DIGITAL_PORT_B)
+				& ~(/*DISPLAY_MONITOR_MODE_MASK |*/ DISPLAY_MONITOR_PORT_ENABLED))
 			| (mode != B_DPMS_OFF ? DISPLAY_MONITOR_PORT_ENABLED : 0));
 			// TODO: monitorMode?
 	}
