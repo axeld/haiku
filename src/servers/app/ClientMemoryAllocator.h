@@ -44,6 +44,8 @@ public:
 									bool& newArea);
 			void				Free(block* cookie);
 
+			void				Detach();
+
 			void				Dump();
 
 private:

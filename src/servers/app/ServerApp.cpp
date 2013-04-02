@@ -192,6 +192,7 @@ ServerApp::~ServerApp()
 		fWindowListLock.Lock();
 	}
 
+	fMemoryAllocator->Detach();
 	fMapLocker.Lock();
 
 	while (!fBitmapMap.empty())
