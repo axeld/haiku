@@ -1,3 +1,8 @@
+* Determine how to handle atomic functions on ARM.
+  GCC inlines are not supported, since the instructionset is ill-equiped for
+  this on older (pre-ARMv7) architectures. We possibly have to do something
+  similar to the linux kernel helper functions for this....
+
 * Figure out how to get page flags (modified/accessed) and implement it ;)
 	use unmapped/read-only mappings to trigger soft faults
 	   for tracking used/modified flags for ARMv5 and ARMv6
@@ -17,6 +22,10 @@
 * Research stack unwinding to implement backtrace support for KDL & friends.
 
 * B_MAX_CPU_COUNT should be fixed to be a more sensible future-proof value then 1
+
+* KDL disasm module.
+  cf.
+  http://fxr.watson.org/fxr/source/arch/arm/arm/disassem.c?v=NETBSD
 
 * Add KDL hangman to the boot floppy image for more enjoyment during porting....
 

@@ -71,6 +71,8 @@ respective holders. All rights reserved.
 #include <fs_info.h>
 #include <sys/utsname.h>
 
+#include <AutoLocker.h>
+
 #include "Attributes.h"
 #include "Bitmaps.h"
 #include "Commands.h"
@@ -85,6 +87,7 @@ respective holders. All rights reserved.
 #include "Tracker.h"
 #include "TrackerSettings.h"
 #include "Utilities.h"
+#include "VirtualDirectoryManager.h"
 
 
 enum {
@@ -627,7 +630,6 @@ ConfirmChangeIfWellKnownDirectory(const BEntry* entry,
 		return false;
 
 	if (!DirectoryMatchesOrContains(entry, B_SYSTEM_DIRECTORY)
-		&& !DirectoryMatchesOrContains(entry, B_COMMON_DIRECTORY)
 		&& !DirectoryMatchesOrContains(entry, B_USER_DIRECTORY))
 		// quick way out
 		return true;
@@ -642,12 +644,6 @@ ConfirmChangeIfWellKnownDirectory(const BEntry* entry,
 			"you want to do this?\n\nTo %toDoAction the system folder or its "
 			"contents anyway, hold down the Shift key and click "
 			"\"%toConfirmAction\"."));
-	} else if (DirectoryMatches(entry, B_COMMON_DIRECTORY)) {
-		warning.SetTo(
-			B_TRANSLATE("If you %ifYouDoAction the common folder, %osName "
-			"may not behave properly!\n\nAre you sure you want to do this?"
-			"\n\nTo %toDoAction the common folder anyway, hold down the "
-			"Shift key and click \"%toConfirmAction\"."));
 	} else if (DirectoryMatches(entry, B_USER_DIRECTORY)) {
 		warning .SetTo(
 			B_TRANSLATE("If you %ifYouDoAction the home folder, %osName "
@@ -655,12 +651,12 @@ ConfirmChangeIfWellKnownDirectory(const BEntry* entry,
 			"\n\nTo %toDoAction the home folder anyway, hold down the "
 			"Shift key and click \"%toConfirmAction\"."));
 	} else if (DirectoryMatchesOrContains(entry, B_USER_CONFIG_DIRECTORY)
-		|| DirectoryMatchesOrContains(entry, B_COMMON_SETTINGS_DIRECTORY)) {
+		|| DirectoryMatchesOrContains(entry, B_SYSTEM_SETTINGS_DIRECTORY)) {
 
 		if (DirectoryMatchesOrContains(entry, "beos_mime",
 				B_USER_SETTINGS_DIRECTORY)
 			|| DirectoryMatchesOrContains(entry, "beos_mime",
-				B_COMMON_SETTINGS_DIRECTORY)) {
+				B_SYSTEM_SETTINGS_DIRECTORY)) {
 			warning.SetTo(
 				B_TRANSLATE("If you %ifYouDoAction the mime settings, "
 				"%osName may not behave properly!\n\nAre you sure you want "
@@ -673,7 +669,7 @@ ConfirmChangeIfWellKnownDirectory(const BEntry* entry,
 				"to do this?"));
 			requireOverride = false;
 		} else if (DirectoryMatches(entry, B_USER_SETTINGS_DIRECTORY)
-			|| DirectoryMatches(entry, B_COMMON_SETTINGS_DIRECTORY)) {
+			|| DirectoryMatches(entry, B_SYSTEM_SETTINGS_DIRECTORY)) {
 			warning.SetTo(
 				B_TRANSLATE("If you %ifYouDoAction the settings folder, "
 				"%osName may not behave properly!\n\nAre you sure you want "
@@ -3157,6 +3153,66 @@ GetAttrInfo(const BNode* node, const char* hostAttrName,
 	return kReadAttrFailed;
 }
 
+
+status_t
+FSGetParentVirtualDirectoryAware(const BEntry& entry, entry_ref& _ref)
+{
+	node_ref nodeRef;
+	if (entry.GetNodeRef(&nodeRef) == B_OK) {
+		if (VirtualDirectoryManager* manager
+				= VirtualDirectoryManager::Instance()) {
+			AutoLocker<VirtualDirectoryManager> managerLocker(manager);
+			if (manager->GetParentDirectoryDefinitionFile(nodeRef, _ref,
+					nodeRef)) {
+				return B_OK;
+			}
+		}
+	}
+
+	status_t error;
+	BDirectory parent;
+	BEntry parentEntry;
+	if ((error = entry.GetParent(&parent)) != B_OK
+		|| (error = parent.GetEntry(&parentEntry)) != B_OK
+		|| (error = parentEntry.GetRef(&_ref)) != B_OK) {
+		return error;
+	}
+
+	return B_OK;
+}
+
+
+status_t
+FSGetParentVirtualDirectoryAware(const BEntry& entry, BEntry& _entry)
+{
+	node_ref nodeRef;
+	if (entry.GetNodeRef(&nodeRef) == B_OK) {
+		if (VirtualDirectoryManager* manager
+				= VirtualDirectoryManager::Instance()) {
+			AutoLocker<VirtualDirectoryManager> managerLocker(manager);
+			entry_ref parentRef;
+			if (manager->GetParentDirectoryDefinitionFile(nodeRef, parentRef,
+					nodeRef)) {
+				return _entry.SetTo(&parentRef);
+			}
+		}
+	}
+
+	return entry.GetParent(&_entry);
+}
+
+
+status_t
+FSGetParentVirtualDirectoryAware(const BEntry& entry, BNode& _node)
+{
+	entry_ref ref;
+	status_t error = FSGetParentVirtualDirectoryAware(entry, ref);
+	if (error == B_OK)
+		error = _node.SetTo(&ref);
+	return error;
+}
+
+
 // launching code
 
 static status_t
@@ -3862,7 +3918,6 @@ WellKnowEntryList::WellKnowEntryList()
 	AddOne(B_USER_DIRECTORY, "home");
 
 	AddOne(B_BEOS_FONTS_DIRECTORY, "fonts");
-	AddOne(B_COMMON_FONTS_DIRECTORY, "fonts");
 	AddOne(B_USER_FONTS_DIRECTORY, "fonts");
 
 	AddOne(B_BEOS_APPS_DIRECTORY, "apps");
@@ -3881,7 +3936,7 @@ WellKnowEntryList::WellKnowEntryList()
 	AddOne((directory_which)B_USER_QUERIES_DIRECTORY, B_USER_DIRECTORY,
 		"queries", "queries");
 
-	AddOne(B_COMMON_DEVELOP_DIRECTORY, "develop");
+	AddOne(B_SYSTEM_DEVELOP_DIRECTORY, "develop");
 	AddOne((directory_which)B_USER_DESKBAR_DEVELOP_DIRECTORY,
 		B_USER_DESKBAR_DIRECTORY, "Development", "develop");
 

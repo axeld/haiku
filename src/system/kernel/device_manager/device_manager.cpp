@@ -1608,6 +1608,7 @@ device_node::_GetNextDriverPath(void*& cookie, KPath& _path)
 					_AddPath(*stack, "busses/pci");
 					_AddPath(*stack, "bus_managers");
 				} else if (!generic) {
+					_AddPath(*stack, "busses", "virtio");
 					_AddPath(*stack, "drivers");
 				} else {
 					// For generic drivers, we only allow busses when the
@@ -1619,7 +1620,8 @@ device_node::_GetNextDriverPath(void*& cookie, KPath& _path)
 						_AddPath(*stack, "busses");
 					}
 					_AddPath(*stack, "drivers", sGenericContextPath);
-					_AddPath(*stack, "busses/scsi");					
+					_AddPath(*stack, "busses/scsi");
+					_AddPath(*stack, "busses/random");
 				}
 				break;
 		}
@@ -1736,7 +1738,7 @@ device_node::_AlwaysRegisterDynamic()
 	get_attr_uint16(this, B_DEVICE_TYPE, &type, false);
 	get_attr_uint16(this, B_DEVICE_SUB_TYPE, &subType, false);
 
-	return type == PCI_serial_bus || type == PCI_bridge;
+	return type == PCI_serial_bus || type == PCI_bridge || type == 0;
 		// TODO: we may want to be a bit more specific in the future
 }
 
@@ -2278,7 +2280,6 @@ device_manager_init(struct kernel_args* args)
 	dm_init_io_resources();
 
 	recursive_lock_init(&sLock, "device manager");
-	init_node_tree();
 
 	register_generic_syscall(DEVICE_MANAGER_SYSCALLS, control_device_manager,
 		1, 0);
@@ -2298,6 +2299,9 @@ device_manager_init(struct kernel_args* args)
 		"dump an I/O operation");
 	add_debugger_command("io_buffer", &dump_io_buffer, "dump an I/O buffer");
 	add_debugger_command("dma_buffer", &dump_dma_buffer, "dump a DMA buffer");
+
+	init_node_tree();
+
 	return B_OK;
 }
 
@@ -2308,4 +2312,3 @@ device_manager_init_post_modules(struct kernel_args* args)
 	RecursiveLocker _(sLock);
 	return sRootNode->Reprobe();
 }
-

@@ -7,12 +7,15 @@
  */
 
 
+#include <Url.h>
+
 #include <ctype.h>
 #include <cstdio>
 #include <cstdlib>
 #include <new>
 
-#include <Url.h>
+#include <RegExp.h>
+
 
 static const char* kArchivedUrl = "be:url string";
 
@@ -49,6 +52,8 @@ BUrl::BUrl(BMessage* archive)
 
 	if (archive->FindString(kArchivedUrl, &url) == B_OK)
 		SetUrlString(url);
+	else
+		_ResetFields();
 }
 
 
@@ -69,7 +74,7 @@ BUrl::BUrl(const BUrl& other)
 }
 
 
-BUrl::BUrl()
+BUrl::BUrl(const BUrl& base, const BString& location)
 	: 
 	fUrlString(),
 	fProtocol(),
@@ -81,6 +86,62 @@ BUrl::BUrl()
 	fRequest(),
 	fHasAuthority(false)
 {
+	// This implements the algorithm in RFC3986, Section 5.2.
+
+	BUrl relative(location);
+	if(relative.HasProtocol()) {
+		SetProtocol(relative.Protocol());
+		SetAuthority(relative.Authority());
+		SetPath(relative.Path()); // TODO _RemoveDotSegments()
+		SetRequest(relative.Request());
+	} else {
+		if(relative.HasAuthority()) {
+			SetAuthority(relative.Authority());
+			SetPath(relative.Path()); // TODO _RemoveDotSegments()
+			SetRequest(relative.Request());
+		} else {
+			if(relative.Path().IsEmpty()) {
+				SetPath(base.Path());
+				if(relative.HasRequest())
+					SetRequest(relative.Request());
+				else
+					SetRequest(Request());
+			} else {
+				if (relative.Path()[0] == '/')
+					SetPath(relative.Path());
+				else {
+					BString path = base.Path();
+					// Remove last part of path (the file, if any) so we get the
+					// "current directory"
+					path.Truncate(path.FindLast('/') + 1);
+					path += relative.Path();
+					// TODO _RemoveDotSegments()
+					SetPath(path);
+				}
+				SetRequest(relative.Request());
+			}
+			SetAuthority(base.Authority());
+		}
+		SetProtocol(base.Protocol());
+	}
+
+	SetFragment(relative.Fragment());
+}
+
+
+BUrl::BUrl()
+	:
+	fUrlString(),
+	fProtocol(),
+	fUser(),
+	fPassword(),
+	fHost(),
+	fPort(0),
+	fPath(),
+	fRequest(),
+	fHasAuthority(false)
+{
+	_ResetFields();
 }
 
 
@@ -104,7 +165,7 @@ BUrl&
 BUrl::SetProtocol(const BString& protocol)
 {
 	fProtocol = protocol;
-	fHasProtocol = true;
+	fHasProtocol = !fProtocol.IsEmpty();
 	fUrlStringValid = false;
 	return *this;
 }
@@ -114,7 +175,7 @@ BUrl&
 BUrl::SetUserName(const BString& user)
 {
 	fUser = user;
-	fHasUserName = true;
+	fHasUserName = !fUser.IsEmpty();
 	fUrlStringValid = false;
 	fAuthorityValid = false;
 	fUserInfoValid = false;
@@ -126,7 +187,7 @@ BUrl&
 BUrl::SetPassword(const BString& password)
 {
 	fPassword = password;
-	fHasPassword = true;
+	fHasPassword = !fPassword.IsEmpty();
 	fUrlStringValid = false;
 	fAuthorityValid = false;
 	fUserInfoValid = false;
@@ -138,7 +199,7 @@ BUrl&
 BUrl::SetHost(const BString& host)
 {
 	fHost = host;
-	fHasHost = true;
+	fHasHost = !fHost.IsEmpty();
 	fUrlStringValid = false;
 	fAuthorityValid = false;
 	return *this;
@@ -149,7 +210,7 @@ BUrl&
 BUrl::SetPort(int port)
 {
 	fPort = port;
-	fHasPort = true;
+	fHasPort = (port != 0);
 	fUrlStringValid = false;
 	fAuthorityValid = false;
 	return *this;
@@ -160,7 +221,7 @@ BUrl&
 BUrl::SetPath(const BString& path)
 {
 	fPath = path;
-	fHasPath = true;
+	fHasPath = true; // RFC says an empty path is still a path
 	fUrlStringValid = false;
 	return *this;
 }
@@ -170,7 +231,7 @@ BUrl&
 BUrl::SetRequest(const BString& request)
 {
 	fRequest = request;
-	fHasRequest = true;
+	fHasRequest = !fRequest.IsEmpty();
 	fUrlStringValid = false;
 	return *this;
 }
@@ -180,7 +241,7 @@ BUrl&
 BUrl::SetFragment(const BString& fragment)
 {
 	fFragment = fragment;
-	fHasFragment = true;
+	fHasFragment = !fFragment.IsEmpty();
 	fUrlStringValid = false;
 	return *this;
 }
@@ -575,167 +636,119 @@ BUrl::_ResetFields()
 void
 BUrl::_ExplodeUrlString(const BString& url)
 {
-	int16 urlIndex = 0;
+	// The regexp is provided in RFC3986 (URI generic syntax), Appendix B
+	static RegExp urlMatcher(
+		"^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\\?([^#]*))?(#(.*))?");
 
 	_ResetFields();
 
-	_ExtractProtocol(url, &urlIndex);
-	_ExtractAuthority(url, &urlIndex);
-	_ExtractPath(url, &urlIndex);
-	_ExtractRequestAndFragment(url, &urlIndex);
-}
+	RegExp::MatchResult match = urlMatcher.Match(url.String());
 
+	if(!match.HasMatched())
+		return; // TODO error reporting
 
-void
-BUrl::_ExtractProtocol(const BString& urlString, int16* origin)
-{
-	int16 firstColon = urlString.FindFirst(':', *origin);
-
-	// If no colon is found, assume the protocol
-	// is not present
-	if (firstColon == -1) 
-		return;
-	else {
-		urlString.CopyInto(fProtocol, *origin, firstColon - *origin);
-		*origin = firstColon + 1;
-	}
-
+	// Scheme/Protocol
+	url.CopyInto(fProtocol, match.GroupStartOffsetAt(1),
+		match.GroupEndOffsetAt(1) - match.GroupStartOffsetAt(1));
 	if (!_IsProtocolValid()) {
 		fHasProtocol = false;
 		fProtocol.Truncate(0);
 	} else
 		fHasProtocol = true;
+
+	// Authority (including user credentials, host, and port
+	url.CopyInto(fAuthority, match.GroupStartOffsetAt(3),
+		match.GroupEndOffsetAt(3) - match.GroupStartOffsetAt(3));
+	SetAuthority(fAuthority);
+
+	// Path
+	url.CopyInto(fPath, match.GroupStartOffsetAt(4),
+		match.GroupEndOffsetAt(4) - match.GroupStartOffsetAt(4));
+	if(!fPath.IsEmpty())
+		fHasPath = true;
+
+	// Query
+	url.CopyInto(fRequest, match.GroupStartOffsetAt(6),
+		match.GroupEndOffsetAt(6) - match.GroupStartOffsetAt(6));
+	if(!fRequest.IsEmpty())
+		fHasRequest = true;
+
+	// Fragment
+	url.CopyInto(fFragment, match.GroupStartOffsetAt(8),
+		match.GroupEndOffsetAt(8) - match.GroupStartOffsetAt(8));
+	if(!fFragment.IsEmpty())
+		fHasFragment = true;
 }
 
 
 void
-BUrl::_ExtractAuthority(const BString& urlString, int16* origin)
+BUrl::SetAuthority(const BString& authority)
 {
-	// URI doesn't contain an authority field
-	if (urlString.FindFirst("//", *origin) != *origin)
+	fAuthority = authority;
+
+	fHasPort = false;
+	fHasUserInfo = false;
+	fHasHost = false;
+
+	if(fAuthority.IsEmpty())
 		return;
 
 	fHasAuthority = true;
-
-//	while (urlString.ByteAt(*origin) == '/')
-//		(*origin)++;
-
-	(*origin) += 2;
-
-
-	int16 userInfoEnd = urlString.FindFirst('@', *origin);
+	int32 userInfoEnd = fAuthority.FindFirst('@');
 
 	// URL contains userinfo field
 	if (userInfoEnd != -1) {
 		BString userInfo;
-		urlString.CopyInto(userInfo, *origin, userInfoEnd - *origin);
+		fAuthority.CopyInto(userInfo, 0, userInfoEnd);
 
 		int16 colonDelimiter = userInfo.FindFirst(':', 0);
 
-		if (colonDelimiter == *origin) {
-			fHasPassword = true;
-			fPassword = userInfo;
+		if (colonDelimiter == 0) {
+			SetPassword(userInfo);
 		} else if (colonDelimiter != -1) {
-			fHasUserName = true;
-			fHasPassword = true;
-
 			userInfo.CopyInto(fUser, 0, colonDelimiter);
 			userInfo.CopyInto(fPassword, colonDelimiter + 1,
 				userInfo.Length() - colonDelimiter);
+			SetUserName(fUser);
+			SetPassword(fPassword);
 		} else {
-			fHasUserName = true;
-			fUser = userInfo;
+			SetUserName(fUser);
 		}
 
 		fHasUserInfo = true;
-		*origin = userInfoEnd + 1;
 	}
 
 
 	// Extract the host part
-	int16 hostEnd = *origin;
+	int16 hostEnd = fAuthority.FindFirst(':', userInfoEnd);
+	userInfoEnd++;
 
-	while (hostEnd < urlString.Length()
-		&& !_IsAuthorityTerminator(urlString.ByteAt(hostEnd))
-		&& urlString.ByteAt(hostEnd) != ':') {
-		hostEnd++;
+	if(hostEnd < 0)
+	{
+		// no ':' found, the host extends to the end of the URL
+		hostEnd = fAuthority.Length() + 1;
 	}
 
 	// The host is likely to be present if an authority is
 	// defined, but in some weird cases, it's not.
-	if (hostEnd != *origin) {
-		urlString.CopyInto(fHost, *origin, hostEnd - *origin);
-
-		*origin = hostEnd;
-		fHasHost = true;
+	if (hostEnd != userInfoEnd) {
+		fAuthority.CopyInto(fHost, userInfoEnd, hostEnd - userInfoEnd);
+		SetHost(fHost);
 	}
 
 	// Extract the port part
 	fPort = 0;
-	if (urlString.ByteAt(*origin) == ':') {
-		int16 portEnd = ++(*origin);
-
-		while (portEnd < urlString.Length()
-			&& !_IsAuthorityTerminator(urlString.ByteAt(portEnd)))
-			portEnd++;
+	if (fAuthority.ByteAt(hostEnd) == ':') {
+		hostEnd++;
+		int16 portEnd = fAuthority.Length();
 
 		BString portString;
-		urlString.CopyInto(portString, *origin, portEnd - *origin);
+		fAuthority.CopyInto(portString, hostEnd, portEnd - hostEnd);
 		fPort = atoi(portString.String());
 
 		//  Even if the port is invalid, the URL is considered to
 		// have a port.
 		fHasPort = portString.Length() > 0;
-		*origin = portEnd;
-	}
-}
-
-
-void
-BUrl::_ExtractPath(const BString& urlString, int16* origin)
-{
-	// Extract path from URL
-	if (urlString.ByteAt(*origin) == '/' || !HasAuthority()) {
-		int16 pathEnd = *origin;
-
-		while (pathEnd < urlString.Length()
-				&& !_IsPathTerminator(urlString.ByteAt(pathEnd))) {
-				pathEnd++;
-		}
-
-		urlString.CopyInto(fPath, *origin, pathEnd - *origin);
-
-		*origin = pathEnd;
-		fHasPath = true;
-	}
-}
-
-
-void
-BUrl::_ExtractRequestAndFragment(const BString& urlString, int16* origin)
-{
-	// Extract request field from URL
-	if (urlString.ByteAt(*origin) == '?') {
-		(*origin)++;
-		int16 requestEnd = urlString.FindFirst('#', *origin);
-
-		fHasRequest = true;
-
-		if (requestEnd == -1) {
-			urlString.CopyInto(fRequest, *origin, urlString.Length() - *origin);
-			return;
-		} else {
-			urlString.CopyInto(fRequest, *origin, requestEnd - *origin);
-			*origin = requestEnd;
-		}
-	}
-
-	// Extract fragment field if needed
-	if (urlString.ByteAt(*origin) == '#') {
-		(*origin)++;
-		urlString.CopyInto(fFragment, *origin, urlString.Length() - *origin);
-
-		fHasFragment = true;
 	}
 }
 
@@ -799,37 +812,7 @@ BUrl::_IsProtocolValid()
 			return false;
 	}
 
-	return true;
-}
-
-
-bool
-BUrl::_IsAuthorityTerminator(char c)
-{
-	if (c == '/' || _IsPathTerminator(c))
-		return true;
-	else
-		return false;
-}
-
-
-bool
-BUrl::_IsPathTerminator(char c)
-{
-	if (c == '?' || _IsRequestTerminator(c))
-		return true;
-	else
-		return false;
-}
-
-
-bool
-BUrl::_IsRequestTerminator(char c)
-{
-	if (c == '#')
-		return true;
-	else
-		return false;
+	return fProtocol.Length() > 0;
 }
 
 

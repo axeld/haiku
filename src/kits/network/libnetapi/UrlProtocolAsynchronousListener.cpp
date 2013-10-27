@@ -20,6 +20,7 @@ BUrlProtocolAsynchronousListener::BUrlProtocolAsynchronousListener(
 	bool transparent) 
 	:
 	BHandler("UrlProtocolAsynchronousListener"),
+	BUrlProtocolListener(),
 	fSynchronousListener(NULL)
 {
 	if (be_app->Lock()) {
@@ -45,57 +46,6 @@ BUrlProtocolAsynchronousListener::~BUrlProtocolAsynchronousListener()
 }
 
 
-void
-BUrlProtocolAsynchronousListener::ConnectionOpened(BUrlProtocol*)
-{
-}
-
-
-void
-BUrlProtocolAsynchronousListener::HostnameResolved(BUrlProtocol*, const char*)
-{
-}
-
-
-void
-BUrlProtocolAsynchronousListener::ResponseStarted(BUrlProtocol*)
-{
-}
-
-
-void
-BUrlProtocolAsynchronousListener::HeadersReceived(BUrlProtocol*)
-{
-}
-
-
-void
-BUrlProtocolAsynchronousListener::DataReceived(BUrlProtocol*, const char*, 
-	ssize_t)
-{
-}
-
-
-void
-BUrlProtocolAsynchronousListener::DownloadProgress(BUrlProtocol*, ssize_t, 
-	ssize_t)
-{
-}
-
-
-void
-BUrlProtocolAsynchronousListener::UploadProgress(BUrlProtocol*, ssize_t, 
-	ssize_t)
-{
-}
-
-
-void
-BUrlProtocolAsynchronousListener::RequestCompleted(BUrlProtocol*, bool)
-{
-}
-
-
 // #pragma mark Synchronous listener access
 
 
@@ -114,7 +64,7 @@ BUrlProtocolAsynchronousListener::MessageReceived(BMessage* message)
 		return;
 	}
 	
-	BUrlProtocol* caller;
+	BUrlRequest* caller;
 	if (message->FindPointer(kUrlProtocolCaller,
 		reinterpret_cast<void**>(&caller)) != B_OK)
 		return;
@@ -149,9 +99,14 @@ BUrlProtocolAsynchronousListener::MessageReceived(BMessage* message)
 		case B_URL_PROTOCOL_DATA_RECEIVED:
 			{
 				const char* data;
-				ssize_t		size;
-				message->FindData("url:data", B_STRING_TYPE, 
-					reinterpret_cast<const void**>(&data), &size);
+				ssize_t		size = 0;
+				if(message->FindData("url:data", B_STRING_TYPE, 
+					reinterpret_cast<const void**>(&data), &size) != B_OK)
+				{
+					printf("BOGUS DATA MESSAGE\n");
+					message->PrintToStream();
+					return;
+				}
 				
 				DataReceived(caller, data, size);
 			}

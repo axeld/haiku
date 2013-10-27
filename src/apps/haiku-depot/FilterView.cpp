@@ -16,16 +16,24 @@
 #include <PopUpMenu.h>
 #include <TextControl.h>
 
+#include "Model.h"
+
 
 #undef B_TRANSLATION_CONTEXT
 #define B_TRANSLATION_CONTEXT "FilterView"
 
 
-enum {
-	MSG_CATEGORY_SELECTED		= 'ctsl',
-	MSG_REPOSITORY_SELECTED		= 'rpsl',
-	MSG_SEARCH_TERMS_MODIFIED	= 'stmd',
-};
+static void
+add_categories_to_menu(const CategoryList& categories, BMenu* menu)
+{
+	for (int i = 0; i < categories.CountItems(); i++) {
+		const CategoryRef& category = categories.ItemAtFast(i);
+		BMessage* message = new BMessage(MSG_CATEGORY_SELECTED);
+		message->AddString("name", category->Name());
+		BMenuItem* item = new BMenuItem(category->Label(), message);
+		menu->AddItem(item);
+	}
+}
 
 
 FilterView::FilterView()
@@ -34,34 +42,12 @@ FilterView::FilterView()
 {
 	// Contruct category popup
 	BPopUpMenu* categoryMenu = new BPopUpMenu(B_TRANSLATE("Show"));
-	categoryMenu->AddItem(new BMenuItem(B_TRANSLATE("All packages"), NULL));
-	categoryMenu->AddItem(new BSeparatorItem());
-	categoryMenu->AddItem(new BMenuItem(B_TRANSLATE("Audio"), NULL));
-	categoryMenu->AddItem(new BMenuItem(B_TRANSLATE("Games"), NULL));
-	categoryMenu->AddItem(new BMenuItem(B_TRANSLATE("Graphics"), NULL));
-	categoryMenu->AddItem(new BMenuItem(B_TRANSLATE("Development"), NULL));
-	categoryMenu->AddItem(new BMenuItem(B_TRANSLATE("Miscellaneous"), NULL));
-	categoryMenu->AddItem(new BMenuItem(B_TRANSLATE("Shell"), NULL));
-	categoryMenu->AddItem(new BMenuItem(B_TRANSLATE("Video"), NULL));
-	categoryMenu->AddItem(new BSeparatorItem());
-	categoryMenu->AddItem(new BMenuItem(B_TRANSLATE("Installed packages"),
-		NULL));
-	categoryMenu->AddItem(new BMenuItem(B_TRANSLATE("Uninstalled packages"),
-		NULL));
-	categoryMenu->AddItem(new BMenuItem(B_TRANSLATE("User selected packages"),
-		NULL));
-	categoryMenu->AddItem(new BSeparatorItem());
-	categoryMenu->AddItem(new BMenuItem(B_TRANSLATE("Downloading"), NULL));
-	categoryMenu->AddItem(new BMenuItem(B_TRANSLATE("Update available"), NULL));
-	categoryMenu->ItemAt(0)->SetMarked(true);
 
 	fShowField = new BMenuField("category", B_TRANSLATE("Show:"),
 		categoryMenu);
 
 	// Construct repository popup
 	BPopUpMenu* repositoryMenu = new BPopUpMenu(B_TRANSLATE("Depot"));
-	repositoryMenu->AddItem(new BMenuItem(B_TRANSLATE("All depots"), NULL));
-	repositoryMenu->ItemAt(0)->SetMarked(true);
 	fRepositoryField = new BMenuField("repository", B_TRANSLATE("Depot:"),
 		repositoryMenu);
 
@@ -70,7 +56,7 @@ FilterView::FilterView()
 		B_TRANSLATE("Search terms:"), "", NULL);
 	fSearchTermsText->SetModificationMessage(
 		new BMessage(MSG_SEARCH_TERMS_MODIFIED));
-	
+
 	BSize minSearchSize = fSearchTermsText->MinSize();
 	float minSearchWidth
 		= be_plain_font->StringWidth(fSearchTermsText->Label())
@@ -80,14 +66,14 @@ FilterView::FilterView()
 	fSearchTermsText->SetExplicitMinSize(minSearchSize);
 	float maxSearchWidth = minSearchWidth * 2;
 	fSearchTermsText->SetExplicitMaxSize(BSize(maxSearchWidth, B_SIZE_UNSET));
-	
+
 	// Build layout
 	BLayoutBuilder::Group<>(this)
 		.Add(fShowField, 0.0f)
 		.Add(fRepositoryField, 0.0f)
 		.AddGlue(0.5f)
 		.Add(fSearchTermsText, 1.0f)
-		
+
 		.SetInsets(B_USE_DEFAULT_SPACING)
 	;
 }
@@ -101,8 +87,8 @@ FilterView::~FilterView()
 void
 FilterView::AttachedToWindow()
 {
-	fShowField->Menu()->SetTargetForItems(this);
-	fRepositoryField->Menu()->SetTargetForItems(this);
+	fShowField->Menu()->SetTargetForItems(Window());
+	fRepositoryField->Menu()->SetTargetForItems(Window());
 	fSearchTermsText->SetTarget(this);
 }
 
@@ -111,8 +97,53 @@ void
 FilterView::MessageReceived(BMessage* message)
 {
 	switch (message->what) {
+		case MSG_SEARCH_TERMS_MODIFIED:
+		{
+			BMessage searchTerms(MSG_SEARCH_TERMS_MODIFIED);
+			searchTerms.AddString("search terms", fSearchTermsText->Text());
+			Window()->PostMessage(&searchTerms);
+			break;
+		}
+
 		default:
 			BGroupView::MessageReceived(message);
 			break;
 	}
+}
+
+
+void
+FilterView::AdoptModel(const Model& model)
+{
+	BMenu* repositoryMenu = fRepositoryField->Menu();
+		repositoryMenu->RemoveItems(0, repositoryMenu->CountItems(), true);
+
+	repositoryMenu->AddItem(new BMenuItem(B_TRANSLATE("All depots"),
+		new BMessage(MSG_DEPOT_SELECTED)));
+	repositoryMenu->ItemAt(0)->SetMarked(true);
+
+	repositoryMenu->AddItem(new BSeparatorItem());
+
+	const DepotList& depots = model.Depots();
+	for (int i = 0; i < depots.CountItems(); i++) {
+		const DepotInfo& depot = depots.ItemAtFast(i);
+		BMessage* message = new BMessage(MSG_DEPOT_SELECTED);
+		message->AddString("name", depot.Name());
+		BMenuItem* item = new BMenuItem(depot.Name(), message);
+		repositoryMenu->AddItem(item);
+	}
+
+	BMenu* categoryMenu = fShowField->Menu();
+	categoryMenu->RemoveItems(0, categoryMenu->CountItems(), true);
+
+	categoryMenu->AddItem(new BMenuItem(B_TRANSLATE("All packages"),
+		new BMessage(MSG_CATEGORY_SELECTED)));
+	categoryMenu->AddItem(new BSeparatorItem());
+	add_categories_to_menu(model.Categories(), categoryMenu);
+	categoryMenu->AddItem(new BSeparatorItem());
+	add_categories_to_menu(model.UserCategories(), categoryMenu);
+	categoryMenu->AddItem(new BSeparatorItem());
+	add_categories_to_menu(model.ProgressCategories(), categoryMenu);
+
+	categoryMenu->ItemAt(0)->SetMarked(true);
 }

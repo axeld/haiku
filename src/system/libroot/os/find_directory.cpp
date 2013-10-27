@@ -27,6 +27,8 @@
 #include <unistd.h>
 
 #include <errno_private.h>
+#include <find_directory_private.h>
+#include <symbol_versioning.h>
 #include <user_group.h>
 
 /* use pwents to find home */
@@ -39,8 +41,35 @@
  */
 
 #define SYSTEM "system"
-#define COMMON "common"
+#define COMMON "system/data/empty"
 #define NON_PACKAGED "/non-packaged"
+
+enum {
+	// obsolete common directories
+	B_COMMON_DIRECTORY					= 2000,
+	B_COMMON_SYSTEM_DIRECTORY,
+	B_COMMON_ADDONS_DIRECTORY,
+	B_COMMON_BOOT_DIRECTORY,
+	B_COMMON_FONTS_DIRECTORY,
+	B_COMMON_LIB_DIRECTORY,
+	B_COMMON_SERVERS_DIRECTORY,
+	B_COMMON_BIN_DIRECTORY,
+	_B_COMMON_ETC_DIRECTORY,
+	B_COMMON_DOCUMENTATION_DIRECTORY,
+	_B_COMMON_SETTINGS_DIRECTORY,
+	B_COMMON_DEVELOP_DIRECTORY,
+	_B_COMMON_LOG_DIRECTORY,
+	_B_COMMON_SPOOL_DIRECTORY,
+	_B_COMMON_TEMP_DIRECTORY,
+	_B_COMMON_VAR_DIRECTORY,
+	B_COMMON_TRANSLATORS_DIRECTORY,
+	B_COMMON_MEDIA_NODES_DIRECTORY,
+	B_COMMON_SOUNDS_DIRECTORY,
+	B_COMMON_DATA_DIRECTORY,
+	_B_COMMON_CACHE_DIRECTORY,
+	B_COMMON_PACKAGES_DIRECTORY,
+	B_COMMON_HEADERS_DIRECTORY,
+};
 
 
 /* Haiku system directories */
@@ -55,16 +84,16 @@ static const char *kSystemDirectories[] = {
 	SYSTEM "/servers",
 	SYSTEM "/apps",
 	SYSTEM "/bin",
-	COMMON "/etc",
+	SYSTEM "/settings/etc",
 	SYSTEM "/documentation",
 	SYSTEM "/preferences",
 	SYSTEM "/add-ons/Translators",
 	SYSTEM "/add-ons/media",
 	SYSTEM "/data/sounds",
 	SYSTEM "/data",
-	"develop",
+	SYSTEM "/develop",
 	SYSTEM "/packages",
-	"develop/headers",
+	SYSTEM "/develop/headers",
 };
 
 /* Common directories, shared among users */
@@ -78,32 +107,33 @@ static const char *kCommonDirectories[] = {
 	COMMON "/lib",
 	COMMON "/servers",
 	COMMON "/bin",
-	COMMON "/etc",
+	SYSTEM "/settings/etc",					// B_SYSTEM_ETC_DIRECTORY
 	COMMON "/documentation",
-	COMMON "/settings",
-	COMMON "/develop",						// B_COMMON_DEVELOP_DIRECTORY
-	COMMON "/var/log",						// B_COMMON_LOG_DIRECTORY
-	COMMON "/var/spool",					// B_COMMON_SPOOL_DIRECTORY
-	COMMON "/cache/tmp",					// B_COMMON_TEMP_DIRECTORY
-	COMMON "/var",							// B_COMMON_VAR_DIRECTORY
+	SYSTEM "/settings",						// B_SYSTEM_SETTINGS_DIRECTORY
+	COMMON "/develop",
+	SYSTEM "/var/log",						// B_SYSTEM_LOG_DIRECTORY
+	SYSTEM "/var/spool",					// B_SYSTEM_SPOOL_DIRECTORY
+	SYSTEM "/cache/tmp",					// B_SYSTEM_TEMP_DIRECTORY
+	SYSTEM "/var",							// B_SYSTEM_VAR_DIRECTORY
 	COMMON "/add-ons/Translators",
 	COMMON "/add-ons/media",
 	COMMON "/data/sounds",
 	COMMON "/data",
-	COMMON "/cache",						// B_COMMON_CACHE_DIRECTORY
+	SYSTEM "/cache",						// B_SYSTEM_CACHE_DIRECTORY
 	COMMON "/packages",
-	COMMON "/include",
-	COMMON NON_PACKAGED,
-	COMMON NON_PACKAGED "/add-ons",
-	COMMON NON_PACKAGED "/add-ons/Translators",
-	COMMON NON_PACKAGED "/add-ons/media",
-	COMMON NON_PACKAGED "/bin",
-	COMMON NON_PACKAGED "/data",
-	COMMON NON_PACKAGED "/data/fonts",
-	COMMON NON_PACKAGED "/data/sounds",
-	COMMON NON_PACKAGED "/documentation",
-	COMMON NON_PACKAGED "/lib",
-	COMMON NON_PACKAGED "/develop/headers",
+	COMMON "/develop/headers",
+	SYSTEM NON_PACKAGED,
+	SYSTEM NON_PACKAGED "/add-ons",
+	SYSTEM NON_PACKAGED "/add-ons/Translators",
+	SYSTEM NON_PACKAGED "/add-ons/media",
+	SYSTEM NON_PACKAGED "/bin",
+	SYSTEM NON_PACKAGED "/data",
+	SYSTEM NON_PACKAGED "/data/fonts",
+	SYSTEM NON_PACKAGED "/data/sounds",
+	SYSTEM NON_PACKAGED "/documentation",
+	SYSTEM NON_PACKAGED "/lib",
+	SYSTEM NON_PACKAGED "/develop/headers",
+	SYSTEM NON_PACKAGED "/develop",
 };
 
 /* User directories */
@@ -119,7 +149,7 @@ static const char *kUserDirectories[] = {
 	HOME CONFIG "/data/fonts",
 	HOME CONFIG "/lib",
 	HOME CONFIG "/settings",
-	HOME CONFIG "/settings/deskbar",
+	HOME CONFIG "/settings/deskbar/menu",
 	HOME CONFIG "/settings/printers",
 	HOME CONFIG "/add-ons/Translators",
 	HOME CONFIG "/add-ons/media",
@@ -127,7 +157,7 @@ static const char *kUserDirectories[] = {
 	HOME CONFIG "/data",
 	HOME CONFIG "/cache",
 	HOME CONFIG "/packages",
-	HOME CONFIG "/include",
+	HOME CONFIG "/develop/headers",
 	HOME CONFIG NON_PACKAGED,
 	HOME CONFIG NON_PACKAGED "/add-ons",
 	HOME CONFIG NON_PACKAGED "/add-ons/Translators",
@@ -139,6 +169,17 @@ static const char *kUserDirectories[] = {
 	HOME CONFIG NON_PACKAGED "/documentation",
 	HOME CONFIG NON_PACKAGED "/lib",
 	HOME CONFIG NON_PACKAGED "/develop/headers",
+	HOME CONFIG NON_PACKAGED "/develop",
+	HOME CONFIG "/develop",
+	HOME CONFIG "/documentation",
+	HOME CONFIG "/servers",
+	HOME CONFIG "/apps",
+	HOME CONFIG "/bin",
+	HOME CONFIG "/preferences",
+	HOME CONFIG "/settings/etc",
+	HOME CONFIG "/var/log",
+	HOME CONFIG "/var/spool",
+	HOME CONFIG "/var",
 };
 
 
@@ -180,7 +221,7 @@ create_path(const char *path, mode_t mode)
 
 
 status_t
-find_directory(directory_which which, dev_t device, bool createIt,
+__find_directory(directory_which which, dev_t device, bool createIt,
 	char *returnedPath, int32 pathLength)
 {
 	status_t err = B_OK;
@@ -233,7 +274,7 @@ find_directory(directory_which which, dev_t device, bool createIt,
 		return err;
 	}
 
-	switch (which) {
+	switch ((int)which) {
 		/* Per volume directories */
 		case B_DESKTOP_DIRECTORY:
 			if (device == bootDevice || !strcmp(fsInfo.fsh_name, "bfs"))
@@ -270,7 +311,7 @@ find_directory(directory_which which, dev_t device, bool createIt,
 			templatePath = kSystemDirectories[which - B_SYSTEM_DIRECTORY];
 			break;
 
-		/* Common directories, shared among users */
+		/* Obsolete common directories and writable system directories */
 		case B_COMMON_DIRECTORY:
 		case B_COMMON_SYSTEM_DIRECTORY:
 		case B_COMMON_ADDONS_DIRECTORY:
@@ -279,32 +320,33 @@ find_directory(directory_which which, dev_t device, bool createIt,
 		case B_COMMON_LIB_DIRECTORY:
 		case B_COMMON_SERVERS_DIRECTORY:
 		case B_COMMON_BIN_DIRECTORY:
-		case B_COMMON_ETC_DIRECTORY:
+		case B_SYSTEM_ETC_DIRECTORY:
 		case B_COMMON_DOCUMENTATION_DIRECTORY:
-		case B_COMMON_SETTINGS_DIRECTORY:
+		case B_SYSTEM_SETTINGS_DIRECTORY:
 		case B_COMMON_DEVELOP_DIRECTORY:
-		case B_COMMON_LOG_DIRECTORY:
-		case B_COMMON_SPOOL_DIRECTORY:
-		case B_COMMON_TEMP_DIRECTORY:
-		case B_COMMON_VAR_DIRECTORY:
+		case B_SYSTEM_LOG_DIRECTORY:
+		case B_SYSTEM_SPOOL_DIRECTORY:
+		case B_SYSTEM_TEMP_DIRECTORY:
+		case B_SYSTEM_VAR_DIRECTORY:
 		case B_COMMON_TRANSLATORS_DIRECTORY:
 		case B_COMMON_MEDIA_NODES_DIRECTORY:
 		case B_COMMON_SOUNDS_DIRECTORY:
 		case B_COMMON_DATA_DIRECTORY:
-		case B_COMMON_CACHE_DIRECTORY:
+		case B_SYSTEM_CACHE_DIRECTORY:
 		case B_COMMON_PACKAGES_DIRECTORY:
 		case B_COMMON_HEADERS_DIRECTORY:
-		case B_COMMON_NONPACKAGED_DIRECTORY:
-		case B_COMMON_NONPACKAGED_ADDONS_DIRECTORY:
-		case B_COMMON_NONPACKAGED_TRANSLATORS_DIRECTORY:
-		case B_COMMON_NONPACKAGED_MEDIA_NODES_DIRECTORY:
-		case B_COMMON_NONPACKAGED_BIN_DIRECTORY:
-		case B_COMMON_NONPACKAGED_DATA_DIRECTORY:
-		case B_COMMON_NONPACKAGED_FONTS_DIRECTORY:
-		case B_COMMON_NONPACKAGED_SOUNDS_DIRECTORY:
-		case B_COMMON_NONPACKAGED_DOCUMENTATION_DIRECTORY:
-		case B_COMMON_NONPACKAGED_LIB_DIRECTORY:
-		case B_COMMON_NONPACKAGED_HEADERS_DIRECTORY:
+		case B_SYSTEM_NONPACKAGED_DIRECTORY:
+		case B_SYSTEM_NONPACKAGED_ADDONS_DIRECTORY:
+		case B_SYSTEM_NONPACKAGED_TRANSLATORS_DIRECTORY:
+		case B_SYSTEM_NONPACKAGED_MEDIA_NODES_DIRECTORY:
+		case B_SYSTEM_NONPACKAGED_BIN_DIRECTORY:
+		case B_SYSTEM_NONPACKAGED_DATA_DIRECTORY:
+		case B_SYSTEM_NONPACKAGED_FONTS_DIRECTORY:
+		case B_SYSTEM_NONPACKAGED_SOUNDS_DIRECTORY:
+		case B_SYSTEM_NONPACKAGED_DOCUMENTATION_DIRECTORY:
+		case B_SYSTEM_NONPACKAGED_LIB_DIRECTORY:
+		case B_SYSTEM_NONPACKAGED_HEADERS_DIRECTORY:
+		case B_SYSTEM_NONPACKAGED_DEVELOP_DIRECTORY:
 			templatePath = kCommonDirectories[which - B_COMMON_DIRECTORY];
 			break;
 
@@ -325,6 +367,8 @@ find_directory(directory_which which, dev_t device, bool createIt,
 		case B_USER_CACHE_DIRECTORY:
 		case B_USER_PACKAGES_DIRECTORY:
 		case B_USER_HEADERS_DIRECTORY:
+		case B_USER_DEVELOP_DIRECTORY:
+		case B_USER_DOCUMENTATION_DIRECTORY:
 		case B_USER_NONPACKAGED_DIRECTORY:
 		case B_USER_NONPACKAGED_ADDONS_DIRECTORY:
 		case B_USER_NONPACKAGED_TRANSLATORS_DIRECTORY:
@@ -336,15 +380,24 @@ find_directory(directory_which which, dev_t device, bool createIt,
 		case B_USER_NONPACKAGED_DOCUMENTATION_DIRECTORY:
 		case B_USER_NONPACKAGED_LIB_DIRECTORY:
 		case B_USER_NONPACKAGED_HEADERS_DIRECTORY:
+		case B_USER_NONPACKAGED_DEVELOP_DIRECTORY:
+		case B_USER_SERVERS_DIRECTORY:
+		case B_USER_APPS_DIRECTORY:
+		case B_USER_BIN_DIRECTORY:
+		case B_USER_PREFERENCES_DIRECTORY:
+		case B_USER_ETC_DIRECTORY:
+		case B_USER_LOG_DIRECTORY:
+		case B_USER_SPOOL_DIRECTORY:
+		case B_USER_VAR_DIRECTORY:
 			templatePath = kUserDirectories[which - B_USER_DIRECTORY];
 			break;
 
 		/* Global directories */
 		case B_APPS_DIRECTORY:
-			templatePath = "apps";
+			templatePath = SYSTEM "/apps";
 			break;
 		case B_PREFERENCES_DIRECTORY:
-			templatePath = "preferences";
+			templatePath = SYSTEM "/preferences";
 			break;
 		case B_UTILITIES_DIRECTORY:
 			templatePath = "utilities";
@@ -373,7 +426,8 @@ find_directory(directory_which which, dev_t device, bool createIt,
 				struct passwd *pw;
 
 				if (getpwuid_r(geteuid(), &pwBuffer, pwStringBuffer,
-						sizeof(pwStringBuffer), &pw) == 0) {
+						sizeof(pwStringBuffer), &pw) == 0
+					&& pw != NULL) {
 					home = pw->pw_dir;
 				}
 #endif	// USE_PWENTS
@@ -407,3 +461,17 @@ find_directory(directory_which which, dev_t device, bool createIt,
 	return err;
 }
 
+
+extern "C" status_t
+__find_directory_alpha4(directory_which which, dev_t device, bool createIt,
+	char *returnedPath, int32 pathLength)
+{
+	return __find_directory(which, device, createIt, returnedPath, pathLength);
+}
+
+
+DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__find_directory_alpha4",
+	"find_directory@", "BASE");
+
+DEFINE_LIBROOT_KERNEL_SYMBOL_VERSION("__find_directory", "find_directory@@",
+    "1_ALPHA5");

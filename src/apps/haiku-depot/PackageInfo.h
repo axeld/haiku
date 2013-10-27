@@ -6,10 +6,13 @@
 #define PACKAGE_INFO_H
 
 
+#include <set>
+
 #include <Referenceable.h>
 #include <String.h>
 
 #include "List.h"
+#include "PackageInfoListener.h"
 
 
 class BBitmap;
@@ -18,6 +21,7 @@ class BBitmap;
 class SharedBitmap : public BReferenceable {
 public:
 		enum Size {
+			SIZE_ANY = -1,
 			SIZE_16 = 0,
 			SIZE_32 = 1,
 			SIZE_64 = 2
@@ -42,6 +46,7 @@ private:
 
 
 typedef BReference<SharedBitmap> BitmapRef;
+typedef List<BitmapRef, false> BitmapList;
 
 
 class UserInfo {
@@ -74,7 +79,8 @@ public:
 									float rating,
 									const BString& comment,
 									const BString& language,
-									const BString& packageVersion);
+									const BString& packageVersion,
+									int32 upVotes, int32 downVotes);
 								UserRating(const UserRating& other);
 
 			UserRating&			operator=(const UserRating& other);
@@ -92,16 +98,31 @@ public:
 			const BString&		PackageVersion() const
 									{ return fPackageVersion; }
 
+			int32				UpVotes() const
+									{ return fUpVotes; }
+			int32				DownVotes() const
+									{ return fDownVotes; }
 private:
 			UserInfo			fUserInfo;
 			float				fRating;
 			BString				fComment;
 			BString				fLanguage;
 			BString				fPackageVersion;
+			int32				fUpVotes;
+			int32				fDownVotes;
 };
 
 
 typedef List<UserRating, false> UserRatingList;
+
+
+class RatingSummary {
+public:
+			float				averageRating;
+			int					ratingCount;
+
+			int					ratingCountByStar[5];
+};
 
 
 class PublisherInfo {
@@ -134,7 +155,48 @@ private:
 };
 
 
-class PackageInfo {
+class PackageCategory : public BReferenceable {
+public:
+								PackageCategory();
+								PackageCategory(const BitmapRef& icon,
+									const BString& label,
+									const BString& name);
+								PackageCategory(const PackageCategory& other);
+
+			PackageCategory&	operator=(const PackageCategory& other);
+			bool				operator==(const PackageCategory& other) const;
+			bool				operator!=(const PackageCategory& other) const;
+
+			const BitmapRef&	Icon() const
+									{ return fIcon; }
+			const BString&		Label() const
+									{ return fLabel; }
+			const BString&		Name() const
+									{ return fName; }
+private:
+			BitmapRef			fIcon;
+			BString				fLabel;
+			BString				fName;
+};
+
+
+typedef BReference<PackageCategory> CategoryRef;
+typedef List<CategoryRef, false> CategoryList;
+
+
+typedef List<PackageInfoListenerRef, false, 2> PackageListenerList;
+typedef std::set<int32> PackageInstallationLocationSet;
+
+enum PackageState {
+	NONE		= 0,
+	INSTALLED	= 1,
+	DOWNLOADING	= 2,
+	ACTIVATED	= 3,
+	UNINSTALLED	= 4,
+};
+
+
+class PackageInfo : public BReferenceable {
 public:
 								PackageInfo();
 								PackageInfo(const BitmapRef& icon,
@@ -143,7 +205,8 @@ public:
 									const PublisherInfo& publisher,
 									const BString& shortDescription,
 									const BString& fullDescription,
-									const BString& changelog);
+									const BString& changelog,
+									int32 packageFlags);
 								PackageInfo(const PackageInfo& other);
 
 			PackageInfo&		operator=(const PackageInfo& other);
@@ -165,7 +228,47 @@ public:
 			const BString&		Changelog() const
 									{ return fChangelog; }
 
+			int32				Flags() const
+									{ return fFlags; }
+			bool				IsSystemPackage() const;
+
+			bool				IsSystemDependency() const
+									{ return fSystemDependency; }
+			void				SetSystemDependency(bool isDependency);
+
+			PackageState		State() const
+									{ return fState; }
+			void				SetState(PackageState state);
+
+			const PackageInstallationLocationSet&
+								InstallationLocations() const
+									{ return fInstallationLocations; }
+			void				AddInstallationLocation(int32 location);
+
+			float				DownloadProgress() const
+									{ return fDownloadProgress; }
+			void				SetDownloadProgress(float progress);
+
+			bool				AddCategory(const CategoryRef& category);
+			const CategoryList&	Categories() const
+									{ return fCategories; }
+
 			bool				AddUserRating(const UserRating& rating);
+			const UserRatingList& UserRatings() const
+									{ return fUserRatings; }
+			RatingSummary		CalculateRatingSummary() const;
+
+			bool				AddScreenshot(const BitmapRef& screenshot);
+			const BitmapList&	Screenshots() const
+									{ return fScreenshots; }
+
+			bool				AddListener(
+									const PackageInfoListenerRef& listener);
+			void				RemoveListener(
+									const PackageInfoListenerRef& listener);
+
+private:
+			void				_NotifyListeners(uint32 changes);
 
 private:
 			BitmapRef			fIcon;
@@ -175,38 +278,50 @@ private:
 			BString				fShortDescription;
 			BString				fFullDescription;
 			BString				fChangelog;
+			CategoryList		fCategories;
 			UserRatingList		fUserRatings;
+			BitmapList			fScreenshots;
+			PackageState		fState;
+			PackageInstallationLocationSet
+								fInstallationLocations;
+			float				fDownloadProgress;
+			PackageListenerList	fListeners;
+			int32				fFlags;
+			bool				fSystemDependency;
 };
 
 
-typedef List<PackageInfo, false> PackageInfoList;
+typedef BReference<PackageInfo> PackageInfoRef;
+
+
+typedef List<PackageInfoRef, false> PackageList;
 
 
 class DepotInfo {
 public:
 								DepotInfo();
-								DepotInfo(const BString& title);
+								DepotInfo(const BString& name);
 								DepotInfo(const DepotInfo& other);
 
 			DepotInfo&			operator=(const DepotInfo& other);
 			bool				operator==(const DepotInfo& other) const;
 			bool				operator!=(const DepotInfo& other) const;
 
-			const BString&		Title() const
-									{ return fTitle; }
+			const BString&		Name() const
+									{ return fName; }
 
-			const PackageInfoList& PackageList() const
+			const PackageList&	Packages() const
 									{ return fPackages; }
 
-			bool				AddPackage(const PackageInfo& package);
+			bool				AddPackage(const PackageInfoRef& package);
 
 private:
-			BString				fTitle;
-			PackageInfoList		fPackages;
+			BString				fName;
+			PackageList			fPackages;
 };
 
 
-typedef List<DepotInfo, false> DepotInfoList;
+typedef List<DepotInfo, false> DepotList;
 
 
 #endif // PACKAGE_INFO_H

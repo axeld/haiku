@@ -523,7 +523,7 @@ detect_cpu(int currentCPU)
 
 	// print some fun data
 	get_current_cpuid(&cpuid, 0);
-	uint32 maxBasicLeaf = cpuid.eax_0.max_eax;	
+	uint32 maxBasicLeaf = cpuid.eax_0.max_eax;
 
 	// build the vendor string
 	memset(vendorString, 0, sizeof(vendorString));
@@ -750,15 +750,6 @@ arch_cpu_init_percpu(kernel_args* args, int cpu)
 			msr &= ~0xf;
 			msr |= ENERGY_PERF_BIAS_BALANCE;
 			x86_write_msr(IA32_MSR_ENERGY_PERF_BIAS, msr);
-		}
-	}
-
-	// If availalbe enable NX-bit (No eXecute). Boot CPU can not enable
-	// NX-bit here since PAE should be enabled first.
-	if (cpu != 0) {
-		if (x86_check_feature(IA32_FEATURE_AMD_EXT_NX, FEATURE_EXT_AMD)) {
-			x86_write_msr(IA32_MSR_EFER, x86_read_msr(IA32_MSR_EFER)
-				| IA32_MSR_EFER_NX);
 		}
 	}
 
@@ -1017,3 +1008,14 @@ arch_cpu_memory_write_barrier(void)
 #endif
 }
 
+
+void
+arch_cpu_memory_read_write_barrier(void)
+{
+#ifdef __x86_64__
+	asm volatile("mfence" : : : "memory");
+#else
+	asm volatile ("lock;" : : : "memory");
+	asm volatile ("addl $0, 0(%%esp);" : : : "memory");
+#endif
+}

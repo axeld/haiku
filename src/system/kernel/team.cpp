@@ -30,6 +30,7 @@
 #include <boot_device.h>
 #include <elf.h>
 #include <file_cache.h>
+#include <find_directory_private.h>
 #include <fs/KPath.h>
 #include <heap.h>
 #include <int.h>
@@ -481,7 +482,7 @@ Team::Team(team_id id, bool kernel)
 	exit.initialized = false;
 
 	list_init(&sem_list);
-	list_init(&port_list);
+	list_init_etc(&port_list, port_team_link_offset());
 	list_init(&image_list);
 	list_init(&watcher_list);
 
@@ -1601,7 +1602,7 @@ team_create_thread_start_internal(void* args)
 	{
 		// find runtime_loader path
 		KPath runtimeLoaderPath;
-		err = find_directory(B_SYSTEM_DIRECTORY, gBootDevice, false,
+		err = __find_directory(B_SYSTEM_DIRECTORY, gBootDevice, false,
 			runtimeLoaderPath.LockBuffer(), runtimeLoaderPath.BufferSize());
 		if (err < B_OK) {
 			TRACE(("team_create_thread_start: find_directory() failed: %s\n",

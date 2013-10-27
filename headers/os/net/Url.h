@@ -16,6 +16,7 @@ public:
 								BUrl(const char* url);
 								BUrl(BMessage* archive);
 								BUrl(const BUrl& other);
+								BUrl(const BUrl& base, const BString& relative);
 								BUrl();
 	virtual						~BUrl();
 
@@ -24,6 +25,7 @@ public:
 			BUrl&				SetProtocol(const BString& scheme);
 			BUrl&				SetUserName(const BString& user);
 			BUrl&				SetPassword(const BString& password);
+			void				SetAuthority(const BString& authority);
 			BUrl&				SetHost(const BString& host);
 			BUrl&				SetPort(int port);
 			BUrl&				SetPath(const BString& path);
@@ -88,24 +90,12 @@ private:
 			void				_ResetFields();
 			void				_ExplodeUrlString(const BString& urlString);
 
-			void				_ExtractProtocol(const BString& urlString, 
-									int16* origin);
-			void				_ExtractAuthority(const BString& urlString, 
-									int16* origin);
-			void				_ExtractPath(const BString& urlString, 
-									int16* origin);
-			void				_ExtractRequestAndFragment(
-									const BString& urlString, int16* origin);
-
 	static	BString				_DoUrlEncodeChunk(const BString& chunk, 
 									bool strict, bool directory = false);
 	static 	BString				_DoUrlDecodeChunk(const BString& chunk, 
 									bool strict);
 
 			bool				_IsProtocolValid();
-	static	bool				_IsAuthorityTerminator(char c);
-	static	bool				_IsPathTerminator(char c);
-	static	bool				_IsRequestTerminator(char c);
 	static	bool				_IsUnreserved(char c);
 	static	bool				_IsGenDelim(char c);
 	static	bool				_IsSubDelim(char c);
@@ -128,8 +118,6 @@ private:
 	mutable	bool				fAuthorityValid : 1;
 	mutable bool				fUserInfoValid : 1;
 
-			bool				fBasicUri : 1;
-			
 			bool				fHasProtocol : 1;
 			bool				fHasUserName : 1;
 			bool				fHasPassword : 1;

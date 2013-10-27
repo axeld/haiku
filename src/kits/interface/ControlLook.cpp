@@ -67,13 +67,13 @@ BControlLook::ComposeSpacing(float spacing)
 	if (spacing == B_USE_DEFAULT_SPACING || spacing == B_USE_ITEM_SPACING) {
 		return be_control_look->DefaultItemSpacing();
 	} else if (spacing == B_USE_HALF_ITEM_SPACING) {
-		return be_control_look->DefaultItemSpacing() * 0.5f;
+		return ceilf(be_control_look->DefaultItemSpacing() * 0.5f);
 	} else if (spacing == B_USE_WINDOW_INSETS) {
 		return be_control_look->DefaultItemSpacing();
 	} else if (spacing == B_USE_SMALL_SPACING) {
-		return be_control_look->DefaultItemSpacing() * 0.7f;
+		return ceilf(be_control_look->DefaultItemSpacing() * 0.7f);
 	} else if (spacing == B_USE_BIG_SPACING) {
-		return be_control_look->DefaultItemSpacing() * 1.3f;
+		return ceilf(be_control_look->DefaultItemSpacing() * 1.3f);
 	}
 	return spacing;
 }
@@ -87,8 +87,10 @@ BControlLook::Flags(BControl* control) const
 	if (!control->IsEnabled())
 		flags |= B_DISABLED;
 
-	if (control->IsFocus())
+	if (control->IsFocus() && control->Window() != NULL
+		&& control->Window()->IsActive()) {
 		flags |= B_FOCUSED;
+	}
 
 	if (control->Value() == B_CONTROL_ON)
 		flags |= B_ACTIVATED;

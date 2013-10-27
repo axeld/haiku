@@ -68,17 +68,17 @@ HAIKU_BOARD_SDIMAGE_FILES =
 # gcc flags for the specific cpu
 #
 
-HAIKU_KERNEL_CCFLAGS += -mcpu=xscale ;
-HAIKU_KERNEL_C++FLAGS += -mcpu=xscale ;
-HAIKU_CCFLAGS += -mcpu=xscale ;
-HAIKU_C++FLAGS += -mcpu=xscale ;
+HAIKU_KERNEL_CCFLAGS += -mcpu=xscale -D__XSCALE__ ;
+HAIKU_KERNEL_C++FLAGS += -mcpu=xscale -D__XSCALE__ ;
+HAIKU_CCFLAGS += -mcpu=xscale -D__XSCALE__ ;
+HAIKU_C++FLAGS += -mcpu=xscale -D__XSCALE__ ;
+TARGET_ASFLAGS += -mcpu=xscale -D__XSCALE__ ;
 
 # Workaround for ld using 32k for alignment despite forcing it in the config...
 # should definitely not be needed!
 HAIKU_KERNEL_LINKFLAGS +=
 	-Wl,-z -Wl,max-page-size=0x1000
 	-Wl,-z -Wl,common-page-size=0x1000 ;
-HAIKU_LINKFLAGS +=
+HAIKU_LINKFLAGS_$(HAIKU_PACKAGING_ARCH) +=
 	-Wl,-z -Wl,max-page-size=0x1000
 	-Wl,-z -Wl,common-page-size=0x1000 ;
-

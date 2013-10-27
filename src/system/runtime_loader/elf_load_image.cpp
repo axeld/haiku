@@ -529,10 +529,10 @@ load_image(char const* name, image_type type, const char* rpath,
 	if (type == B_APP_IMAGE) {
 		#if __GNUC__ == 2
 			if ((image->abi & B_HAIKU_ABI_MAJOR) == B_HAIKU_ABI_GCC_4)
-				sSearchPathSubDir = "gcc4";
+				sSearchPathSubDir = "x86";
 		#elif __GNUC__ == 4
 			if ((image->abi & B_HAIKU_ABI_MAJOR) == B_HAIKU_ABI_GCC_2)
-				sSearchPathSubDir = "gcc2";
+				sSearchPathSubDir = "x86_gcc2";
 		#endif
 	}
 
@@ -556,8 +556,8 @@ load_image(char const* name, image_type type, const char* rpath,
 
 	*_image = image;
 
-	KTRACE("rld: load_container(\"%s\"): done: id: %ld (ABI: %#lx)", name,
-		image->id, image->abi);
+	KTRACE("rld: load_container(\"%s\"): done: id: %" B_PRId32 " (ABI: %#"
+		B_PRIx32 ")", name, image->id, image->abi);
 
 	return B_OK;
 

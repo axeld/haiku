@@ -5,8 +5,9 @@ SubDirSysHdrs [ FDirName $(SUBDIR) $(DOTDOT) lib ] ;
 SubDirSysHdrs [ FDirName $(SUBDIR) $(DOTDOT) ] ;
 
 # filter warnings we don't want here
-TARGET_WARNING_CCFLAGS = [ FFilter $(TARGET_WARNING_CCFLAGS)
-	: -Wall -Wmissing-prototypes -Wsign-compare ] ;
+TARGET_WARNING_CCFLAGS_$(TARGET_PACKAGING_ARCH)
+	= [ FFilter $(TARGET_WARNING_CCFLAGS_$(TARGET_PACKAGING_ARCH))
+		: -Wall -Wmissing-prototypes -Wsign-compare ] ;
 
 # set some additional defines
 {
@@ -39,8 +40,8 @@ actions MkUpdateDb1
 {
 	sed \
 	-e "s,@bindir@,/bin," \
-	-e "s,/usr/bin,/boot/common/bin," \
-	-e "s,@libexecdir@,/bin," \
+	-e "s,/usr/bin,/boot/system/bin," \
+	-e "s,@libexecdir@,/lib," \
 	-e "s,@LOCATE_DB@,/var/locatedb," \
 	-e "s,@VERSION@,4.2.33," \
 	-e "s,@find@,find," \

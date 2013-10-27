@@ -5,8 +5,7 @@
  * Copyright (C) 2010 Stephan Aßmus <superstippi@gmx.de>
  * Copyright (C) 2010 Michael Lotz <mmlr@mlotz.ch>
  * Copyright (C) 2010 Rene Gollent <rene@gollent.com>
- *
- * All rights reserved.
+ * Copyright 2013 Haiku, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -48,8 +47,10 @@
 #include <GridLayoutBuilder.h>
 #include <GroupLayout.h>
 #include <GroupLayoutBuilder.h>
+#include <Keymap.h>
 #include <LayoutBuilder.h>
 #include <Locale.h>
+#include <ObjectList.h>
 #include <MenuBar.h>
 #include <MenuItem.h>
 #include <MessageRunner.h>
@@ -63,6 +64,7 @@
 #include <StatusBar.h>
 #include <StringView.h>
 #include <TextControl.h>
+#include <UnicodeChar.h>
 
 #include <stdio.h>
 
@@ -609,6 +611,23 @@ BrowserWindow::BrowserWindow(BRect frame, SettingsMessage* appSettings,
 		snprintf(numStr, sizeof(numStr), "%d", (int) i);
 		AddShortcut(numStr[0], B_COMMAND_KEY, selectTab);
 	}
+
+	BKeymap keymap;
+	keymap.SetToCurrent();
+	BObjectList<const char> unmodified(3, true);
+	if (keymap.GetModifiedCharacters("+", B_SHIFT_KEY, 0, &unmodified)
+			== B_OK) {
+		int32 count = unmodified.CountItems();
+		for (int32 i = 0; i < count; i++) {
+			uint32 key = BUnicodeChar::FromUTF8(unmodified.ItemAt(i));
+			if (!HasShortcut(key, 0)) {
+				// Add semantic zoom in shortcut, bug #7428
+				AddShortcut(key, B_COMMAND_KEY,
+					new BMessage(ZOOM_FACTOR_INCREASE));
+			}
+		}
+	}
+	unmodified.MakeEmpty();
 
 	be_app->PostMessage(WINDOW_OPENED);
 }
@@ -2364,7 +2383,7 @@ BrowserWindow::_HandlePageSourceResult(const BMessage* message)
 		ret = message->FindString("source", &source);
 
 		if (ret == B_OK)
-			ret = find_directory(B_COMMON_TEMP_DIRECTORY, &pathToPageSource);
+			ret = find_directory(B_SYSTEM_TEMP_DIRECTORY, &pathToPageSource);
 
 		BString tmpFileName("PageSource_");
 		tmpFileName << system_time() << ".html";

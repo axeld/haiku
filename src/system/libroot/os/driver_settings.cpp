@@ -45,6 +45,8 @@
 #ifdef _BOOT_MODE
 #	include <boot/kernel_args.h>
 #	include <boot/stage2.h>
+#else
+#	include <find_directory_private.h>
 #endif
 
 #include <stdlib.h>
@@ -766,8 +768,8 @@ load_driver_settings(const char *driverName)
 #ifdef _BOOT_MODE
 		strcpy(path, kUserSettingsDirectory);
 #else
-		// TODO: use B_COMMON_SETTINGS_DIRECTORY instead!
-		if (find_directory(B_USER_SETTINGS_DIRECTORY, -1, false, path,
+		// TODO: use B_SYSTEM_SETTINGS_DIRECTORY instead!
+		if (__find_directory(B_USER_SETTINGS_DIRECTORY, -1, false, path,
 				sizeof(path)) == B_OK)
 #endif
 		{

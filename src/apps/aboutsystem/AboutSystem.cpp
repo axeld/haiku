@@ -602,27 +602,9 @@ AboutView::AboutView()
 	versionView->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT,
 		B_ALIGN_VERTICAL_UNSET));
 
-	// GCC version
-	BEntry gccFourHybrid("/boot/system/lib/gcc2/libstdc++.r4.so");
-	BEntry gccTwoHybrid("/boot/system/lib/gcc4/libsupc++.so");
-	bool isHybrid = gccFourHybrid.Exists() || gccTwoHybrid.Exists();
-
-	if (isHybrid) {
-		snprintf(string, sizeof(string), B_TRANSLATE("GCC %d Hybrid"),
-			__GNUC__);
-	} else
-		snprintf(string, sizeof(string), "GCC %d", __GNUC__);
-
-	BStringView* gccView = new BStringView("gcctext", string);
-	gccView->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT,
+	BStringView* abiView = new BStringView("abitext", B_HAIKU_ABI_NAME);
+	abiView->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT,
 		B_ALIGN_VERTICAL_UNSET));
-
-#if __GNUC__ == 2
-	if (isHybrid) {
-		// do now show the GCC version if it's the default
-		gccView->Hide();
-	}
-#endif
 
 	// CPU count, type and clock speed
 	char processorLabel[256];
@@ -701,7 +683,7 @@ AboutView::AboutView()
 			.AddGroup(B_VERTICAL, 0)
 				.Add(_CreateLabel("oslabel", B_TRANSLATE("Version:")))
 				.Add(versionView)
-				.Add(gccView)
+				.Add(abiView)
 				.AddStrut(offset)
 				.Add(_CreateLabel("cpulabel", processorLabel))
 				.Add(cpuView)
@@ -1044,6 +1026,7 @@ AboutView::_CreateCreditsView()
 		"François Revol\n"
 		"Philippe Saint-Pierre\n"
 		"John Scipione\n"
+		"Alex Smith\n"
 		"Jonas Sundström\n"
 		"Oliver Tappe\n"
 		"Gerasim Troeglazov\n"
@@ -1198,7 +1181,6 @@ AboutView::_CreateCreditsView()
 		"Ralf Schülke\n"
 		"Zousar Shaker\n"
 		"Caitlin Shaw\n"
-		"Alex Smith\n"
 		"Geoffry Song\n"
 		"Daniel Switkin\n"
 		"Atsushi Takamatsu\n"
@@ -1741,8 +1723,9 @@ status_t
 AboutView::_GetLicensePath(const char* license, BPath& path)
 {
 	static const directory_which directoryConstants[] = {
+		B_USER_NONPACKAGED_DATA_DIRECTORY,
 		B_USER_DATA_DIRECTORY,
-		B_COMMON_DATA_DIRECTORY,
+		B_SYSTEM_NONPACKAGED_DATA_DIRECTORY,
 		B_SYSTEM_DATA_DIRECTORY
 	};
 	static const int dirCount = 3;

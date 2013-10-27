@@ -184,13 +184,6 @@ BHttpFormData::MarkAsFile(const BString& filename, const BString& mimeType)
 }
 
 
-status_t
-BHttpFormData::MarkAsFile(const BString& filename)
-{
-	return MarkAsFile(filename, "");
-}
-
-
 void
 BHttpFormData::UnmarkAsFile()
 {
@@ -711,6 +704,7 @@ BHttpForm::_GetMultipartHeader(const BHttpFormData* element) const
 
 
 BHttpForm::Iterator::Iterator(BHttpForm* form)
+	: fElement(NULL)
 {
 	fForm = form;
 	fStdIterator = form->fFields.begin();

@@ -45,7 +45,7 @@ All rights reserved.
 #include <Directory.h>
 #include <Entry.h>
 #include <FindDirectory.h>
-#include <InterfaceDefs.h>
+#include <Keymap.h>
 #include <Locale.h>
 #include <MenuItem.h>
 #include <MenuBar.h>
@@ -53,6 +53,7 @@ All rights reserved.
 #include <Path.h>
 #include <PopUpMenu.h>
 #include <Screen.h>
+#include <UnicodeChar.h>
 #include <Volume.h>
 #include <VolumeRoster.h>
 #include <Roster.h>
@@ -177,7 +178,7 @@ CompareLabels(const BMenuItem* item1, const BMenuItem* item2)
 
 
 static bool
-AddOneAddon(const Model* model, const char* name, uint32 shortcut, 
+AddOneAddon(const Model* model, const char* name, uint32 shortcut,
 	uint32 modifiers, bool primary, void* context)
 {
 	AddOneAddonParams* params = (AddOneAddonParams*)context;
@@ -962,6 +963,24 @@ BContainerWindow::Init(const BMessage* message)
 		new BMessage('dpfL'), PoseView());
 #endif
 
+	BKeymap keymap;
+	keymap.SetToCurrent();
+	BObjectList<const char> unmodified(3, true);
+	if (keymap.GetModifiedCharacters("+", B_SHIFT_KEY, 0, &unmodified)
+			== B_OK) {
+		int32 count = unmodified.CountItems();
+		for (int32 i = 0; i < count; i++) {
+			uint32 key = BUnicodeChar::FromUTF8(unmodified.ItemAt(i));
+			if (!HasShortcut(key, 0)) {
+				// Add semantic zoom in shortcut, bug #6692
+				BMessage* increaseSize = new BMessage(kIconMode);
+					increaseSize->AddInt32("scale", 1);
+				AddShortcut(key, B_COMMAND_KEY, increaseSize, PoseView());
+			}
+		}
+	}
+	unmodified.MakeEmpty();
+
 	if (message)
 		RestoreState(*message);
 	else
@@ -1467,7 +1486,8 @@ BContainerWindow::MessageReceived(BMessage* message)
 				PoseView()->MoveSelectionInto(&model, this, false, false,
 					message->what == kCreateLink,
 					message->what == kCreateRelativeLink);
-			} else if (!TargetModel()->IsQuery()) {
+			} else if (!TargetModel()->IsQuery()
+				&& !TargetModel()->IsVirtualDirectory()) {
 				// no destination specified, create link in same dir as item
 				PoseView()->MoveSelectionInto(TargetModel(), this, false, false,
 					message->what == kCreateLink,
@@ -1855,7 +1875,8 @@ BContainerWindow::AddFileMenu(BMenu* menu)
 			new BMessage(kFindButton), 'F'));
 	}
 
-	if (!TargetModel()->IsQuery() && !IsTrash() && !IsPrintersDir()) {
+	if (!TargetModel()->IsQuery() && !TargetModel()->IsVirtualDirectory()
+		&& !IsTrash() && !IsPrintersDir()) {
 		if (!PoseView()->IsFilePanel()) {
 			TemplatesMenu* templateMenu = new TemplatesMenu(PoseView(),
 				B_TRANSLATE("New"));
@@ -2068,6 +2089,7 @@ BContainerWindow::AddShortcuts()
 	ASSERT(!IsTrash());
 	ASSERT(!PoseView()->IsFilePanel());
 	ASSERT(!TargetModel()->IsQuery());
+	ASSERT(!TargetModel()->IsVirtualDirectory());
 
 	AddShortcut('X', B_COMMAND_KEY | B_SHIFT_KEY,
 		new BMessage(kCutMoreSelectionToClipboard), this);
@@ -2105,6 +2127,14 @@ BContainerWindow::AddShortcuts()
 		new BMessage(kOpenParentDir), PoseView());
 	AddShortcut('O', B_COMMAND_KEY | B_CONTROL_KEY,
 		new BMessage(kOpenSelectionWith), PoseView());
+
+	BMessage* decreaseSize = new BMessage(kIconMode);
+	decreaseSize->AddInt32("scale", 0);
+	AddShortcut('-', B_COMMAND_KEY, decreaseSize, PoseView());
+
+	BMessage* increaseSize = new BMessage(kIconMode);
+	increaseSize->AddInt32("scale", 1);
+	AddShortcut('+', B_COMMAND_KEY, increaseSize, PoseView());
 }
 
 
@@ -2879,7 +2909,7 @@ BContainerWindow::AddTrashContextMenus(BMenu* menu)
 
 void
 BContainerWindow::EachAddon(bool (*eachAddon)(const Model*, const char*,
-	uint32 shortcut, uint32 modifiers, bool primary, void* context), 
+	uint32 shortcut, uint32 modifiers, bool primary, void* context),
 	void* passThru, BObjectList<BString> &mimeTypes)
 {
 	AutoLock<LockingList<AddonShortcut> > lock(fAddonsList);
@@ -3668,8 +3698,9 @@ BContainerWindow::SetUpDefaultState()
 		// try copying state from our parent directory, unless it is the
 		// desktop folder
 		BEntry entry(TargetModel()->EntryRef());
-		BDirectory parent;
-		if (entry.GetParent(&parent) == B_OK && parent != desktop) {
+		BNode parent;
+		if (FSGetParentVirtualDirectoryAware(entry, parent) == B_OK
+			&& parent != desktop) {
 			PRINT(("looking at parent for state\n"));
 			if (NodeHasSavedState(&parent)) {
 				PRINT(("got state from parent\n"));
@@ -3942,8 +3973,10 @@ BContainerWindow::ShowSelectionWindow()
 void
 BContainerWindow::ShowNavigator(bool show)
 {
-	if (PoseView()->IsDesktopWindow())
+	if (PoseView()->IsDesktopWindow() || !TargetModel()->IsDirectory()
+		|| fPoseView->IsFilePanel()) {
 		return;
+	}
 
 	if (show) {
 		if (Navigator() && !Navigator()->IsHidden())

@@ -30,26 +30,22 @@ static const char* kArchivedCookieHttpOnly = "be:cookie.httponly";
 static const char* kArchivedCookieHostOnly = "be:cookie.hostonly";
 
 
-BNetworkCookie::BNetworkCookie(const char* name, const char* value)
+BNetworkCookie::BNetworkCookie(const char* name, const char* value,
+	const BUrl& url)
 {
 	_Reset();
 	fName = name;
 	fValue = value;
+
+	SetDomain(url.Host());
+	SetPath(_DefaultPathForUrl(url));
 }
 
 
-BNetworkCookie::BNetworkCookie(const BString& cookieString)
+BNetworkCookie::BNetworkCookie(const BString& cookieString, const BUrl& url)
 {
 	_Reset();
-	ParseCookieString(cookieString);
-}
-
-
-BNetworkCookie::BNetworkCookie(const BString& cookieString,
-	const BUrl& url)
-{
-	_Reset();
-	ParseCookieStringFromUrl(cookieString, url);
+	fInitStatus = ParseCookieString(cookieString, url);
 }
 
 
@@ -88,11 +84,15 @@ BNetworkCookie::~BNetworkCookie()
 // #pragma mark String to cookie fields
 
 
-BNetworkCookie&
-BNetworkCookie::ParseCookieStringFromUrl(const BString& string,
-	const BUrl& url)
+status_t
+BNetworkCookie::ParseCookieString(const BString& string, const BUrl& url)
 {
 	_Reset();
+
+	// Set default values (these can be overriden later on)
+	SetPath(_DefaultPathForUrl(url));
+	SetDomain(url.Host());
+	fHostOnly = true;
 
 	BString name;
 	BString value;
@@ -102,11 +102,15 @@ BNetworkCookie::ParseCookieStringFromUrl(const BString& string,
 	index = _ExtractNameValuePair(string, name, value, index);
 	if (index == -1) {
 		// The set-cookie-string is not valid
-		return *this;
+		return B_BAD_DATA;
 	}
 
 	SetName(name);
 	SetValue(value);
+
+	// Note on error handling: even if there are parse errors, we will continue
+	// and try to parse as much from the cookie as we can.
+	status_t result = B_OK;
 
 	// Parse the remaining cookie attributes.
 	while (index < string.Length()) {
@@ -121,55 +125,55 @@ BNetworkCookie::ParseCookieStringFromUrl(const BString& string,
 			SetHttpOnly(true);
 
 		// The following attributes require a value.
-		if (value.IsEmpty())
-			continue;
 
 		if (name.ICompare("max-age") == 0) {
+			if (value.IsEmpty()) {
+				result = B_BAD_VALUE;
+				continue;
+			}
 			// Validate the max-age value.
 			char* end = NULL;
 			long maxAge = strtol(value.String(), &end, 10);
 			if (*end == '\0')
 				SetMaxAge((int)maxAge);
+			else
+				SetMaxAge(-1); // cookie will expire immediately
 		} else if (name.ICompare("expires") == 0) {
+			if (value.IsEmpty()) {
+				result = B_BAD_VALUE;
+				continue;
+			}
 			BHttpTime date(value);
 			SetExpirationDate(date.Parse());
 		} else if (name.ICompare("domain") == 0) {
-			SetDomain(value);
+			if (value.IsEmpty()) {
+				result = B_BAD_VALUE;
+				continue;
+			}
+
+			status_t domainResult = SetDomain(value);
+			// Do not reset the result to B_OK if something else already failed
+			if (result == B_OK)
+				result = domainResult;
 		} else if (name.ICompare("path") == 0) {
-			SetPath(value);
+			if (value.IsEmpty()) {
+				result = B_BAD_VALUE;
+				continue;
+			}
+			status_t pathResult = SetPath(value);
+			if (result == B_OK)
+				result = pathResult;
 		}
 	}
 
-	// If no domain was specified, we set a host-only domain from the URL.
-	if (!HasDomain()) {
-		SetDomain(url.Host());
-		fHostOnly = true;
-	} else {
-		// Otherwise the setting URL must domain-match the domain it set.
-		if (!IsValidForDomain(url.Host())) {
-			// Invalidate the cookie.
-			_Reset();
-			return *this;
-		}
-		// We should also reject cookies with domains that match public
-		// suffixes.
+	if (!IsValidForDomain(url.Host())) {
+		// Invalidate the cookie.
+		_Reset();
+		return B_NOT_ALLOWED;
 	}
 
-	// If no path was specified or the path is invalid, we compute the default
-	// path from the URL.
-	if (!HasPath() || Path()[0] != '/')
-		SetPath(_DefaultPathForUrl(url));
 
-	return *this;
-}
-
-
-BNetworkCookie&
-BNetworkCookie::ParseCookieString(const BString& string)
-{
-	BUrl url;
-	ParseCookieStringFromUrl(string, url);
-	return *this;
+	return result;
 }
 
 
@@ -196,25 +200,44 @@ BNetworkCookie::SetValue(const BString& value)
 }
 
 
-BNetworkCookie&
+status_t
 BNetworkCookie::SetPath(const BString& path)
 {
+	if(path[0] != '/')
+		return B_BAD_DATA;
+
 	// TODO: canonicalize the path
 	fPath = path;
 	fRawFullCookieValid = false;
-	return *this;
+	return B_OK;
 }
 
 
-BNetworkCookie&
+status_t
 BNetworkCookie::SetDomain(const BString& domain)
 {
 	// TODO: canonicalize the domain
-	fDomain = domain;
+	BString newDomain = domain;
+
+	// RFC 2109 (legacy) support: domain string may start with a dot,
+	// meant to indicate the cookie should also be used for subdomains.
+	// RFC 6265 makes all cookies work for subdomains, unless the domain is
+	// not specified at all (in this case it has to exactly match the Url of
+	// the page that set the cookie). In any case, we don't need to handle
+	// dot-cookies specifically anymore, so just remove the extra dot.
+	if(newDomain[0] == '.')
+		newDomain.Remove(0, 1);
+
+	// check we're not trying to set a cookie on a TLD or empty domain
+	if(newDomain.FindLast('.') <= 0)
+		return B_BAD_DATA;
+
+	fDomain = newDomain.ToLower();
+
 	fHostOnly = false;
 
 	fRawFullCookieValid = false;
-	return *this;
+	return B_OK;
 }
 
 
@@ -222,7 +245,7 @@ BNetworkCookie&
 BNetworkCookie::SetMaxAge(int32 maxAge)
 {
 	BDateTime expiration = BDateTime::CurrentDateTime(B_GMT_TIME);
-	expiration.Time().AddSeconds(maxAge);
+	expiration.SetTime_t(expiration.Time_t() + maxAge);
 	return SetExpirationDate(expiration);
 }
 
@@ -239,7 +262,7 @@ BNetworkCookie::SetExpirationDate(time_t expireDate)
 BNetworkCookie&
 BNetworkCookie::SetExpirationDate(BDateTime& expireDate)
 {
-	if (expireDate.Time_t() <= 0) {
+	if (!expireDate.IsValid()) {
 		fExpiration.SetTime_t(0);
 		fSessionCookie = true;
 		fExpirationStringValid = false;
@@ -390,7 +413,7 @@ BNetworkCookie::IsSessionCookie() const
 bool
 BNetworkCookie::IsValid() const
 {
-	return HasName() && HasDomain() && HasPath();
+	return fInitStatus == B_OK && HasName() && HasDomain();
 }
 
 
@@ -420,15 +443,19 @@ BNetworkCookie::IsValidForDomain(const BString& domain) const
 	if (IsHostOnly())
 		return domain == cookieDomain;
 
-	// Otherwise, the domains must match exactly, or the cookie domain
-	// must be a suffix with the preceeding character being a dot.
+	// FIXME prevent supercookies with a domain of ".com" or similar
+	// This is NOT as straightforward as relying on the last dot in the domain.
+	// Here's a list of TLD:
+	// https://github.com/rsimoes/Mozilla-PublicSuffix/blob/master/effective_tld_names.dat
+
+	// FIXME do not do substring matching on IP addresses. The RFCs disallow it.
+
+	// Otherwise, the domains must match exactly, or the domain must have a dot
+	// character just before the common suffix.
 	const char* suffix = domain.String() + difference;
-	if (strcmp(suffix, cookieDomain.String()) == 0) {
-		if (difference == 0)
-			return true;
-		else if (domain[difference - 1] == '.')
-			return true;
-	}
+	if (strcmp(suffix, cookieDomain.String()) == 0 && (difference == 0 
+			|| domain[difference - 1] == '.'))
+		return true;
 
 	return false;
 }
@@ -438,22 +465,17 @@ bool
 BNetworkCookie::IsValidForPath(const BString& path) const
 {
 	const BString& cookiePath = Path();
-	if (path.Length() < cookiePath.Length())
+	BString normalizedPath = path;
+
+	int slashPos = normalizedPath.FindLast('/');
+	if(slashPos != normalizedPath.Length() - 1)
+		normalizedPath.Truncate(slashPos + 1);
+
+	if (normalizedPath.Length() < cookiePath.Length())
 		return false;
 
 	// The cookie path must be a prefix of the path string
-	if (path.Compare(cookiePath, cookiePath.Length()) != 0)
-		return false;
-
-	// The paths match if they are identical, or if the last
-	// character of the prefix is a slash, or if the character
-	// after the prefix is a slash.
-	if (path.Length() == cookiePath.Length()
-			|| cookiePath[cookiePath.Length() - 1] == '/'
-			|| path[cookiePath.Length()] == '/')
-		return true;
-
-	return false;
+	return normalizedPath.Compare(cookiePath, cookiePath.Length()) == 0;
 }
 
 
@@ -591,13 +613,6 @@ BNetworkCookie::Instantiate(BMessage* archive)
 // #pragma mark Overloaded operators
 
 
-BNetworkCookie&
-BNetworkCookie::operator=(const char* string)
-{
-	return ParseCookieString(string);
-}
-
-
 bool
 BNetworkCookie::operator==(const BNetworkCookie& other)
 {
@@ -616,6 +631,8 @@ BNetworkCookie::operator!=(const BNetworkCookie& other)
 void
 BNetworkCookie::_Reset()
 {
+	fInitStatus = false;
+
 	fName.Truncate(0);
 	fValue.Truncate(0);
 	fDomain.Truncate(0);
@@ -726,6 +743,13 @@ BNetworkCookie::_ExtractAttributeValuePair(const BString& cookieString,
 		cookieString.CopyInto(value, first, last - first + 1);
 	else
 		value.SetTo("");
+
+	// values may (or may not) have quotes around them.
+	if(value[0] == '"' && value[value.Length() - 1] == '"')
+	{
+		value.Remove(0, 1);
+		value.Remove(value.Length() - 1, 1);
+	}
 
 	return cookieAVEnd;
 }

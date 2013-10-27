@@ -30,6 +30,9 @@ search_path_for_type(image_type type)
 {
 	const char *path = NULL;
 
+	// TODO: The *PATH variables should not include the standard system paths.
+	// Instead those paths should always be used after the directories specified
+	// via the variables.
 	switch (type) {
 		case B_APP_IMAGE:
 			path = getenv("PATH");
@@ -53,29 +56,31 @@ search_path_for_type(image_type type)
 	// Since the kernel does not set any variables, this is also needed
 	// to start the root shell.
 
+	// TODO: The user specific paths should not be used by default.
 	switch (type) {
 		case B_APP_IMAGE:
-			return kUserBinDirectory
+			return kUserNonpackagedBinDirectory
+				":" kUserBinDirectory
 						// TODO: Remove!
-				":" kCommonBinDirectory
+				":" kSystemNonpackagedBinDirectory
 				":" kGlobalBinDirectory
-				":" kAppsDirectory
-				":" kPreferencesDirectory
 				":" kSystemAppsDirectory
-				":" kSystemPreferencesDirectory
-				":" kCommonDevelopToolsBinDirectory;
+				":" kSystemPreferencesDirectory;
 
 		case B_LIBRARY_IMAGE:
 			return kAppLocalLibDirectory
+				":" kUserNonpackagedLibDirectory
 				":" kUserLibDirectory
 					// TODO: Remove!
-				":" kCommonLibDirectory
+				":" kSystemNonpackagedLibDirectory
 				":" kSystemLibDirectory;
 
 		case B_ADD_ON_IMAGE:
 			return kAppLocalAddonsDirectory
+				":" kUserNonpackagedAddonsDirectory
 				":" kUserAddonsDirectory
 					// TODO: Remove!
+				":" kSystemNonpackagedAddonsDirectory
 				":" kSystemAddonsDirectory;
 
 		default:
@@ -86,7 +91,7 @@ search_path_for_type(image_type type)
 
 static int
 try_open_executable(const char *dir, int dirLength, const char *name,
-	const char *programPath, const char *compatibilitySubDir, char *path,
+	const char *programPath, const char *abiSpecificSubDir, char *path,
 	size_t pathLength)
 {
 	size_t nameLength = strlen(name);
@@ -119,11 +124,12 @@ try_open_executable(const char *dir, int dirLength, const char *name,
 			pathLength -= bytesCopied;
 			dir += 2;
 			dirLength -= 2;
-		} else if (compatibilitySubDir != NULL) {
+		} else if (abiSpecificSubDir != NULL) {
 			// We're looking for a library or an add-on and the executable has
-			// not been compiled with a compiler compatible with the one the
-			// OS has been built with. Thus we only look in specific subdirs.
-			subDirLen = strlen(compatibilitySubDir) + 1;
+			// not been compiled with a compiler using the same ABI as the one
+			// the OS has been built with. Thus we only look in subdirs
+			// specific to that ABI.
+			subDirLen = strlen(abiSpecificSubDir) + 1;
 		}
 
 		if (dirLength + 1 + subDirLen + nameLength >= pathLength)
@@ -132,7 +138,7 @@ try_open_executable(const char *dir, int dirLength, const char *name,
 		memcpy(buffer, dir, dirLength);
 		buffer[dirLength] = '/';
 		if (subDirLen > 0) {
-			memcpy(buffer + dirLength + 1, compatibilitySubDir, subDirLen - 1);
+			memcpy(buffer + dirLength + 1, abiSpecificSubDir, subDirLen - 1);
 			buffer[dirLength + subDirLen] = '/';
 		}
 		strcpy(buffer + dirLength + 1 + subDirLen, name);
@@ -176,7 +182,7 @@ try_open_executable(const char *dir, int dirLength, const char *name,
 
 static int
 search_executable_in_path_list(const char *name, const char *pathList,
-	int pathListLen, const char *programPath, const char *compatibilitySubDir,
+	int pathListLen, const char *programPath, const char *abiSpecificSubDir,
 	char *pathBuffer, size_t pathBufferLength)
 {
 	const char *pathListEnd = pathList + pathListLen;
@@ -194,7 +200,7 @@ search_executable_in_path_list(const char *name, const char *pathList,
 			pathEnd++;
 
 		fd = try_open_executable(pathList, pathEnd - pathList, name,
-			programPath, compatibilitySubDir, pathBuffer, pathBufferLength);
+			programPath, abiSpecificSubDir, pathBuffer, pathBufferLength);
 		if (fd >= 0) {
 			// see if it's a dir
 			struct stat stat;
@@ -217,7 +223,7 @@ search_executable_in_path_list(const char *name, const char *pathList,
 
 int
 open_executable(char *name, image_type type, const char *rpath,
-	const char *programPath, const char *compatibilitySubDir)
+	const char *programPath, const char *abiSpecificSubDir)
 {
 	char buffer[PATH_MAX];
 	int fd = B_ENTRY_NOT_FOUND;
@@ -269,14 +275,7 @@ open_executable(char *name, image_type type, const char *rpath,
 	if (fd < 0) {
 		if (const char *paths = search_path_for_type(type)) {
 			fd = search_executable_in_path_list(name, paths, strlen(paths),
-				programPath, compatibilitySubDir, buffer, sizeof(buffer));
-
-			// If not found and a compatibility sub directory has been
-			// specified, look again in the standard search paths.
-			if (fd == B_ENTRY_NOT_FOUND && compatibilitySubDir != NULL) {
-				fd = search_executable_in_path_list(name, paths, strlen(paths),
-					programPath, NULL, buffer, sizeof(buffer));
-			}
+				programPath, abiSpecificSubDir, buffer, sizeof(buffer));
 		}
 	}
 
@@ -287,6 +286,28 @@ open_executable(char *name, image_type type, const char *rpath,
 	}
 
 	return fd;
+}
+
+
+/*!
+	Applies haiku-specific fixes to a shebang line.
+*/
+static void
+fixup_shebang(char *invoker)
+{
+	char *current = invoker;
+	while (*current == ' ' || *current == '\t') {
+		++current;
+	}
+
+	char *commandStart = current;
+	while (*current != ' ' && *current != '\t' && *current != '\0') {
+		++current;
+	}
+
+	// replace /usr/bin/env with /bin/env
+	if (memcmp(commandStart, "/usr/bin/env", current - commandStart) == 0)
+		memmove(commandStart, commandStart + 4, strlen(commandStart + 4) + 1);
 }
 
 
@@ -342,8 +363,10 @@ test_executable(const char *name, char *invoker)
 			} else
 				end[0] = '\0';
 
-			if (invoker)
+			if (invoker) {
 				strcpy(invoker, buffer + 2);
+				fixup_shebang(invoker);
+			}
 
 			status = B_OK;
 		}
