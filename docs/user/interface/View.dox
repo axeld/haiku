@@ -6,8 +6,8 @@
  *		John Scipione, jscipione@gmail.com
  *
  * Corresponds to:
- *		headers/os/interface/View.h	 hrev45799
- *		src/kits/interface/View.cpp	 hrev45799
+ *		headers/os/interface/View.h	 hrev46322
+ *		src/kits/interface/View.cpp	 hrev46322
  */
 
 
@@ -646,7 +646,7 @@ SetViewColor(Parent()->ViewColor());
 	\fn BView::BView(BMessage* archive)
 	\brief Archive constructor.
 
-	\param archive The data \a archive message to construct the view from.
+	\param archive The message data to construct the view from.
 */
 
 
@@ -671,7 +671,7 @@ SetViewColor(Parent()->ViewColor());
 	\brief Creates a new BView object from the \a data message.
 
 	\returns A newly created BView object or \c NULL if the message doesn't
-		contain an archived BView object.
+		contain an archived BView.
 */
 
 
@@ -769,11 +769,11 @@ SetViewColor(Parent()->ViewColor());
 
 
 /*!
-	\fn void BView::DrawAfterChildren(BRect r)
+	\fn void BView::DrawAfterChildren(BRect updateRect)
 	\brief Perform any drawing that needs to be done after child view have
 		already been drawn.
 
-	\param r The rectangular area to be drawn.
+	\param updateRect The rectangular area to drawn in.
 
 	The default implementation does nothing.
 */
@@ -1192,7 +1192,7 @@ SetViewColor(Parent()->ViewColor());
 
 /*!
 	\fn bool BView::IsPrinting() const
-	\brief Returns whether or not the BView object is drawing to a printer.
+	\brief Returns whether or not the view is drawing to a printer.
 
 	This method should only be called from the Draw() or DrawAfterChildren()
 	methods. If called from any other method this method returns \c false.

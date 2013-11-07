@@ -1,6 +1,6 @@
 RemotePackageRepository HaikuPorts
 	: x86_gcc2
-	: http://haiku-files.org/files/repo
+	: http://packages.haiku-os.org/haikuports/master/repo/x86_gcc2
 	:
 	# architecture "any" packages
 	be_book-2008_10_26-1
@@ -124,7 +124,7 @@ RemotePackageRepository HaikuPorts
 	texinfo-4.13a-7
 	unrar-4.2.4-1
 	vim-7.3-1
-	vision-0.9.7.r947-1
+	vision-0.9.7.r947-2
 	which-2.20-1
 	wonderbrush-2.1.2-4
 	wpa_supplicant-2.0-3

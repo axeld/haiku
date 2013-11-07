@@ -12,8 +12,8 @@ SYSTEM_BIN = [ FFilterByBuildFeatures
 	csplit cut date dc dd desklink df diff diff3 dircolors dirname
 	diskimage draggers driveinfo dstcheck du dumpcatalog
 	echo eject env error expand expr
-	factor false fdinfo ffm filepanel find finddir FirstBootPrompt fmt fold
-	fortune frcode fstrim ftp ftpd funzip fwcontrol
+	factor false fdinfo ffm filepanel find finddir findpaths FirstBootPrompt fmt
+	fold fortune frcode fstrim ftp ftpd funzip fwcontrol@x86
 	gawk gdb@x86 getlimits groupadd groupdel groupmod groups gzip gzexe
 	hd head hey hostname
 	id ident ifconfig <bin>install installsound iroster isvolume
@@ -191,12 +191,12 @@ SYSTEM_ADD_ONS_DRIVERS_NET = [ FFilterByBuildFeatures
 	etherpci pegasus sis900 usb_davicom usb_asix usb_ecm wb840
 
 	# WLAN drivers
-	x86 @{
+	x86,x86_64 @{
 		aironetwifi atheroswifi broadcom43xx
 		iprowifi2100 iprowifi2200 iprowifi3945
 		iprowifi4965 marvell88w8363 marvell88w8335
 		ralinkwifi wavelanwifi
-	}@ # x86
+	}@ # x86,x86_64
 
 	# WWAN drivers
 	#usb_beceemwmx@gpl
