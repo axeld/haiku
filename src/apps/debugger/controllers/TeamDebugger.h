@@ -1,6 +1,6 @@
 /*
  * Copyright 2009, Ingo Weinhold, ingo_weinhold@gmx.de.
- * Copyright 2013, Rene Gollent, rene@gollent.com.
+ * Copyright 2013-2014, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 #ifndef TEAM_DEBUGGER_H
@@ -13,6 +13,7 @@
 #include <debug_support.h>
 
 #include "DebugEvent.h"
+#include "Jobs.h"
 #include "Team.h"
 #include "TeamSettings.h"
 #include "ThreadHandler.h"
@@ -30,7 +31,8 @@ class WatchpointManager;
 
 
 class TeamDebugger : public BLooper, private UserInterfaceListener,
-	private JobListener, private Team::Listener {
+	private JobListener, private ImageDebugInfoJobListener,
+	private Team::Listener {
 public:
 	class Listener;
 
@@ -70,6 +72,7 @@ private:
 									ValueNode* valueNode);
 	virtual	void				ThreadActionRequested(thread_id threadID,
 									uint32 action, target_addr_t address);
+
 	virtual	void				SetBreakpointRequested(target_addr_t address,
 									bool enabled, bool hidden = false);
 	virtual	void				SetBreakpointEnabledRequested(
@@ -78,6 +81,14 @@ private:
 	virtual	void				ClearBreakpointRequested(target_addr_t address);
 	virtual	void				ClearBreakpointRequested(
 									UserBreakpoint* breakpoint);
+
+	virtual	void				SetStopOnImageLoadRequested(bool enabled,
+									bool useImageNames);
+	virtual	void				AddStopImageNameRequested(
+									const char* name);
+	virtual	void				RemoveStopImageNameRequested(
+									const char* name);
+
 	virtual	void				SetWatchpointRequested(target_addr_t address,
 									uint32 type, int32 length, bool enabled);
 	virtual	void				SetWatchpointEnabledRequested(
@@ -100,6 +111,9 @@ private:
 	virtual	void				JobDone(Job* job);
 	virtual	void				JobFailed(Job* job);
 	virtual	void				JobAborted(Job* job);
+
+	virtual	void				ImageDebugInfoJobNeedsUserInput(Job* job,
+									ImageDebugInfoLoadingState* state);
 
 	// Team::Listener
 	virtual	void				ThreadStateChanged(
@@ -141,6 +155,8 @@ private:
 									ImageCreatedEvent* event);
 			bool				_HandleImageDeleted(
 									ImageDeletedEvent* event);
+			bool				_HandlePostSyscall(
+									PostSyscallEvent* event);
 
 			void				_HandleImageDebugInfoChanged(image_id imageID);
 			void				_HandleImageFileChanged(image_id imageID);
@@ -166,6 +182,9 @@ private:
 									TeamMemoryBlock::Listener* listener);
 			status_t			_HandleSetArguments(int argc,
 									const char* const* argv);
+
+			void				_HandleDebugInfoJobUserInput(
+									ImageDebugInfoLoadingState* state);
 
 			ThreadHandler*		_GetThreadHandler(thread_id threadID);
 

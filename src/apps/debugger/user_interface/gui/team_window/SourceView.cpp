@@ -184,6 +184,7 @@ private:
 			MarkerManager*		fMarkerManager;
 			StackTrace*			fStackTrace;
 			StackFrame*			fStackFrame;
+			rgb_color			fBackgroundColor;
 			rgb_color			fBreakpointOptionMarker;
 };
 
@@ -837,9 +838,9 @@ SourceView::MarkerView::MarkerView(SourceView* sourceView, Team* team,
 	fStackFrame(NULL)
 {
 	rgb_color background = ui_color(B_PANEL_BACKGROUND_COLOR);
-	fBreakpointOptionMarker = tint_color(ui_color(B_PANEL_BACKGROUND_COLOR),
-		B_DARKEN_1_TINT);
-	SetViewColor(tint_color(background, B_LIGHTEN_2_TINT));
+	fBreakpointOptionMarker = tint_color(background, B_DARKEN_1_TINT);
+	fBackgroundColor = tint_color(background, B_LIGHTEN_2_TINT);
+	SetViewColor(B_TRANSPARENT_COLOR);
 }
 
 
@@ -892,49 +893,59 @@ SourceView::MarkerView::MaxSize()
 void
 SourceView::MarkerView::Draw(BRect updateRect)
 {
-	if (fSourceCode == NULL)
+	SetLowColor(fBackgroundColor);
+	if (fSourceCode == NULL) {
+		FillRect(updateRect, B_SOLID_LOW);
 		return;
+	}
 
 	// get the lines intersecting with the update rect
 	int32 minLine, maxLine;
 	GetLineRange(updateRect, minLine, maxLine);
-	if (minLine > maxLine)
-		return;
+	if (minLine <= maxLine) {
+		// get the markers in that range
+		SourceView::MarkerManager::MarkerList markers;
+		fMarkerManager->GetMarkers(minLine, maxLine, markers);
 
-	// get the markers in that range
-	SourceView::MarkerManager::MarkerList markers;
-	fMarkerManager->GetMarkers(minLine, maxLine, markers);
+		float width = Bounds().Width();
 
-	float width = Bounds().Width();
+		AutoLocker<SourceCode> sourceLocker(fSourceCode);
 
-	AutoLocker<SourceCode> sourceLocker(fSourceCode);
+		int32 markerIndex = 0;
+		for (int32 line = minLine; line <= maxLine; line++) {
+			bool drawBreakpointOptionMarker = true;
 
-	int32 markerIndex = 0;
-	for (int32 line = minLine; line <= maxLine; line++) {
-		bool drawBreakpointOptionMarker = true;
+			SourceView::MarkerManager::Marker* marker;
+			FillRect(LineRect(line), B_SOLID_LOW);
+			while ((marker = markers.ItemAt(markerIndex)) != NULL
+					&& marker->Line() == (uint32)line) {
+				marker->Draw(this, LineRect(line));
+				drawBreakpointOptionMarker = false;
+				markerIndex++;
+			}
 
-		SourceView::MarkerManager::Marker* marker;
-		while ((marker = markers.ItemAt(markerIndex)) != NULL
-				&& marker->Line() == (uint32)line) {
-			marker->Draw(this, LineRect(line));
-			drawBreakpointOptionMarker = false;
-			markerIndex++;
+			if (!drawBreakpointOptionMarker)
+				continue;
+
+			SourceLocation statementStart, statementEnd;
+			if (!fSourceCode->GetStatementLocationRange(SourceLocation(line),
+					statementStart, statementEnd)
+				|| statementStart.Line() != line) {
+				continue;
+			}
+
+			float y = ((float)line + 0.5f) * fFontInfo->lineHeight;
+			SetHighColor(fBreakpointOptionMarker);
+			FillEllipse(BPoint(width - 8, y), 2, 2);
 		}
-
-		if (!drawBreakpointOptionMarker)
-			continue;
-
-		SourceLocation statementStart, statementEnd;
-		if (!fSourceCode->GetStatementLocationRange(SourceLocation(line),
-				statementStart, statementEnd)
-			|| statementStart.Line() != line) {
-			continue;
-		}
-
-		float y = ((float)line + 0.5f) * fFontInfo->lineHeight;
-		SetHighColor(fBreakpointOptionMarker);
-		FillEllipse(BPoint(width - 8, y), 2, 2);
 	}
+
+	float y = (maxLine + 1) * fFontInfo->lineHeight;
+	if (y < updateRect.bottom) {
+		FillRect(BRect(0.0, y, Bounds().right, updateRect.bottom),
+			B_SOLID_LOW);
+	}
+
 }
 
 
@@ -1045,7 +1056,7 @@ SourceView::TextView::TextView(SourceView* sourceView, MarkerManager* manager,
 	fScrollRunner(NULL),
 	fMarkerManager(manager)
 {
-	SetViewColor(ui_color(B_DOCUMENT_BACKGROUND_COLOR));
+	SetViewColor(B_TRANSPARENT_COLOR);
 	fTextColor = ui_color(B_DOCUMENT_TEXT_COLOR);
 	SetFlags(Flags() | B_NAVIGABLE);
 }
@@ -1085,8 +1096,11 @@ SourceView::TextView::MaxSize()
 void
 SourceView::TextView::Draw(BRect updateRect)
 {
-	if (fSourceCode == NULL)
+	if (fSourceCode == NULL) {
+		SetLowColor(ui_color(B_DOCUMENT_BACKGROUND_COLOR));
+		FillRect(updateRect, B_SOLID_LOW);
 		return;
+	}
 
 	// get the lines intersecting with the update rect
 	int32 minLine, maxLine;
@@ -1100,12 +1114,15 @@ SourceView::TextView::Draw(BRect updateRect)
 	SourceView::MarkerManager::Marker* marker;
 	SourceView::MarkerManager::InstructionPointerMarker* ipMarker;
 	int32 markerIndex = 0;
+	float y;
 	for (int32 i = minLine; i <= maxLine; i++) {
-		SetLowColor(ViewColor());
-		float y = i * fFontInfo->lineHeight;
+		SetLowColor(ui_color(B_DOCUMENT_BACKGROUND_COLOR));
+		y = i * fFontInfo->lineHeight;
 		BString lineString;
 		_FormatLine(fSourceCode->LineAt(i), lineString);
 
+		FillRect(BRect(0.0, y, kLeftTextMargin, y + fFontInfo->lineHeight),
+			B_SOLID_LOW);
 		for (int32 j = markerIndex; j < markers.CountItems(); j++) {
 			marker = markers.ItemAt(j);
 			 if (marker->Line() < (uint32)i) {
@@ -1123,15 +1140,22 @@ SourceView::TextView::Draw(BRect updateRect)
 
 			 	} else
 					SetLowColor(255, 255, 0, 255);
-				FillRect(BRect(kLeftTextMargin, y, Bounds().right,
-					y + fFontInfo->lineHeight), B_SOLID_LOW);
 				break;
 			 } else
 			 	break;
 		}
 
+		FillRect(BRect(kLeftTextMargin, y, Bounds().right,
+			y + fFontInfo->lineHeight - 1), B_SOLID_LOW);
 		DrawString(lineString,
 			BPoint(kLeftTextMargin, y + fFontInfo->fontHeight.ascent));
+	}
+
+	y = (maxLine + 1) * fFontInfo->lineHeight;
+	if (y < updateRect.bottom) {
+		SetLowColor(ui_color(B_DOCUMENT_BACKGROUND_COLOR));
+		FillRect(BRect(0.0, y, Bounds().right, updateRect.bottom),
+			B_SOLID_LOW);
 	}
 
 	if (fSelectionStart.line != -1 && fSelectionEnd.line != -1) {
@@ -2053,13 +2077,13 @@ SourceView::SetStackTrace(StackTrace* stackTrace, Thread* activeThread)
 
 	fMarkerManager->SetStackTrace(fStackTrace);
 	fMarkerView->SetStackTrace(fStackTrace);
-	fTextView->Invalidate();
 }
 
 
 void
 SourceView::SetStackFrame(StackFrame* stackFrame)
 {
+	TRACE_GUI("SourceView::SetStackFrame(%p)\n", stackFrame);
 	if (stackFrame == fStackFrame)
 		return;
 

@@ -1,4 +1,4 @@
-1	belarusian	x-vnd.Haiku-WebPositive	3577331897
+1	belarusian	x-vnd.Haiku-WebPositive	2880796666
 Show home button	Settings Window		Паказваць кнопку "Дадому"
 Username:	Authentication Panel		Карыстальнік:
 Copy URL to clipboard	Download Window		Скапіяваць спасылку
@@ -16,6 +16,7 @@ Start page:	Settings Window		Пачатковая старонка:
 History	WebPositive Window		Гісторыя
 Error opening downloads folder	Download Window		Немагчыма адчыніць папку запампованых файлаў
 Paste	WebPositive Window		Уставіць
+Double-click or middle-click to open new tab.	Tab Manager		Скарыстайце сярэдню кнопку ці падвойны клік каб адкрыць новы таб.
 Proxy username:	Settings Window		Імя карыстальніка проксі:
 Settings	Settings Window		Наладкі
 %seconds seconds left	Download Window		Засталося %seconds секунд
@@ -88,10 +89,12 @@ Proxy server requires authentication	Settings Window		Проксі сервер 
 Clear	URL Bar		Ачысьціць
 Cut	URL Bar		Выразаць
 Clear	WebPositive Window		Ачысьціць
+Script console	Console Window		Кансоль сцэнароў
 Remove	Download Window		Выдаліць
 Find	WebPositive Window		Шукаць
 Find previous	WebPositive Window		Шукаць папярэдняе
 Settings	WebPositive Window		Наладкі
+Script console	WebPositive Window		Кансоль сцэнароў
 Proxy server address:	Settings Window		Адрэс проксі-сэрвера:
 Proxy server port:	Settings Window		Порт проксі-сэрвера:
 Bookmarks	WebPositive Window		Закладкі
@@ -105,6 +108,7 @@ Open start page	Settings Window		Адчыніць пачатковую стар�
 Continue downloads	WebPositive		Працягваць спампоўку
 Cancel	Download Window		Скасаваць
 Open search page	Settings Window		Адчыніць старонку пошуку
+Clear	Console Window		Ачысьціць
 Password:	Authentication Panel		Пароль:
 Back	WebPositive Window		Назад
 New browser window	Download Window		Новае вакно

@@ -160,19 +160,20 @@ status_t
 SpamFilter::_CheckForSpamServer()
 {
 	// Make sure the server is running.
-	if (be_roster->IsRunning (kServerSignature))
+	if (be_roster->IsRunning(kServerSignature))
 		return B_OK;
 
-	status_t status = be_roster->Launch (kServerSignature);
+	status_t status = be_roster->Launch(kServerSignature);
 	if (status == B_OK)
 		return status;
 
 	BPath path;
 	entry_ref ref;
-	const directory_which kPlaces[] = {B_COMMON_BIN_DIRECTORY,
-		B_BEOS_BIN_DIRECTORY};
-	for (size_t i = 0; i < sizeof(kPlaces) / sizeof(kPlaces[0]); i++) {
-		find_directory(kPlaces[i], &path);
+	directory_which places[] = {
+		B_SYSTEM_NONPACKAGED_BIN_DIRECTORY,
+		B_SYSTEM_BIN_DIRECTORY};
+	for (int32 i = 0; i < 2; i++) {
+		find_directory(places[i],&path);
 		path.Append("spamdbm");
 		if (!BEntry(path.Path()).Exists())
 			continue;
@@ -264,12 +265,12 @@ SpamFilter::_TrainServer(const char* stringBuffer, off_t dataSize,
 	BMessage scriptingMessage(B_SET_PROPERTY);
 	scriptingMessage.AddSpecifier((spamRatio >= fSpamCutoffRatio)
 		? "SpamString" : "GenuineString");
-	status_t errorCode = scriptingMessage.AddData ("data", B_STRING_TYPE,
+	status_t errorCode = scriptingMessage.AddData("data", B_STRING_TYPE,
 		stringBuffer, dataSize + 1, false /* fixed size */);
 	if (errorCode != B_OK)
 		return errorCode;
 	BMessage replyMessage;
-	errorCode = fMessengerToServer.SendMessage (&scriptingMessage,
+	errorCode = fMessengerToServer.SendMessage(&scriptingMessage,
 		&replyMessage);
 	if (errorCode != B_OK)
 		return errorCode;

@@ -1,6 +1,6 @@
 /*
  * Copyright 2009, Ingo Weinhold, ingo_weinhold@gmx.de.
- * Copyright 2013, Rene Gollent, rene@gollent.com.
+ * Copyright 2013-2014, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 #ifndef USER_INTERFACE_H
@@ -53,6 +53,8 @@ public:
 									// shut down the UI *now* -- no more user
 									// feedback
 
+	virtual	bool				IsInteractive() const = 0;
+
 	virtual status_t			LoadSettings(const TeamUiSettings* settings)
 									= 0;
 	virtual status_t			SaveSettings(TeamUiSettings*& settings)
@@ -67,6 +69,9 @@ public:
 									= 0;
 									// returns -1, if not implemented or user
 									// cannot be asked
+
+	virtual	status_t			SynchronouslyAskUserForFile(entry_ref* _ref)
+									= 0;
 };
 
 
@@ -105,6 +110,13 @@ public:
 	virtual	void				ClearBreakpointRequested(
 									UserBreakpoint* breakpoint) = 0;
 									// TODO: Consolidate those!
+
+	virtual	void				SetStopOnImageLoadRequested(bool enabled,
+									bool useImageNames) = 0;
+	virtual	void				AddStopImageNameRequested(
+									const char* name) = 0;
+	virtual	void				RemoveStopImageNameRequested(
+									const char* name) = 0;
 
 	virtual	void				SetWatchpointRequested(target_addr_t address,
 									uint32 type, int32 length,

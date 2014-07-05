@@ -38,9 +38,14 @@ All rights reserved.
 #include <Locale.h>
 #include <NodeMonitor.h>
 #include <Path.h>
+#include <PathFinder.h>
+#include <PathMonitor.h>
 #include <PopUpMenu.h>
+#include <Resources.h>
 #include <Roster.h>
 #include <Screen.h>
+#include <String.h>
+#include <StringList.h>
 #include <Volume.h>
 #include <VolumeRoster.h>
 
@@ -55,6 +60,7 @@ All rights reserved.
 #include "DeskWindow.h"
 #include "FSUtils.h"
 #include "IconMenuItem.h"
+#include "KeyInfos.h"
 #include "MountMenu.h"
 #include "PoseView.h"
 #include "Tracker.h"
@@ -64,51 +70,119 @@ All rights reserved.
 const char* kShelfPath = "tracker_shelf";
 	// replicant support
 
+const char* kShortcutsSettings = "shortcuts_settings";
+const char* kDefaultShortcut = "BEOS:default_shortcut";
+const uint32 kDefaultModifiers = B_OPTION_KEY | B_COMMAND_KEY;
+
+
+static struct AddonShortcut*
+MatchOne(struct AddonShortcut* item, void* castToName)
+{
+	if (strcmp(item->model->Name(), (const char*)castToName) == 0) {
+		// found match, bail out
+		return item;
+	}
+
+	return 0;
+}
+
 
 static void
-WatchAddOnDir(directory_which dirName, BDeskWindow* window)
+AddOneShortcut(Model* model, char key, uint32 modifiers, BDeskWindow* window)
 {
-	BPath path;
-	if (find_directory(dirName, &path) == B_OK) {
-		path.Append("Tracker");
-		BNode node(path.Path());
-		node_ref nodeRef;
-		node.GetNodeRef(&nodeRef);
-		TTracker::WatchNode(&nodeRef, B_WATCH_DIRECTORY, window);
-	}
-}
+	if (key == '\0')
+		return;
 
-
-struct AddOneShortcutParams {
-	BDeskWindow* window;
-	std::set<uint32>* currentAddonShortcuts;
-};
-
-static bool
-AddOneShortcut(const Model* model, const char*, uint32 shortcut,
-	bool /*primary*/, void* context)
-{
-	if (!shortcut)
-		// no shortcut, bail
-		return false;
-
-	AddOneShortcutParams* params = (AddOneShortcutParams*)context;
 	BMessage* runAddon = new BMessage(kLoadAddOn);
 	runAddon->AddRef("refs", model->EntryRef());
-
-	params->window->AddShortcut(shortcut, B_OPTION_KEY | B_COMMAND_KEY,
-		runAddon);
-	params->currentAddonShortcuts->insert(shortcut);
-	PRINT(("adding new shortcut %c\n", (char)shortcut));
-
-	return false;
+	window->AddShortcut(key, modifiers, runAddon);
 }
 
 
-// #pragma mark -
+
+static struct AddonShortcut*
+RevertToDefault(struct AddonShortcut* item, void* castToWindow)
+{
+	if (item->key != item->defaultKey || item->modifiers != kDefaultModifiers) {
+		BDeskWindow* window = static_cast<BDeskWindow*>(castToWindow);
+		if (window != NULL) {
+			window->RemoveShortcut(item->key, item->modifiers);
+			item->key = item->defaultKey;
+			item->modifiers = kDefaultModifiers;
+			AddOneShortcut(item->model, item->key, item->modifiers, window);
+		}
+	}
+
+	return 0;
+}
+
+
+static struct AddonShortcut*
+FindElement(struct AddonShortcut* item, void* castToOther)
+{
+	Model* other = static_cast<Model*>(castToOther);
+	if (*item->model->EntryRef() == *other->EntryRef())
+		return item;
+
+	return 0;
+}
+
+
+static void
+LoadAddOnDir(BDirectory directory, BDeskWindow* window,
+	LockingList<AddonShortcut>* list)
+{
+	BEntry entry;
+	while (directory.GetNextEntry(&entry) == B_OK) {
+		Model* model = new Model(&entry);
+		if (model->InitCheck() == B_OK && model->IsSymLink()) {
+			// resolve symlinks
+			Model* resolved = new Model(model->EntryRef(), true, true);
+			if (resolved->InitCheck() == B_OK)
+				model->SetLinkTo(resolved);
+			else
+				delete resolved;
+		}
+		if (model->InitCheck() != B_OK
+			|| !model->ResolveIfLink()->IsExecutable()) {
+			delete model;
+			continue;
+		}
+
+		char* name = strdup(model->Name());
+		if (!list->EachElement(MatchOne, name)) {
+			struct AddonShortcut* item = new struct AddonShortcut;
+			item->model = model;
+
+			BResources resources(model->ResolveIfLink()->EntryRef());
+			size_t size;
+			char* shortcut = (char*)resources.LoadResource(B_STRING_TYPE,
+				kDefaultShortcut, &size);
+			if (shortcut == NULL || strlen(shortcut) > 1)
+				item->key = '\0';
+			else
+				item->key = shortcut[0];
+			AddOneShortcut(model, item->key, kDefaultModifiers, window);
+			item->defaultKey = item->key;
+			item->modifiers = kDefaultModifiers;
+			list->AddItem(item);
+		}
+		free(name);
+	}
+
+	node_ref nodeRef;
+	directory.GetNodeRef(&nodeRef);
+
+	TTracker::WatchNode(&nodeRef, B_WATCH_DIRECTORY, window);
+}
+
+
+// #pragma mark - BDeskWindow
+
 
 #undef B_TRANSLATION_CONTEXT
 #define B_TRANSLATION_CONTEXT "DeskWindow"
+
 
 BDeskWindow::BDeskWindow(LockingList<BWindow>* windowList)
 	:
@@ -116,9 +190,10 @@ BDeskWindow::BDeskWindow(LockingList<BWindow>* windowList)
 		kPrivateDesktopWindowFeel, B_NOT_MOVABLE | B_WILL_ACCEPT_FIRST_CLICK
 			| B_NOT_ZOOMABLE | B_NOT_CLOSABLE | B_NOT_MINIMIZABLE
 			| B_NOT_RESIZABLE | B_ASYNCHRONOUS_CONTROLS, B_ALL_WORKSPACES),
-	fDeskShelf(0),
-	fTrashContextMenu(0),
-	fShouldUpdateAddonShortcuts(true)
+	fDeskShelf(NULL),
+	fTrashContextMenu(NULL),
+	fNodeRef(NULL),
+	fShortcutsSettings(NULL)
 {
 	// Add icon view switching shortcuts. These are displayed in the context
 	// menu, although they obviously don't work from those menu items.
@@ -167,49 +242,133 @@ BDeskWindow::Init(const BMessage*)
 	BPath path;
 	if (!BootedInSafeMode() && FSFindTrackerSettingsDir(&path) == B_OK) {
 		path.Append(kShelfPath);
-		close(open(path.Path(), O_RDONLY | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH));
+		close(open(path.Path(), O_RDONLY | O_CREAT, S_IRUSR | S_IWUSR
+			| S_IRGRP | S_IROTH));
 		if (get_ref_for_path(path.Path(), &ref) == B_OK)
 			fDeskShelf = new BShelf(&ref, fPoseView);
-		if (fDeskShelf)
+
+		if (fDeskShelf != NULL)
 			fDeskShelf->SetDisplaysZombies(true);
 	}
-
-	// watch add-on directories so that we can track the addons with
-	// corresponding shortcuts
-	WatchAddOnDir(B_USER_ADDONS_DIRECTORY, this);
-	WatchAddOnDir(B_COMMON_ADDONS_DIRECTORY, this);
-	WatchAddOnDir(B_SYSTEM_ADDONS_DIRECTORY, this);
+	InitKeyIndices();
+	InitAddonsList(false);
+	ApplyShortcutPreferences(false);
 
 	_inherited::Init();
 }
 
 
 void
-BDeskWindow::MenusBeginning()
+BDeskWindow::InitAddonsList(bool update)
 {
-	_inherited::MenusBeginning();
-
-	if (fShouldUpdateAddonShortcuts) {
-		PRINT(("updating addon shortcuts\n"));
-		fShouldUpdateAddonShortcuts = false;
-
-		// remove all current addon shortcuts
-		for (std::set<uint32>::iterator it= fCurrentAddonShortcuts.begin();
-			it != fCurrentAddonShortcuts.end(); it++) {
-			PRINT(("removing shortcut %c\n", (int)*it));
-			RemoveShortcut(*it, B_OPTION_KEY | B_COMMAND_KEY);
+	AutoLock<LockingList<AddonShortcut> > lock(fAddonsList);
+	if (lock.IsLocked()) {
+		if (update) {
+			for (int i = fAddonsList->CountItems() - 1; i >= 0; i--) {
+				AddonShortcut* item = fAddonsList->ItemAt(i);
+				RemoveShortcut(item->key, B_OPTION_KEY | B_COMMAND_KEY);
+			}
+			fAddonsList->MakeEmpty(true);
 		}
 
-		fCurrentAddonShortcuts.clear();
+		BStringList addOnPaths;
+		BPathFinder::FindPaths(B_FIND_PATH_ADD_ONS_DIRECTORY, "Tracker",
+			addOnPaths);
+		int32 count = addOnPaths.CountStrings();
+		for (int32 i = 0; i < count; i++) {
+			LoadAddOnDir(BDirectory(addOnPaths.StringAt(i)), this,
+				fAddonsList);
+		}
+	}
+}
 
-		AddOneShortcutParams params;
-		params.window = this;
-		params.currentAddonShortcuts = &fCurrentAddonShortcuts;
 
-		BObjectList<BString> mimeTypes(10, true);
-		BuildMimeTypeList(mimeTypes);
+void
+BDeskWindow::ApplyShortcutPreferences(bool update)
+{
+	AutoLock<LockingList<AddonShortcut> > lock(fAddonsList);
+	if (lock.IsLocked()) {
+		if (!update) {
+			BPath path;
+			if (find_directory(B_USER_SETTINGS_DIRECTORY, &path) == B_OK) {
+				BPathMonitor::StartWatching(path.Path(),
+					B_WATCH_STAT | B_WATCH_FILES_ONLY, this);
+				path.Append(kShortcutsSettings);
+				fShortcutsSettings = new char[strlen(path.Path()) + 1];
+				strcpy(fShortcutsSettings, path.Path());
+			}
+		}
 
-		EachAddon(&AddOneShortcut, &params, mimeTypes);
+		fAddonsList->EachElement(RevertToDefault, this);
+
+		BFile shortcutSettings(fShortcutsSettings, B_READ_ONLY);
+		BMessage fileMsg;
+		if (shortcutSettings.InitCheck() != B_OK
+			|| fileMsg.Unflatten(&shortcutSettings) != B_OK) {
+			fNodeRef = NULL;
+			return;
+		}
+		shortcutSettings.GetNodeRef(fNodeRef);
+
+		int32 i = 0;
+		BMessage message;
+		while (fileMsg.FindMessage("spec", i++, &message) == B_OK) {
+			int32 key;
+			if (message.FindInt32("key", &key) == B_OK) {
+				// only handle shortcuts referring add-ons
+				BString command;
+				if (message.FindString("command", &command) != B_OK)
+					continue;
+
+				bool isInAddons = false;
+
+				BStringList addOnPaths;
+				BPathFinder::FindPaths(B_FIND_PATH_ADD_ONS_DIRECTORY,
+					"Tracker/", addOnPaths);
+				for (int32 i = 0; i < addOnPaths.CountStrings(); i++) {
+					if (command.StartsWith(addOnPaths.StringAt(i))) {
+						isInAddons = true;
+						break;
+					}
+				}
+
+				if (!isInAddons)
+					continue;
+
+				BEntry entry(command);
+				if (entry.InitCheck() != B_OK)
+					continue;
+
+				const char* shortcut = GetKeyName(key);
+				if (strlen(shortcut) != 1)
+					continue;
+
+				uint32 modifiers = B_COMMAND_KEY;
+					// it's required by interface kit to at least
+					// have B_COMMAND_KEY
+				int32 value;
+				if (message.FindInt32("mcidx", 0, &value) == B_OK)
+					modifiers |= (value != 0 ? B_SHIFT_KEY : 0);
+
+				if (message.FindInt32("mcidx", 1, &value) == B_OK)
+					modifiers |= (value != 0 ? B_CONTROL_KEY : 0);
+
+				if (message.FindInt32("mcidx", 3, &value) == B_OK)
+					modifiers |= (value != 0 ? B_OPTION_KEY : 0);
+
+				Model model(&entry);
+				AddonShortcut* item = fAddonsList->EachElement(FindElement,
+					&model);
+				if (item != NULL) {
+					if (item->key != '\0')
+						RemoveShortcut(item->key, item->modifiers);
+
+					item->key = shortcut[0];
+					item->modifiers = modifiers;
+					AddOneShortcut(&model, item->key, item->modifiers, this);
+				}
+			}
+		}
 	}
 }
 
@@ -217,16 +376,20 @@ BDeskWindow::MenusBeginning()
 void
 BDeskWindow::Quit()
 {
-	if (fNavigationItem) {
+	if (fNavigationItem != NULL) {
 		// this duplicates BContainerWindow::Quit because
 		// fNavigationItem can be part of fTrashContextMenu
 		// and would get deleted with it
 		BMenu* menu = fNavigationItem->Menu();
-		if (menu)
+		if (menu != NULL)
 			menu->RemoveItem(fNavigationItem);
+
 		delete fNavigationItem;
 		fNavigationItem = 0;
 	}
+
+	fAddonsList->MakeEmpty(true);
+	delete fAddonsList;
 
 	delete fTrashContextMenu;
 	fTrashContextMenu = NULL;
@@ -371,7 +534,7 @@ BDeskWindow::AddWindowContextMenus(BMenu* menu)
 #endif
 	menu->AddItem(new BMenuItem(B_TRANSLATE("Clean up"),
 		new BMessage(kCleanup), 'K'));
-	menu->AddItem(new BMenuItem(B_TRANSLATE("Select"B_UTF8_ELLIPSIS),
+	menu->AddItem(new BMenuItem(B_TRANSLATE("Select" B_UTF8_ELLIPSIS),
 		new BMessage(kShowSelectionWindow), 'A', B_SHIFT_KEY));
 	menu->AddItem(new BMenuItem(B_TRANSLATE("Select all"),
 		new BMessage(B_SELECT_ALL), 'A'));
@@ -482,9 +645,28 @@ BDeskWindow::MessageReceived(BMessage* message)
 	}
 
 	switch (message->what) {
+		case B_PATH_MONITOR:
+		{
+			const char* path = "";
+			if (!(message->FindString("path", &path) == B_OK
+					&& strcmp(path, fShortcutsSettings) == 0)) {
+
+				dev_t device;
+				ino_t node;
+				if (fNodeRef == NULL
+					|| message->FindInt32("device", &device) != B_OK
+					|| message->FindInt64("node", &node) != B_OK
+					|| device != fNodeRef->device
+					|| node != fNodeRef->node)
+					break;
+			}
+			ApplyShortcutPreferences(true);
+			break;
+		}
 		case B_NODE_MONITOR:
 			PRINT(("will update addon shortcuts\n"));
-			fShouldUpdateAddonShortcuts = true;
+			InitAddonsList(true);
+			ApplyShortcutPreferences(true);
 			break;
 
 		default:

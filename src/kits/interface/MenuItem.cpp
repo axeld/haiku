@@ -10,7 +10,6 @@
  *		John Scipione, jscipione@gmail.com
  */
 
-//!	Display item for BMenu class
 
 #include <ctype.h>
 #include <stdlib.h>
@@ -186,7 +185,7 @@ BMenuItem::~BMenuItem()
 
 
 void
-BMenuItem::SetLabel(const char *string)
+BMenuItem::SetLabel(const char* string)
 {
 	if (fLabel != NULL) {
 		free(fLabel);
@@ -208,15 +207,15 @@ BMenuItem::SetLabel(const char *string)
 
 
 void
-BMenuItem::SetEnabled(bool state)
+BMenuItem::SetEnabled(bool enable)
 {
-	if (fEnabled == state)
+	if (fEnabled == enable)
 		return;
 
-	fEnabled = state;
+	fEnabled = enable;
 
 	if (fSubmenu != NULL)
-		fSubmenu->SetEnabled(state);
+		fSubmenu->SetEnabled(enable);
 
 	BMenu* menu = fSuper;
 	if (menu != NULL && menu->LockLooper()) {
@@ -227,11 +226,11 @@ BMenuItem::SetEnabled(bool state)
 
 
 void
-BMenuItem::SetMarked(bool state)
+BMenuItem::SetMarked(bool mark)
 {
-	fMark = state;
+	fMark = mark;
 
-	if (state && fSuper != NULL) {
+	if (mark && fSuper != NULL) {
 		MenuPrivate priv(fSuper);
 		priv.ItemMarked(this);
 	}
@@ -267,14 +266,16 @@ BMenuItem::SetTrigger(char trigger)
 
 
 void
-BMenuItem::SetShortcut(char ch, uint32 modifiers)
+BMenuItem::SetShortcut(char shortcut, uint32 modifiers)
 {
-	if (fShortcutChar != 0 && (fModifiers & B_COMMAND_KEY) && fWindow)
+	if (fShortcutChar != 0 && (fModifiers & B_COMMAND_KEY) != 0
+		&& fWindow != NULL) {
 		fWindow->RemoveShortcut(fShortcutChar, fModifiers);
+	}
 
-	fShortcutChar = ch;
+	fShortcutChar = shortcut;
 
-	if (ch != 0)
+	if (shortcut != 0)
 		fModifiers = modifiers | B_COMMAND_KEY;
 	else
 		fModifiers = 0;
@@ -359,7 +360,7 @@ BMenuItem::Frame() const
 
 
 void
-BMenuItem::GetContentSize(float* width, float* height)
+BMenuItem::GetContentSize(float* _width, float* _height)
 {
 	// TODO: Get rid of this. BMenu should handle this
 	// automatically. Maybe it's not even needed, since our
@@ -368,10 +369,10 @@ BMenuItem::GetContentSize(float* width, float* height)
 
 	fCachedWidth = fSuper->StringWidth(fLabel);
 
-	if (width)
-		*width = (float)ceil(fCachedWidth);
-	if (height)
-		*height = MenuPrivate(fSuper).FontHeight();
+	if (_width)
+		*_width = (float)ceil(fCachedWidth);
+	if (_height)
+		*_height = MenuPrivate(fSuper).FontHeight();
 }
 
 
@@ -444,28 +445,34 @@ BMenuItem::DrawContent()
 void
 BMenuItem::Draw()
 {
-	rgb_color lowColor = fSuper->LowColor();
+	const rgb_color lowColor = fSuper->LowColor();
+	const rgb_color highColor = fSuper->HighColor();
 
 	bool enabled = IsEnabled();
 	bool selected = IsSelected();
+	bool activated = selected && (enabled || Submenu() != NULL);
 
-	// set low color and fill background if selected
-	bool activated = selected && (enabled || Submenu());
+	// set low color
 	if (activated) {
-		BRect rect = Frame();
-		be_control_look->DrawMenuItemBackground(fSuper, rect, rect,
-			ui_color(B_MENU_SELECTED_BACKGROUND_COLOR),
-			BControlLook::B_ACTIVATED);
-	}
+		fSuper->SetLowColor(ui_color(B_MENU_SELECTED_BACKGROUND_COLOR));
+		// fill in the background
+		BRect rect(Frame());
+		be_control_look->DrawMenuItemBackground(fSuper, rect, Frame(),
+			fSuper->LowColor(), BControlLook::B_ACTIVATED);
+	} else
+		fSuper->SetLowColor(ui_color(B_MENU_BACKGROUND_COLOR));
 
 	// set high color
-	if (activated)
+	if (activated && enabled)
 		fSuper->SetHighColor(ui_color(B_MENU_SELECTED_ITEM_TEXT_COLOR));
 	else if (enabled)
 		fSuper->SetHighColor(ui_color(B_MENU_ITEM_TEXT_COLOR));
 	else {
-		// TODO: Use a lighten tint if the menu uses a dark background
-		fSuper->SetHighColor(tint_color(lowColor, B_DISABLED_LABEL_TINT));
+		rgb_color bgColor = fSuper->LowColor();
+		if (bgColor.red + bgColor.green + bgColor.blue > 128 * 3)
+			fSuper->SetHighColor(tint_color(bgColor, B_DISABLED_LABEL_TINT));
+		else
+			fSuper->SetHighColor(tint_color(bgColor, B_LIGHTEN_2_TINT));
 	}
 
 	// draw content
@@ -485,12 +492,14 @@ BMenuItem::Draw()
 			_DrawSubmenuSymbol();
 	}
 
+	// restore the parent menu's low color and high color
 	fSuper->SetLowColor(lowColor);
+	fSuper->SetHighColor(highColor);
 }
 
 
 void
-BMenuItem::Highlight(bool flag)
+BMenuItem::Highlight(bool highlight)
 {
 	fSuper->Invalidate(Frame());
 }

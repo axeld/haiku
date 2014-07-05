@@ -1,5 +1,5 @@
 /*
- * Copyright 2001-2013, Haiku, Inc.
+ * Copyright 2001-2014, Haiku, Inc.
  * Copyright 2003-2004 Kian Duffy, myob@users.sourceforge.net
  * Parts Copyright 1998-1999 Kazuho Okui and Takashi Murai.
  * All rights reserved. Distributed under the terms of the MIT license.
@@ -8,6 +8,7 @@
  *		Stefano Ceccherini, stefano.ceccherini@gmail.com
  *		Kian Duffy, myob@users.sourceforge.net
  *		Y.Hayakawa, hida@sawada.riec.tohoku.ac.jp
+ *		Jonathan Schleifer, js@webkeks.org
  *		Ingo Weinhold, ingo_weinhold@gmx.de
  *		Clemens Zeidler, haiku@Clemens-Zeidler.de
  *		Siarzhuk Zharski, zharik@gmx.li
@@ -118,6 +119,15 @@ static inline Type
 restrict_value(const Type& value, const Type& min, const Type& max)
 {
 	return value < min ? min : (value > max ? max : value);
+}
+
+
+template<typename Type>
+static inline Type
+saturated_add(Type a, Type b)
+{
+	const Type max = (Type)(-1);
+	return (max - a >= b ? a + b : max);
 }
 
 
@@ -273,6 +283,7 @@ TermView::_InitObject(const ShellParameters& shellParameters)
 	fFontHeight = 0;
 	fFontAscent = 0;
 	fEmulateBold = false;
+	fBrightInsteadOfBold = false;
 	fFrameResized = false;
 	fResizeViewDisableCount = 0;
 	fLastActivityTime = 0;
@@ -606,13 +617,13 @@ TermView::SetTermSize(int rows, int columns, bool notifyShell)
 
 
 void
-TermView::SetTermSize(BRect rect)
+TermView::SetTermSize(BRect rect, bool notifyShell)
 {
 	int rows;
 	int columns;
 
 	GetTermSizeFromRect(rect, &rows, &columns);
-	SetTermSize(rows, columns, false);
+	SetTermSize(rows, columns, notifyShell);
 }
 
 
@@ -767,6 +778,9 @@ TermView::SetTermFont(const BFont *font)
 
 	fEmulateBold = PrefHandler::Default() == NULL ? false
 		: PrefHandler::Default()->getBool(PREF_EMULATE_BOLD);
+
+	fBrightInsteadOfBold = PrefHandler::Default() == NULL ? false
+		: PrefHandler::Default()->getBool(PREF_BRIGHT_INSTEAD_OF_BOLD);
 
 	_ScrollTo(0, false);
 	if (fScrollBar != NULL)
@@ -948,7 +962,8 @@ TermView::_DrawLinePart(int32 x1, int32 y1, uint32 attr, char *buf,
 	if (highlight != NULL)
 		attr = highlight->Highlighter()->AdjustTextAttributes(attr);
 
-	inView->SetFont(IS_BOLD(attr) && !fEmulateBold ? &fBoldFont : &fHalfFont);
+	inView->SetFont(IS_BOLD(attr) && !fEmulateBold && !fBrightInsteadOfBold
+		? &fBoldFont : &fHalfFont);
 
 	// Set pen point
 	int x2 = x1 + fFontWidth * width;
@@ -989,10 +1004,20 @@ TermView::_DrawLinePart(int32 x1, int32 y1, uint32 attr, char *buf,
 	inView->SetHighColor(rgb_fore);
 
 	// Draw character.
-	if (IS_BOLD(attr) && fEmulateBold) {
-		inView->MovePenTo(x1 - 1, y1 + fFontAscent - 1);
-		inView->DrawString((char *)buf);
-		inView->SetDrawingMode(B_OP_BLEND);
+	if (IS_BOLD(attr)) {
+		if (fBrightInsteadOfBold) {
+			rgb_color bright = rgb_fore;
+
+			bright.red = saturated_add<uint8>(bright.red, 64);
+			bright.green = saturated_add<uint8>(bright.green, 64);
+			bright.blue = saturated_add<uint8>(bright.blue, 64);
+
+			inView->SetHighColor(bright);
+		} else if (fEmulateBold) {
+			inView->MovePenTo(x1 - 1, y1 + fFontAscent - 1);
+			inView->DrawString((char *)buf);
+			inView->SetDrawingMode(B_OP_BLEND);
+		}
 	}
 
 	inView->MovePenTo(x1, y1 + fFontAscent);
@@ -1156,12 +1181,13 @@ void
 TermView::AttachedToWindow()
 {
 	fMouseButtons = 0;
-	fModifiers = modifiers();
+
+	_UpdateModifiers();
 
 	// update the terminal size because it may have changed while the TermView
 	// was detached from the window. On such conditions FrameResized was not
 	// called when the resize occured
-	SetTermSize(Bounds());
+	SetTermSize(Bounds(), true);
 	MakeFocus(true);
 	if (fScrollBar) {
 		fScrollBar->SetSteps(fFontHeight, fFontHeight * fRows);
@@ -1188,6 +1214,8 @@ void
 TermView::DetachedFromWindow()
 {
 	be_clipboard->StopWatching(BMessenger(this));
+
+	 _NextState(fDefaultState);
 
 	delete fWinchRunner;
 	fWinchRunner = NULL;
@@ -1380,14 +1408,9 @@ TermView::WindowActivated(bool active)
 			_Deactivate();
 	}
 
-	fActiveState->WindowActivated(active);
+	_UpdateModifiers();
 
-	if (active) {
-		int32 oldModifiers = fModifiers;
-		fModifiers = modifiers();
-		if (fModifiers != oldModifiers)
-			fActiveState->ModifiersChanged(oldModifiers, fModifiers);
-	}
+	fActiveState->WindowActivated(active);
 }
 
 
@@ -1409,6 +1432,8 @@ TermView::MakeFocus(bool focusState)
 void
 TermView::KeyDown(const char *bytes, int32 numBytes)
 {
+	_UpdateModifiers();
+
 	fActiveState->KeyDown(bytes, numBytes);
 }
 
@@ -1601,10 +1626,7 @@ TermView::MessageReceived(BMessage *msg)
 
 		case B_MODIFIERS_CHANGED:
 		{
-			int32 oldModifiers = fModifiers;
-			fModifiers = msg->GetInt32("modifiers", 0);
-			if (fModifiers != oldModifiers)
-				fActiveState->ModifiersChanged(oldModifiers, fModifiers);
+			_UpdateModifiers();
 			break;
 		}
 
@@ -2376,6 +2398,8 @@ TermView::MouseDown(BPoint where)
 	if (!IsFocus())
 		MakeFocus();
 
+	_UpdateModifiers();
+
 	BMessage* currentMessage = Window()->CurrentMessage();
 	int32 buttons = currentMessage->GetInt32("buttons", 0);
 
@@ -2389,6 +2413,8 @@ TermView::MouseDown(BPoint where)
 void
 TermView::MouseMoved(BPoint where, uint32 transit, const BMessage *message)
 {
+	_UpdateModifiers();
+
 	fActiveState->MouseMoved(where, transit, message, fModifiers);
 }
 
@@ -2396,6 +2422,8 @@ TermView::MouseMoved(BPoint where, uint32 transit, const BMessage *message)
 void
 TermView::MouseUp(BPoint where)
 {
+	_UpdateModifiers();
+
 	int32 buttons = Window()->CurrentMessage()->GetInt32("buttons", 0);
 
 	fActiveState->MouseUp(where, buttons);
@@ -2575,10 +2603,10 @@ TermView::_AddHighlight(Highlight* highlight)
 void
 TermView::_RemoveHighlight(Highlight* highlight)
 {
-	fHighlights.RemoveItem(highlight);
-
 	if (!highlight->IsEmpty())
 		_InvalidateTextRange(highlight->Start(), highlight->End());
+
+	fHighlights.RemoveItem(highlight);
 }
 
 
@@ -2972,6 +3000,19 @@ TermView::_CancelInputMethod()
 	}
 
 	delete inlineInput;
+}
+
+
+void
+TermView::_UpdateModifiers()
+{
+	// TODO: This method is a general work-around for missing or out-of-order
+	// B_MODIFIERS_CHANGED messages. This should really be fixed where it is
+	// broken (app server?).
+	int32 oldModifiers = fModifiers;
+	fModifiers = modifiers();
+	if (fModifiers != oldModifiers && fActiveState != NULL)
+		fActiveState->ModifiersChanged(oldModifiers, fModifiers);
 }
 
 

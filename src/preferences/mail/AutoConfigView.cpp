@@ -1,5 +1,5 @@
 /*
- * Copyright 2007-2011, Haiku, Inc. All rights reserved.
+ * Copyright 2007-2014, Haiku, Inc. All rights reserved.
  * Copyright 2011, Clemens Zeidler <haiku@clemens-zeidler.de>
  * Distributed under the terms of the MIT License.
  */
@@ -203,9 +203,10 @@ status_t
 AutoConfigView::_GetSMTPAddonRef(entry_ref *ref)
 {
 	directory_which which[] = {
+		B_USER_NONPACKAGED_ADDONS_DIRECTORY,
 		B_USER_ADDONS_DIRECTORY,
-		B_COMMON_ADDONS_DIRECTORY,
-		B_BEOS_ADDONS_DIRECTORY
+		B_SYSTEM_NONPACKAGED_ADDONS_DIRECTORY,
+		B_SYSTEM_ADDONS_DIRECTORY
 	};
 
 	for (size_t i = 0; i < sizeof(which) / sizeof(which[0]); i++) {

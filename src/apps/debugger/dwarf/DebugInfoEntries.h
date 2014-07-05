@@ -1,6 +1,6 @@
 /*
  * Copyright 2009, Ingo Weinhold, ingo_weinhold@gmx.de.
- * Copyright 2013, Rene Gollent, rene@gollent.com.
+ * Copyright 2013-2014, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 #ifndef DEBUG_INFO_ENTRIES_H
@@ -161,6 +161,9 @@ public:
 			off_t				StatementListOffset() const
 									{ return fStatementListOffset; }
 
+			bool				ContainsMainSubprogram() const
+									{ return fContainsMainSubprogram; }
+
 	virtual	status_t			AddChild(DebugInfoEntry* child);
 
 	virtual	status_t			AddAttribute_name(uint16 attributeName,
@@ -188,6 +191,9 @@ public:
 									const AttributeValue& value);
 	virtual	status_t			AddAttribute_ranges(uint16 attributeName,
 									const AttributeValue& value);
+	virtual	status_t			AddAttribute_main_subprogram(
+									uint16 attributeName,
+									const AttributeValue& value);
 
 //TODO:
 //	virtual	status_t			AddAttribute_segment(uint16 attributeName,
@@ -209,6 +215,7 @@ protected:
 			uint16				fLanguage;
 			uint8				fIdentifierCase;
 			bool				fUseUTF8;
+			bool				fContainsMainSubprogram;
 };
 
 
@@ -274,6 +281,8 @@ public:
 	virtual	const char*			Description() const;
 	virtual	DebugInfoEntry*		AbstractOrigin() const;
 
+	virtual DebugInfoEntry*		SignatureType() const;
+
 	virtual	bool				IsDeclaration() const;
 
 	virtual	status_t			AddAttribute_accessibility(uint16 attributeName,
@@ -289,6 +298,8 @@ public:
 									uint16 attributeName,
 									const AttributeValue& value);
 										// TODO: !interface
+	virtual	status_t			AddAttribute_signature(uint16 attributeName,
+									const AttributeValue& value);
 
 // TODO:
 // DW_AT_visibility			// !interface
@@ -300,6 +311,7 @@ protected:
 			const char*			fDescription;
 			DeclarationLocation	fDeclarationLocation;
 			DebugInfoEntry*		fAbstractOrigin;
+			DebugInfoEntry*		fSignatureType;
 			uint8				fAccessibility;
 			bool				fDeclaration;
 };
@@ -669,6 +681,8 @@ public:
 									{ return &fByteSize; }
 			const DynamicAttributeValue* BitOffset() const
 									{ return &fBitOffset; }
+			const DynamicAttributeValue* DataBitOffset() const
+									{ return &fDataBitOffset; }
 			const DynamicAttributeValue* BitSize() const
 									{ return &fBitSize; }
 			const MemberLocation* Location() const
@@ -682,6 +696,9 @@ public:
 									const AttributeValue& value);
 	virtual	status_t			AddAttribute_bit_offset(uint16 attributeName,
 									const AttributeValue& value);
+	virtual	status_t			AddAttribute_data_bit_offset(
+									uint16 attributeName,
+									const AttributeValue& value);
 	virtual	status_t			AddAttribute_data_member_location(
 									uint16 attributeName,
 									const AttributeValue& value);
@@ -693,6 +710,7 @@ private:
 			DIEType*			fType;
 			DynamicAttributeValue fByteSize;
 			DynamicAttributeValue fBitOffset;
+			DynamicAttributeValue fDataBitOffset;
 			DynamicAttributeValue fBitSize;
 			MemberLocation		fLocation;
 };
@@ -1041,6 +1059,8 @@ public:
 	virtual	const DynamicAttributeValue* ByteSize() const;
 			const DynamicAttributeValue* BitOffset() const
 									{ return &fBitOffset; }
+			const DynamicAttributeValue* DataBitOffset() const
+									{ return &fDataBitOffset; }
 			const DynamicAttributeValue* BitSize() const
 									{ return &fBitSize; }
 			uint8				Encoding() const	{ return fEncoding; }
@@ -1053,6 +1073,9 @@ public:
 	virtual	status_t			AddAttribute_bit_size(uint16 attributeName,
 									const AttributeValue& value);
 	virtual	status_t			AddAttribute_bit_offset(uint16 attributeName,
+									const AttributeValue& value);
+	virtual	status_t			AddAttribute_data_bit_offset(
+									uint16 attributeName,
 									const AttributeValue& value);
 	virtual	status_t			AddAttribute_endianity(uint16 attributeName,
 									const AttributeValue& value);
@@ -1069,6 +1092,7 @@ public:
 private:
 			DynamicAttributeValue fByteSize;
 			DynamicAttributeValue fBitOffset;
+			DynamicAttributeValue fDataBitOffset;
 			DynamicAttributeValue fBitSize;
 			uint8				fEncoding;
 			uint8				fEndianity;
@@ -1603,6 +1627,38 @@ public:
 private:
 			DynamicAttributeValue fBlockSize;
 			DeclarationLocation	fDeclarationLocation;
+};
+
+
+class DIETypeUnit : public DIECompileUnitBase {
+public:
+								DIETypeUnit();
+
+	virtual	uint16				Tag() const;
+};
+
+
+class DIERValueReferenceType : public DIEReferenceType {
+public:
+								DIERValueReferenceType();
+
+	virtual	uint16				Tag() const;
+};
+
+
+class DIETemplateTemplateParameter : public DIEDeclaredBase {
+public:
+								DIETemplateTemplateParameter();
+
+	virtual	uint16				Tag() const;
+
+	virtual	const char*			Name() const;
+
+	virtual	status_t			AddAttribute_name(uint16 attributeName,
+									const AttributeValue& value);
+
+private:
+			const char*			fName;
 };
 
 

@@ -87,7 +87,7 @@ private:
 			IMAP::ExpungeHandler		fExpungeHandler;
 //			FlagsHandler		fFlagsHandler;
 
-			vint32				fWatching;
+			int32				fWatching;
 
 			BString				fSelectedMailbox;
 

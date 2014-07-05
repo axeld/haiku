@@ -29,11 +29,11 @@ public:
 									float cellSize, const char* name,
 									BMessage* message = NULL,
 									bool useOffscreen = false);
-								BColorControl(BMessage* archive);
+								BColorControl(BMessage* data);
 	virtual						~BColorControl();
 
-	static	BArchivable*		Instantiate(BMessage* archive);
-	virtual	status_t			Archive(BMessage* archive,
+	static	BArchivable*		Instantiate(BMessage* data);
+	virtual	status_t			Archive(BMessage* data,
 									bool deep = true) const;
 
 	virtual	void				SetLayout(BLayout* layout);
@@ -72,9 +72,11 @@ public:
 									int32 what, const char* property);
 	virtual	status_t			GetSupportedSuites(BMessage* data);
 
-	virtual	void				MakeFocus(bool state = true);
+	virtual	void				MakeFocus(bool focused = true);
 	virtual	void				AllAttached();
 	virtual	void				AllDetached();
+
+	virtual	status_t			SetIcon(const BBitmap* icon, uint32 flags = 0);
 
 private:
 	virtual	status_t			Perform(perform_code d, void *arg);
@@ -89,9 +91,11 @@ private:
 
 			void				_InitData(color_control_layout layout,
 									float size, bool useOffscreen,
-									BMessage* archive = NULL);
+									BMessage* data = NULL);
 			void				_LayoutView();
 			void				_InitOffscreen();
+			void				_InvalidateSelector(int16 ramp,
+									rgb_color color, bool focused);
 			void				_DrawColorArea(BView* target, BRect update);
 			void				_DrawSelectors(BView* target);
 			void				_DrawColorRamp(BRect rect, BView* target,
@@ -124,8 +128,9 @@ private:
 			BBitmap*			fBitmap;
 			BView*				fOffscreenView;
 
-			int32				fFocusedComponent;	
-			uint32				_reserved[2];	
+			int16				fFocusedRamp;
+			int16				fClickedRamp;
+			uint32				_reserved[2];
 };
 
 inline void

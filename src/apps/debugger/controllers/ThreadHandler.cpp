@@ -1,6 +1,6 @@
 /*
  * Copyright 2009-2012, Ingo Weinhold, ingo_weinhold@gmx.de.
- * Copyright 2010-2011, Rene Gollent, rene@gollent.com.
+ * Copyright 2010-2014, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 
@@ -44,11 +44,13 @@ enum {
 
 ThreadHandler::ThreadHandler(Thread* thread, Worker* worker,
 	DebuggerInterface* debuggerInterface,
+	ImageDebugInfoJobListener* listener,
 	BreakpointManager* breakpointManager)
 	:
 	fThread(thread),
 	fWorker(worker),
 	fDebuggerInterface(debuggerInterface),
+	fDebugInfoJobListener(listener),
 	fBreakpointManager(breakpointManager),
 	fStepMode(STEP_NONE),
 	fStepStatement(NULL),
@@ -98,9 +100,10 @@ ThreadHandler::SetBreakpointAndRun(target_addr_t address)
 
 
 bool
-ThreadHandler::HandleThreadDebugged(ThreadDebuggedEvent* event)
+ThreadHandler::HandleThreadDebugged(ThreadDebuggedEvent* event,
+	const BString& stoppedReason)
 {
-	return _HandleThreadStopped(NULL, THREAD_STOPPED_DEBUGGED);
+	return _HandleThreadStopped(NULL, THREAD_STOPPED_DEBUGGED, stoppedReason);
 }
 
 
@@ -243,7 +246,8 @@ ThreadHandler::HandleThreadAction(uint32 action, target_addr_t address)
 			return;
 		case MSG_THREAD_STOP:
 			fStepMode = STEP_NONE;
-			fDebuggerInterface->StopThread(ThreadID());
+			if (fDebuggerInterface->StopThread(ThreadID()) == B_OK)
+				fThread->SetStopRequestPending();
 			return;
 		case MSG_THREAD_STEP_OVER:
 		case MSG_THREAD_STEP_INTO:
@@ -374,7 +378,8 @@ ThreadHandler::HandleCpuStateChanged()
 	if (fThread->GetCpuState() != NULL && fThread->GetStackTrace() == NULL) {
 		fWorker->ScheduleJob(
 			new(std::nothrow) GetStackTraceJob(fDebuggerInterface,
-				fDebuggerInterface->GetArchitecture(), fThread));
+				fDebugInfoJobListener, fDebuggerInterface->GetArchitecture(),
+				fThread));
 	}
 }
 

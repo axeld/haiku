@@ -267,36 +267,46 @@ detect_displays()
 		if (gConnector[id]->type == VIDEO_CONNECTOR_DP) {
 			TRACE("%s: connector(%" B_PRIu32 "): Checking DP.\n", __func__, id);
 
+			if (gConnector[id]->encoderExternal.valid == true) {
+				// If this has a valid external encoder (dp bridge)
+				// normally TRAVIS (LVDS) or NUTMEG (VGA)
+				TRACE("%s: external encoder, performing bridge DDC setup\n",
+					__func__);
+				encoder_external_setup(id,
+					EXTERNAL_ENCODER_ACTION_V3_DDC_SETUP);
+			}
 			edid1_info* edid = &gDisplay[displayIndex]->edidData;
 			gDisplay[displayIndex]->attached
 				= ddc2_dp_read_edid1(id, edid);
-				
+
+			// TODO: DDC Router switching for DisplayPort (and others?)
+
 			if (gDisplay[displayIndex]->attached) {
 				TRACE("%s: connector(%" B_PRIu32 "): Found DisplayPort EDID!\n",
 					__func__);
 			}
 		}
-		// TODO: Handle external DP brides - ??
-		#if 0
-		if (gConnector[id]->encoderExternal.isDPBridge == true) {
-			// If this is a DisplayPort Bridge, setup ddc on bus
-			// TRAVIS (LVDS) or NUTMEG (VGA)
-			TRACE("%s: is bridge, performing bridge DDC setup\n", __func__);
-			encoder_external_setup(id, 23860,
-				EXTERNAL_ENCODER_ACTION_V3_DDC_SETUP);
-			gDisplay[displayIndex]->attached = true;
 
-			// TODO: DDC Router switching for DisplayPort (and others?)
-		}
-		#endif
+
 		if (gConnector[id]->type == VIDEO_CONNECTOR_LVDS) {
-			// If plain (non-DP) laptop LVDS, read mode info from AtomBIOS
-			//TRACE("%s: non-DP laptop LVDS detected\n", __func__);
-			gDisplay[displayIndex]->attached = connector_read_mode_lvds(id,
-				&gDisplay[displayIndex]->preferredMode);
-			if (gDisplay[displayIndex]->attached) {
-				TRACE("%s: connector(%" B_PRIu32 "): found LVDS preferred "
-					"mode\n", __func__, id);
+			display_mode preferredMode;
+			bool lvdsInfoFound = connector_read_mode_lvds(id,
+				&preferredMode);
+			TRACE("%s: connector(%" B_PRIu32 "): bit-banging LVDS for EDID.\n",
+				__func__, id);
+
+			gDisplay[displayIndex]->attached = connector_read_edid(id,
+				&gDisplay[displayIndex]->edidData);
+
+			if (!gDisplay[displayIndex]->attached && lvdsInfoFound) {
+				// If we didn't find ddc edid data, fallback to lvdsInfo
+				// We have to call connector_read_mode_lvds first to
+				// collect SS data for the lvds connector
+				TRACE("%s: connector(%" B_PRIu32 "): using AtomBIOS LVDS_Info "
+					"preferred mode\n", __func__, id);
+				gDisplay[displayIndex]->attached = true;
+				memcpy(&gDisplay[displayIndex]->preferredMode,
+					&preferredMode, sizeof(display_mode));
 			}
 		}
 
@@ -305,9 +315,9 @@ detect_displays()
 			TRACE("%s: connector(%" B_PRIu32 "): bit-banging ddc for EDID.\n",
 				__func__, id);
 
-			// Lets try bit-banging edid from connector
-			gDisplay[displayIndex]->attached
-				= connector_read_edid(id, &gDisplay[displayIndex]->edidData);
+			// Bit-bang edid from connector
+			gDisplay[displayIndex]->attached = connector_read_edid(id,
+				&gDisplay[displayIndex]->edidData);
 
 			// Found EDID data?
 			if (gDisplay[displayIndex]->attached) {
@@ -564,7 +574,7 @@ display_crtc_dpms(uint8 crtcID, int mode)
 				return;
 			display_crtc_power(crtcID, ATOM_ENABLE);
 			gDisplay[crtcID]->powered = true;
-			if (info.dceMajor >= 3)
+			if (info.dceMajor >= 3 && info.dceMajor < 6)
 				display_crtc_memreq(crtcID, ATOM_ENABLE);
 			display_crtc_blank(crtcID, ATOM_BLANKING_OFF);
 			break;
@@ -576,7 +586,7 @@ display_crtc_dpms(uint8 crtcID, int mode)
 				return;
 			if (gDisplay[crtcID]->powered == true)
 				display_crtc_blank(crtcID, ATOM_BLANKING);
-			if (info.dceMajor >= 3)
+			if (info.dceMajor >= 3 && info.dceMajor < 6)
 				display_crtc_memreq(crtcID, ATOM_DISABLE);
 			display_crtc_power(crtcID, ATOM_DISABLE);
 			gDisplay[crtcID]->powered = false;
@@ -598,15 +608,15 @@ display_dce45_crtc_load_lut(uint8 crtcID)
 
 	if (info.dceMajor >= 5) {
 		Write32(OUT, NI_INPUT_CSC_CONTROL + regs->crtcOffset,
-		   (NI_INPUT_CSC_GRPH_MODE(NI_INPUT_CSC_BYPASS) |
-		   NI_INPUT_CSC_OVL_MODE(NI_INPUT_CSC_BYPASS)));
+			NI_INPUT_CSC_GRPH_MODE(NI_INPUT_CSC_BYPASS)
+				| NI_INPUT_CSC_OVL_MODE(NI_INPUT_CSC_BYPASS));
 		Write32(OUT, NI_PRESCALE_GRPH_CONTROL + regs->crtcOffset,
 			NI_GRPH_PRESCALE_BYPASS);
 		Write32(OUT, NI_PRESCALE_OVL_CONTROL + regs->crtcOffset,
 			NI_OVL_PRESCALE_BYPASS);
 		Write32(OUT, NI_INPUT_GAMMA_CONTROL + regs->crtcOffset,
-			(NI_GRPH_INPUT_GAMMA_MODE(NI_INPUT_GAMMA_USE_LUT) |
-			NI_OVL_INPUT_GAMMA_MODE(NI_INPUT_GAMMA_USE_LUT)));
+			NI_GRPH_INPUT_GAMMA_MODE(NI_INPUT_GAMMA_USE_LUT) |
+			NI_OVL_INPUT_GAMMA_MODE(NI_INPUT_GAMMA_USE_LUT));
 	}
 
 	Write32(OUT, EVERGREEN_DC_LUT_CONTROL + regs->crtcOffset, 0);
@@ -625,17 +635,15 @@ display_dce45_crtc_load_lut(uint8 crtcID)
 	Write32(OUT, EVERGREEN_DC_LUT_RW_INDEX, 0);
 	for (int i = 0; i < 256; i++) {
 		Write32(OUT, EVERGREEN_DC_LUT_30_COLOR + regs->crtcOffset,
-			 (r[i] << 20) |
-			 (g[i] << 10) |
-			 (b[i] << 0));
+			(r[i] << 20) | (g[i] << 10) | (b[i] << 0));
 	}
 
 	if (info.dceMajor >= 5) {
 		Write32(OUT, NI_DEGAMMA_CONTROL + regs->crtcOffset,
-		   (NI_GRPH_DEGAMMA_MODE(NI_DEGAMMA_BYPASS) |
-		   NI_OVL_DEGAMMA_MODE(NI_DEGAMMA_BYPASS) |
-		   NI_ICON_DEGAMMA_MODE(NI_DEGAMMA_BYPASS) |
-		   NI_CURSOR_DEGAMMA_MODE(NI_DEGAMMA_BYPASS)));
+			(NI_GRPH_DEGAMMA_MODE(NI_DEGAMMA_BYPASS)
+				| NI_OVL_DEGAMMA_MODE(NI_DEGAMMA_BYPASS)
+				| NI_ICON_DEGAMMA_MODE(NI_DEGAMMA_BYPASS)
+				| NI_CURSOR_DEGAMMA_MODE(NI_DEGAMMA_BYPASS)));
 		Write32(OUT, NI_GAMUT_REMAP_CONTROL + regs->crtcOffset,
 			(NI_GRPH_GAMUT_REMAP_MODE(NI_GAMUT_REMAP_BYPASS) |
 			NI_OVL_GAMUT_REMAP_MODE(NI_GAMUT_REMAP_BYPASS)));
@@ -680,9 +688,7 @@ display_avivo_crtc_load_lut(uint8 crtcID)
 	Write32(OUT, AVIVO_DC_LUT_RW_INDEX, 0);
 	for (int i = 0; i < 256; i++) {
 		Write32(OUT, AVIVO_DC_LUT_30_COLOR,
-			 (r[i] << 20) |
-			 (g[i] << 10) |
-			 (b[i] << 0));
+			(r[i] << 20) | (g[i] << 10) | (b[i] << 0));
 	}
 
 	Write32(OUT, AVIVO_D1GRPH_LUT_SEL + regs->crtcOffset, crtcID);
@@ -999,6 +1005,23 @@ display_crtc_ss(pll_info* pll, int command)
 	TRACE("%s\n", __func__);
 	radeon_shared_info &info = *gInfo->shared_info;
 
+	if (command == ATOM_ENABLE) {
+		if (pll->ssPercentage == 0) {
+			TRACE("%s: ssPercentage 0, ignoring SS request\n", __func__);
+			return;
+		}
+		if ((pll->ssType & ATOM_EXTERNAL_SS_MASK) != 0) {
+			TRACE("%s: external SS, ignoring SS request\n", __func__);
+			return;
+		}
+	} else {
+		if (pll_usage_count(pll->id) > 1) {
+			// TODO: Check if PLL has SS enabled on any other displays, if so
+			// we need to also skip this function.
+			TRACE("%s: TODO: shared PLL detected!\n", __func__);
+		}
+	}
+
 	int index = GetIndexIntoMasterTable(COMMAND, EnableSpreadSpectrumOnPPLL);
 
 	union enableSS {
@@ -1019,31 +1042,21 @@ display_crtc_ss(pll_info* pll, int command)
 		switch (pll->id) {
 			case ATOM_PPLL1:
 				args.v3.ucSpreadSpectrumType |= ATOM_PPLL_SS_TYPE_V3_P1PLL;
-				args.v3.usSpreadSpectrumAmount
-					= B_HOST_TO_LENDIAN_INT16(pll->ssAmount);
-				args.v3.usSpreadSpectrumStep
-					= B_HOST_TO_LENDIAN_INT16(pll->ssStep);
 				break;
 			case ATOM_PPLL2:
 				args.v3.ucSpreadSpectrumType |= ATOM_PPLL_SS_TYPE_V3_P2PLL;
-				args.v3.usSpreadSpectrumAmount
-					= B_HOST_TO_LENDIAN_INT16(pll->ssAmount);
-				args.v3.usSpreadSpectrumStep
-					= B_HOST_TO_LENDIAN_INT16(pll->ssStep);
 				break;
 			case ATOM_DCPLL:
 				args.v3.ucSpreadSpectrumType |= ATOM_PPLL_SS_TYPE_V3_DCPLL;
-				args.v3.usSpreadSpectrumAmount = B_HOST_TO_LENDIAN_INT16(0);
-				args.v3.usSpreadSpectrumStep = B_HOST_TO_LENDIAN_INT16(0);
 				break;
+			case ATOM_PPLL_INVALID:
+				return;
 			default:
 				ERROR("%s: BUG: Invalid PLL ID!\n", __func__);
 				return;
 		}
-		if (pll->ssPercentage == 0
-			|| ((pll->ssType & ATOM_EXTERNAL_SS_MASK) != 0)) {
-			command = ATOM_DISABLE;
-		}
+		args.v3.usSpreadSpectrumAmount = B_HOST_TO_LENDIAN_INT16(pll->ssAmount);
+		args.v3.usSpreadSpectrumStep = B_HOST_TO_LENDIAN_INT16(pll->ssStep);
 		args.v3.ucEnable = command;
 	} else if (info.dceMajor >= 4) {
 		args.v2.usSpreadSpectrumPercentage
@@ -1053,32 +1066,21 @@ display_crtc_ss(pll_info* pll, int command)
 		switch (pll->id) {
 			case ATOM_PPLL1:
 				args.v2.ucSpreadSpectrumType |= ATOM_PPLL_SS_TYPE_V2_P1PLL;
-				args.v2.usSpreadSpectrumAmount
-					= B_HOST_TO_LENDIAN_INT16(pll->ssAmount);
-				args.v2.usSpreadSpectrumStep
-					= B_HOST_TO_LENDIAN_INT16(pll->ssStep);
 				break;
 			case ATOM_PPLL2:
 				args.v2.ucSpreadSpectrumType |= ATOM_PPLL_SS_TYPE_V3_P2PLL;
-				args.v2.usSpreadSpectrumAmount
-					= B_HOST_TO_LENDIAN_INT16(pll->ssAmount);
-				args.v2.usSpreadSpectrumStep
-					= B_HOST_TO_LENDIAN_INT16(pll->ssStep);
 				break;
 			case ATOM_DCPLL:
 				args.v2.ucSpreadSpectrumType |= ATOM_PPLL_SS_TYPE_V3_DCPLL;
-				args.v2.usSpreadSpectrumAmount = B_HOST_TO_LENDIAN_INT16(0);
-				args.v2.usSpreadSpectrumStep = B_HOST_TO_LENDIAN_INT16(0);
 				break;
+			case ATOM_PPLL_INVALID:
+				return;
 			default:
 				ERROR("%s: BUG: Invalid PLL ID!\n", __func__);
 				return;
 		}
-		if (pll->ssPercentage == 0
-			|| ((pll->ssType & ATOM_EXTERNAL_SS_MASK) != 0)
-			|| (info.chipsetFlags & CHIP_APU) != 0 ) {
-			command = ATOM_DISABLE;
-		}
+		args.v2.usSpreadSpectrumAmount = B_HOST_TO_LENDIAN_INT16(pll->ssAmount);
+		args.v2.usSpreadSpectrumStep = B_HOST_TO_LENDIAN_INT16(pll->ssStep);
 		args.v2.ucEnable = command;
 	} else if (info.dceMajor >= 3) {
 		args.v1.usSpreadSpectrumPercentage
@@ -1091,8 +1093,7 @@ display_crtc_ss(pll_info* pll, int command)
 		args.v1.ucPpll = pll->id;
 		args.v1.ucEnable = command;
 	} else if (info.dceMajor >= 2) {
-		if ((command == ATOM_DISABLE) || (pll->ssPercentage == 0)
-			|| (pll->ssType & ATOM_EXTERNAL_SS_MASK)) {
+		if (command == ATOM_DISABLE) {
 			radeon_gpu_ss_control(pll, false);
 			return;
 		}

@@ -12,6 +12,7 @@
 
 
 class BButton;
+class BCheckBox;
 
 
 class BreakpointsView : public BGroupView,

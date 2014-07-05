@@ -86,7 +86,7 @@ public:
 #endif
 
 protected:
-		 	void				SetTotalItems(uint32 items);
+			void				SetTotalItems(uint32 items);
 			void				SetTotalItemsSize(uint64 size);
 			void				ReportProgress(uint32 items, uint64 bytes,
 									const char* message = NULL);

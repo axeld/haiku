@@ -28,7 +28,7 @@ struct ps2_dev {
 	bool			active;
 	uint8           idx;
 	sem_id			result_sem;
-	vint32			flags;
+	int32			flags;
 	uint8 *			result_buf;
 	int				result_buf_idx;
 	int				result_buf_cnt;
@@ -76,10 +76,12 @@ void		ps2_dev_exit(void);
 status_t	standard_command_timeout(ps2_dev *dev, uint8 cmd, const uint8 *out,
 				int out_count, uint8 *in, int in_count, bigtime_t timeout);
 
-status_t	ps2_dev_command(ps2_dev *dev, uint8 cmd, const uint8 *out,
-				int out_count, uint8 *in, int in_count);
+status_t	ps2_dev_command(ps2_dev *dev, uint8 cmd, const uint8 *out = NULL,
+				int out_count = 0, uint8 *in = NULL, int in_count = 0);
 status_t	ps2_dev_command_timeout(ps2_dev *dev, uint8 cmd, const uint8 *out,
 				int out_count, uint8 *in, int in_count, bigtime_t timeout);
+status_t	ps2_dev_sliced_command(ps2_dev *dev, uint8 cmd);
+
 
 status_t	ps2_reset_mouse(ps2_dev *dev);
 

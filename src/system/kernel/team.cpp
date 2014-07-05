@@ -1,4 +1,5 @@
 /*
+ * Copyright 2014, Paweł Dziepak, pdziepak@quarnos.org.
  * Copyright 2008-2011, Ingo Weinhold, ingo_weinhold@gmx.de.
  * Copyright 2002-2010, Axel Dörfler, axeld@pinc-software.de.
  * Distributed under the terms of the MIT License.
@@ -30,6 +31,7 @@
 #include <boot_device.h>
 #include <elf.h>
 #include <file_cache.h>
+#include <find_directory_private.h>
 #include <fs/KPath.h>
 #include <heap.h>
 #include <int.h>
@@ -77,9 +79,12 @@ struct team_arg {
 	uint32	arg_count;
 	uint32	env_count;
 	mode_t	umask;
+	uint32	flags;
 	port_id	error_port;
 	uint32	error_token;
 };
+
+#define TEAM_ARGS_FLAG_NO_ASLR	0x01
 
 
 namespace {
@@ -212,7 +217,7 @@ public:
 
 	virtual void AddDump(TraceOutput& out)
 	{
-		out.Print("team forked, new thread %ld", fForkedThread);
+		out.Print("team forked, new thread %" B_PRId32, fForkedThread);
 	}
 
 private:
@@ -306,7 +311,7 @@ public:
 
 	virtual void AddDump(TraceOutput& out)
 	{
-		out.Print("team set job control state, team %ld, "
+		out.Print("team set job control state, team %" B_PRId32 ", "
 			"new state: %s, signal: %d",
 			fTeam, job_control_state_name(fNewState), fSignal);
 	}
@@ -330,8 +335,8 @@ public:
 
 	virtual void AddDump(TraceOutput& out)
 	{
-		out.Print("team wait for child, child: %ld, "
-			"flags: 0x%lx", fChild, fFlags);
+		out.Print("team wait for child, child: %" B_PRId32 ", "
+			"flags: %#" B_PRIx32, fChild, fFlags);
 	}
 
 private:
@@ -363,13 +368,13 @@ public:
 	virtual void AddDump(TraceOutput& out)
 	{
 		if (fTeam >= 0) {
-			out.Print("team wait for child done, team: %ld, "
-				"state: %s, status: 0x%lx, reason: 0x%x, signal: %d\n",
+			out.Print("team wait for child done, team: %" B_PRId32 ", "
+				"state: %s, status: %#" B_PRIx32 ", reason: %#x, signal: %d\n",
 				fTeam, job_control_state_name(fState), fStatus, fReason,
 				fSignal);
 		} else {
 			out.Print("team wait for child failed, error: "
-				"0x%lx, ", fTeam);
+				"%#" B_PRIx32 ", ", fTeam);
 		}
 	}
 
@@ -481,7 +486,7 @@ Team::Team(team_id id, bool kernel)
 	exit.initialized = false;
 
 	list_init(&sem_list);
-	list_init(&port_list);
+	list_init_etc(&port_list, port_team_link_offset());
 	list_init(&image_list);
 	list_init(&watcher_list);
 
@@ -489,6 +494,9 @@ Team::Team(team_id id, bool kernel)
 
 	// init dead/stopped/continued children condition vars
 	dead_children.condition_variable.Init(&dead_children, "team children");
+
+	B_INITIALIZE_SPINLOCK(&time_lock);
+	B_INITIALIZE_SPINLOCK(&signal_lock);
 
 	fQueuedSignalsCounter = new(std::nothrow) BKernel::QueuedSignalsCounter(
 		kernel ? -1 : MAX_QUEUED_SIGNALS);
@@ -503,7 +511,8 @@ Team::~Team()
 	// get rid of all associated data
 	PrepareForDeletion();
 
-	vfs_put_io_context(io_context);
+	if (io_context != NULL)
+		vfs_put_io_context(io_context);
 	delete_owned_ports(this);
 	sem_delete_owned_sems(this);
 
@@ -905,7 +914,7 @@ Team::DeactivateCPUTimeUserTimers()
 
 /*!	Returns the team's current total CPU time (kernel + user + offset).
 
-	The caller must hold the scheduler lock.
+	The caller must hold \c time_lock.
 
 	\param ignoreCurrentRun If \c true and the current thread is one team's
 		threads, don't add the time since the last time \c last_time was
@@ -928,7 +937,7 @@ Team::CPUTime(bool ignoreCurrentRun) const
 		SpinLocker threadTimeLocker(thread->time_lock);
 		time += thread->kernel_time + thread->user_time;
 
-		if (thread->IsRunning()) {
+		if (thread->last_time != 0) {
 			if (!ignoreCurrentRun || thread != currentThread)
 				time += now - thread->last_time;
 		}
@@ -940,7 +949,7 @@ Team::CPUTime(bool ignoreCurrentRun) const
 
 /*!	Returns the team's current user CPU time.
 
-	The caller must hold the scheduler lock.
+	The caller must hold \c time_lock.
 
 	\return The team's current user CPU time.
 */
@@ -956,7 +965,7 @@ Team::UserCPUTime() const
 		SpinLocker threadTimeLocker(thread->time_lock);
 		time += thread->user_time;
 
-		if (thread->IsRunning() && !thread->in_kernel)
+		if (thread->last_time != 0 && !thread->in_kernel)
 			time += now - thread->last_time;
 	}
 
@@ -1480,14 +1489,23 @@ create_team_arg(struct team_arg** _teamArg, const char* path, char** flatArgs,
 	}
 
 	// copy the args over
-
 	teamArg->flat_args = flatArgs;
 	teamArg->flat_args_size = flatArgsSize;
 	teamArg->arg_count = argCount;
 	teamArg->env_count = envCount;
+	teamArg->flags = 0;
 	teamArg->umask = umask;
 	teamArg->error_port = port;
 	teamArg->error_token = token;
+
+	// determine the flags from the environment
+	const char* const* env = flatArgs + argCount + 1;
+	for (int32 i = 0; i < envCount; i++) {
+		if (strcmp(env[i], "DISABLE_ASLR=1") == 0) {
+			teamArg->flags |= TEAM_ARGS_FLAG_NO_ASLR;
+			break;
+		}
+	}
 
 	*_teamArg = teamArg;
 	return B_OK;
@@ -1600,7 +1618,7 @@ team_create_thread_start_internal(void* args)
 	{
 		// find runtime_loader path
 		KPath runtimeLoaderPath;
-		err = find_directory(B_SYSTEM_DIRECTORY, gBootDevice, false,
+		err = __find_directory(B_SYSTEM_DIRECTORY, gBootDevice, false,
 			runtimeLoaderPath.LockBuffer(), runtimeLoaderPath.BufferSize());
 		if (err < B_OK) {
 			TRACE(("team_create_thread_start: find_directory() failed: %s\n",
@@ -1706,7 +1724,9 @@ load_image_internal(char**& _flatArgs, size_t flatArgsSize, int32 argCount,
  	InterruptsSpinLocker teamsLocker(sTeamHashLock);
 
 	sTeamHash.Insert(team);
-	sUsedTeams++;
+	bool teamLimitReached = sUsedTeams >= sMaxTeams;
+	if (!teamLimitReached)
+		sUsedTeams++;
 
 	teamsLocker.Unlock();
 
@@ -1725,6 +1745,11 @@ load_image_internal(char**& _flatArgs, size_t flatArgsSize, int32 argCount,
 
 	// check the executable's set-user/group-id permission
 	update_set_id_user_and_group(team, path);
+
+	if (teamLimitReached) {
+		status = B_NO_MORE_TEAMS;
+		goto err1;
+	}
 
 	status = create_team_arg(&teamArgs, path, flatArgs, flatArgsSize, argCount,
 		envCount, (mode_t)-1, errorPort, errorToken);
@@ -1752,7 +1777,10 @@ load_image_internal(char**& _flatArgs, size_t flatArgsSize, int32 argCount,
 	status = VMAddressSpace::Create(team->id, USER_BASE, USER_SIZE, false,
 		&team->address_space);
 	if (status != B_OK)
-		goto err3;
+		goto err2;
+
+	team->address_space->SetRandomizingEnabled(
+		(teamArgs->flags & TEAM_ARGS_FLAG_NO_ASLR) == 0);
 
 	// create the user data area
 	status = create_team_user_data(team);
@@ -1783,23 +1811,18 @@ load_image_internal(char**& _flatArgs, size_t flatArgsSize, int32 argCount,
 
 	// wait for the loader of the new team to finish its work
 	if ((flags & B_WAIT_TILL_LOADED) != 0) {
-		InterruptsSpinLocker schedulerLocker(gSchedulerLock);
-
-		// resume the team's main thread
-		if (mainThread != NULL && mainThread->state == B_THREAD_SUSPENDED)
-			scheduler_enqueue_in_run_queue(mainThread);
+		if (mainThread != NULL) {
+			// resume the team's main thread
+			thread_continue(mainThread);
+		}
 
 		// Now suspend ourselves until loading is finished. We will be woken
 		// either by the thread, when it finished or aborted loading, or when
 		// the team is going to die (e.g. is killed). In either case the one
 		// setting `loadingInfo.done' is responsible for removing the info from
 		// the team structure.
-		while (!loadingInfo.done) {
-			thread_get_current_thread()->next_state = B_THREAD_SUSPENDED;
-			scheduler_reschedule();
-		}
-
-		schedulerLocker.Unlock();
+		while (!loadingInfo.done)
+			thread_suspend();
 
 		if (loadingInfo.result < B_OK)
 			return loadingInfo.result;
@@ -1814,8 +1837,6 @@ err5:
 	delete_team_user_data(team);
 err4:
 	team->address_space->Put();
-err3:
-	vfs_put_io_context(team->io_context);
 err2:
 	free_team_arg(teamArgs);
 err1:
@@ -1835,6 +1856,8 @@ err1:
 
 	teamsLocker.Lock();
 	sTeamHash.Remove(team);
+	if (!teamLimitReached)
+		sUsedTeams--;
 	teamsLocker.Unlock();
 
 	sNotificationService.Notify(TEAM_REMOVED, team);
@@ -1925,10 +1948,13 @@ exec_team(const char* path, char**& _flatArgs, size_t flatArgsSize,
 	delete_realtime_sem_context(team->realtime_sem_context);
 	team->realtime_sem_context = NULL;
 
+	// update ASLR
+	team->address_space->SetRandomizingEnabled(
+		(teamArgs->flags & TEAM_ARGS_FLAG_NO_ASLR) == 0);
+
 	status = create_team_user_data(team);
 	if (status != B_OK) {
 		// creating the user data failed -- we're toast
-		// TODO: We should better keep the old user area in the first place.
 		free_team_arg(teamArgs);
 		exit_thread(status);
 		return status;
@@ -2039,7 +2065,9 @@ fork_team(void)
 	InterruptsSpinLocker teamsLocker(sTeamHashLock);
 
 	sTeamHash.Insert(team);
-	sUsedTeams++;
+	bool teamLimitReached = sUsedTeams >= sMaxTeams;
+	if (!teamLimitReached)
+		sUsedTeams++;
 
 	teamsLocker.Unlock();
 
@@ -2055,6 +2083,11 @@ fork_team(void)
 	// inherit some team debug flags
 	team->debug_info.flags |= atomic_get(&parentTeam->debug_info.flags)
 		& B_TEAM_DEBUG_INHERITED_FLAGS;
+
+	if (teamLimitReached) {
+		status = B_NO_MORE_TEAMS;
+		goto err1;
+	}
 
 	forkArgs = (arch_fork_arg*)malloc(sizeof(arch_fork_arg));
 	if (forkArgs == NULL) {
@@ -2075,7 +2108,7 @@ fork_team(void)
 			parentTeam->realtime_sem_context);
 		if (team->realtime_sem_context == NULL) {
 			status = B_NO_MEMORY;
-			goto err25;
+			goto err2;
 		}
 	}
 
@@ -2170,8 +2203,6 @@ err4:
 	team->address_space->RemoveAndPut();
 err3:
 	delete_realtime_sem_context(team->realtime_sem_context);
-err25:
-	vfs_put_io_context(team->io_context);
 err2:
 	free(forkArgs);
 err1:
@@ -2188,6 +2219,8 @@ err1:
 
 	teamsLocker.Lock();
 	sTeamHash.Remove(team);
+	if (!teamLimitReached)
+		sUsedTeams--;
 	teamsLocker.Unlock();
 
 	sNotificationService.Notify(TEAM_REMOVED, team);
@@ -2426,7 +2459,7 @@ wait_for_child(pid_t child, uint32 flags, siginfo_t& _info)
 				} else {
 					// The child is well. Reset its job control state.
 					team_set_job_control_state(entry->team,
-						JOB_CONTROL_STATE_NONE, NULL, false);
+						JOB_CONTROL_STATE_NONE, NULL);
 				}
 			}
 		}
@@ -2513,14 +2546,16 @@ wait_for_child(pid_t child, uint32 flags, siginfo_t& _info)
 	// If SIGCHLD is blocked, we shall clear pending SIGCHLDs, if no other child
 	// status is available.
 	TeamLocker teamLocker(team);
-	InterruptsSpinLocker schedulerLocker(gSchedulerLock);
+	InterruptsSpinLocker signalLocker(team->signal_lock);
+	SpinLocker threadCreationLocker(gThreadCreationLock);
 
 	if (is_team_signal_blocked(team, SIGCHLD)) {
 		if (get_job_control_entry(team, child, flags) == NULL)
 			team->RemovePendingSignals(SIGNAL_TO_MASK(SIGCHLD));
 	}
 
-	schedulerLocker.Unlock();
+	threadCreationLocker.Unlock();
+	signalLocker.Unlock();
 	teamLocker.Unlock();
 
 	// When the team is dead, the main thread continues to live in the kernel
@@ -2907,12 +2942,12 @@ team_set_foreground_process_group(int32 ttyIndex, pid_t processGroupID)
 	if (session->foreground_group != -1
 		&& session->foreground_group != team->group_id
 		&& team->SignalActionFor(SIGTTOU).sa_handler != SIG_IGN) {
-		InterruptsSpinLocker schedulerLocker(gSchedulerLock);
+		InterruptsSpinLocker signalLocker(team->signal_lock);
 
 		if (!is_team_signal_blocked(team, SIGTTOU)) {
 			pid_t groupID = team->group_id;
 
-			schedulerLocker.Unlock();
+			signalLocker.Unlock();
 			sessionLocker.Unlock();
 			teamLocker.Unlock();
 
@@ -3076,12 +3111,12 @@ team_shutdown_team(Team* team)
 	team->DeleteUserTimers(false);
 
 	// deactivate CPU time user timers for the team
-	InterruptsSpinLocker schedulerLocker(gSchedulerLock);
+	InterruptsSpinLocker timeLocker(team->time_lock);
 
 	if (team->HasActiveCPUTimeUserTimers())
 		team->DeactivateCPUTimeUserTimers();
 
-	schedulerLocker.Unlock();
+	timeLocker.Unlock();
 
 	// kill all threads but the main thread
 	team_death_entry deathEntry;
@@ -3152,11 +3187,8 @@ team_delete_team(Team* team, port_id debuggerPort)
 		loadingInfo->result = B_ERROR;
 		loadingInfo->done = true;
 
-		InterruptsSpinLocker schedulerLocker(gSchedulerLock);
-
 		// wake up the waiting thread
-		if (loadingInfo->thread->state == B_THREAD_SUSPENDED)
-			scheduler_enqueue_in_run_queue(loadingInfo->thread);
+		thread_continue(loadingInfo->thread);
 	}
 
 	// notify team watchers
@@ -3238,8 +3270,7 @@ team_get_address_space(team_id id, VMAddressSpace** _addressSpace)
 
 /*!	Sets the team's job control state.
 	The caller must hold the parent team's lock. Interrupts are allowed to be
-	enabled or disabled. In the latter case the scheduler lock may be held as
-	well.
+	enabled or disabled.
 	\a team The team whose job control state shall be set.
 	\a newState The new state to be set.
 	\a signal The signal the new state was caused by. Can \c NULL, if none. Then
@@ -3248,11 +3279,10 @@ team_get_address_space(team_id id, VMAddressSpace** _addressSpace)
 		\c JOB_CONTROL_STATE_NONE:
 		- \c signal: The number of the signal causing the state change.
 		- \c signaling_user: The real UID of the user sending the signal.
-	\a schedulerLocked indicates whether the scheduler lock is being held, too.
 */
 void
 team_set_job_control_state(Team* team, job_control_state newState,
-	Signal* signal, bool schedulerLocked)
+	Signal* signal)
 {
 	if (team == NULL || team->job_control_entry == NULL)
 		return;
@@ -3308,8 +3338,7 @@ team_set_job_control_state(Team* team, job_control_state newState,
 
 	if (childList != NULL) {
 		childList->entries.Add(entry);
-		team->parent->dead_children.condition_variable.NotifyAll(
-			schedulerLocked);
+		team->parent->dead_children.condition_variable.NotifyAll();
 	}
 }
 
@@ -3420,7 +3449,7 @@ team_allocate_user_thread(Team* team)
 
 	while (true) {
 		// enough space left?
-		size_t needed = ROUNDUP(sizeof(user_thread), 128);
+		size_t needed = ROUNDUP(sizeof(user_thread), CACHE_LINE_SIZE);
 		if (team->user_data_size - team->used_user_data < needed) {
 			// try to resize the area
 			if (resize_area(team->user_data_area,
@@ -4069,7 +4098,7 @@ _user_setpgid(pid_t processID, pid_t groupID)
 
 		// Changing the process group might have changed the situation for a
 		// parent waiting in wait_for_child(). Hence we notify it.
-		team->parent->dead_children.condition_variable.NotifyAll(false);
+		team->parent->dead_children.condition_variable.NotifyAll();
 
 		return group->id;
 	}
@@ -4111,7 +4140,7 @@ _user_setsid(void)
 
 	// Changing the process group might have changed the situation for a
 	// parent waiting in wait_for_child(). Hence we notify it.
-	team->parent->dead_children.condition_variable.NotifyAll(false);
+	team->parent->dead_children.condition_variable.NotifyAll();
 
 	return group->id;
 }

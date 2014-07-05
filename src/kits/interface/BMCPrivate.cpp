@@ -22,6 +22,12 @@
 #include <Window.h>
 
 
+static const float kPopUpIndicatorWidth = 13.0f;
+
+
+//	#pragma mark - _BMCFilter_
+
+
 _BMCFilter_::_BMCFilter_(BMenuField* menuField, uint32 what)
 	:
 	BMessageFilter(B_ANY_DELIVERY, B_ANY_SOURCE, what),
@@ -52,10 +58,7 @@ _BMCFilter_::Filter(BMessage* message, BHandler** handler)
 }
 
 
-// #pragma mark -
-
-
-static const float kPopUpIndicatorWidth = 13.0f;
+//	#pragma mark - _BMCMenuBar_
 
 
 _BMCMenuBar_::_BMCMenuBar_(BRect frame, bool fixedSize, BMenuField* menuField)
@@ -64,7 +67,6 @@ _BMCMenuBar_::_BMCMenuBar_(BRect frame, bool fixedSize, BMenuField* menuField)
 		!fixedSize),
 	fMenuField(menuField),
 	fFixedSize(fixedSize),
-	fRunner(NULL),
 	fShowPopUpMarker(true)
 {
 	_Init();
@@ -76,7 +78,6 @@ _BMCMenuBar_::_BMCMenuBar_(BMenuField* menuField)
 	BMenuBar("_mc_mb_", B_ITEMS_IN_ROW),
 	fMenuField(menuField),
 	fFixedSize(true),
-	fRunner(NULL),
 	fShowPopUpMarker(true)
 {
 	_Init();
@@ -88,7 +89,6 @@ _BMCMenuBar_::_BMCMenuBar_(BMessage* data)
 	BMenuBar(data),
 	fMenuField(NULL),
 	fFixedSize(true),
-	fRunner(NULL),
 	fShowPopUpMarker(true)
 {
 	SetFlags(Flags() | B_FRAME_EVENTS);
@@ -101,8 +101,10 @@ _BMCMenuBar_::_BMCMenuBar_(BMessage* data)
 
 _BMCMenuBar_::~_BMCMenuBar_()
 {
-	delete fRunner;
 }
+
+
+//	#pragma mark - _BMCMenuBar_ public methods
 
 
 BArchivable*
@@ -132,6 +134,8 @@ _BMCMenuBar_::AttachedToWindow()
 		SetLowColor(Parent()->LowColor());
 	else
 		SetLowColor(ui_color(B_MENU_BACKGROUND_COLOR));
+
+	fPreviousWidth = Bounds().Width();
 }
 
 
@@ -172,8 +176,7 @@ _BMCMenuBar_::Draw(BRect updateRect)
 void
 _BMCMenuBar_::FrameResized(float width, float height)
 {
-	// we need to take care of resizing and cleaning up
-	// the parent menu field
+	// we need to take care of cleaning up the parent menu field
 	float diff = width - fPreviousWidth;
 	fPreviousWidth = width;
 
@@ -183,24 +186,13 @@ _BMCMenuBar_::FrameResized(float width, float height)
 			// clean up the dirty right border of
 			// the menu field when enlarging
 			dirty.right = Frame().right + kVMargin;
-			dirty.left = dirty.left - diff - kVMargin * 2;
+			dirty.left = dirty.right - diff - kVMargin * 2;
 			fMenuField->Invalidate(dirty);
-
-			// clean up the arrow part
-			dirty = Bounds();
-			dirty.left = dirty.right - diff - kPopUpIndicatorWidth;
-			Invalidate(dirty);
 		} else if (diff < 0) {
 			// clean up the dirty right line of
 			// the menu field when shrinking
 			dirty.left = Frame().right - kVMargin;
-			dirty.right = dirty.left - diff + kVMargin * 2;
 			fMenuField->Invalidate(dirty);
-
-			// clean up the arrow part
-			dirty = Bounds();
-			dirty.left = dirty.right - kPopUpIndicatorWidth;
-			Invalidate(dirty);
 		}
 	}
 
@@ -209,9 +201,19 @@ _BMCMenuBar_::FrameResized(float width, float height)
 
 
 void
-_BMCMenuBar_::MessageReceived(BMessage* msg)
+_BMCMenuBar_::MakeFocus(bool focused)
 {
-	switch (msg->what) {
+	if (IsFocus() == focused)
+		return;
+
+	BMenuBar::MakeFocus(focused);
+}
+
+
+void
+_BMCMenuBar_::MessageReceived(BMessage* message)
+{
+	switch (message->what) {
 		case 'TICK':
 		{
 			BMenuItem* item = ItemAt(0);
@@ -229,39 +231,9 @@ _BMCMenuBar_::MessageReceived(BMessage* msg)
 		}
 		// fall through
 		default:
-			BMenuBar::MessageReceived(msg);
+			BMenuBar::MessageReceived(message);
 			break;
 	}
-}
-
-
-void
-_BMCMenuBar_::MakeFocus(bool focused)
-{
-	if (IsFocus() == focused)
-		return;
-
-	BMenuBar::MakeFocus(focused);
-
-	if (focused) {
-		BMessage message('TICK');
-		//fRunner = new BMessageRunner(BMessenger(this, NULL, NULL), &message,
-		//	50000, -1);
-	} else if (fRunner) {
-		//delete fRunner;
-		fRunner = NULL;
-	}
-
-	if (focused)
-		return;
-
-	fMenuField->fSelected = false;
-	fMenuField->fTransition = true;
-
-	BRect bounds(fMenuField->Bounds());
-
-	fMenuField->Invalidate(BRect(bounds.left, bounds.top, fMenuField->fDivider,
-		bounds.bottom));
 }
 
 
@@ -276,12 +248,20 @@ _BMCMenuBar_::SetMaxContentWidth(float width)
 }
 
 
+void
+_BMCMenuBar_::SetEnabled(bool enabled)
+{
+	fMenuField->SetEnabled(enabled);
+
+	BMenuBar::SetEnabled(enabled);
+}
+
+
 BSize
 _BMCMenuBar_::MinSize()
 {
 	BSize size;
 	BMenuBar::GetPreferredSize(&size.width, &size.height);
-
 	if (fShowPopUpMarker) {
 		// account for popup indicator + a few pixels margin
 		size.width += kPopUpIndicatorWidth;
@@ -298,14 +278,18 @@ _BMCMenuBar_::MaxSize()
 	// limited.
 	BSize size;
 	BMenuBar::GetPreferredSize(&size.width, &size.height);
+
 	return BLayoutUtils::ComposeSize(ExplicitMaxSize(), size);
 }
+
+
+//	#pragma mark - _BMCMenuBar_ private methods
 
 
 void
 _BMCMenuBar_::_Init()
 {
-	SetFlags(Flags() | B_FRAME_EVENTS);
+	SetFlags(Flags() | B_FRAME_EVENTS | B_FULL_UPDATE_ON_RESIZE);
 	SetBorder(B_BORDER_CONTENTS);
 
 	float left, top, right, bottom;
@@ -332,6 +316,4 @@ _BMCMenuBar_::_Init()
 
 	SetItemMargins(left, top,
 		right + fShowPopUpMarker ? kPopUpIndicatorWidth : 0, bottom);
-
-	fPreviousWidth = Bounds().Width();
 }

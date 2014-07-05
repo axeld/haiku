@@ -1,19 +1,18 @@
 /*
  * Copyright 2009, Ingo Weinhold, ingo_weinhold@gmx.de.
- * Copyright 2011-2013, Rene Gollent, rene@gollent.com.
+ * Copyright 2011-2014, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 
 
 #include "VariablesView.h"
 
-#include <stdio.h>
-
 #include <new>
 
 #include <debugger.h>
 
 #include <Alert.h>
+#include <Clipboard.h>
 #include <Looper.h>
 #include <PopUpMenu.h>
 #include <ToolTip.h>
@@ -940,10 +939,10 @@ VariablesView::VariableTableModel::SetStackFrame(Thread* thread,
 		fNodes.MakeEmpty();
 	}
 
-	if (stackFrame == NULL) {
-		NotifyNodesRemoved(TreeTablePath(), 0, count);
+	NotifyNodesRemoved(TreeTablePath(), 0, count);
+
+	if (stackFrame == NULL)
 		return;
-	}
 
 	ValueNodeContainer* container = fNodeManager->GetContainer();
 	AutoLocker<ValueNodeContainer> containerLocker(container);
@@ -956,8 +955,6 @@ VariablesView::VariableTableModel::SetStackFrame(Thread* thread,
 		// so those won't invoke our callback hook. Add them directly here.
 		ValueNodeChildrenCreated(child->Node());
 	}
-
-	NotifyTableModelReset();
 }
 
 
@@ -1430,6 +1427,7 @@ VariablesView::VariablesView(Listener* listener)
 	fPreviousViewState(NULL),
 	fViewStateHistory(NULL),
 	fTableCellContextMenuTracker(NULL),
+	fFrameClearPending(false),
 	fListener(listener)
 {
 	SetName("Variables");
@@ -1473,6 +1471,8 @@ VariablesView::Create(Listener* listener)
 void
 VariablesView::SetStackFrame(Thread* thread, StackFrame* stackFrame)
 {
+	fFrameClearPending = false;
+
 	if (thread == fThread && stackFrame == fStackFrame)
 		return;
 
@@ -1821,6 +1821,11 @@ VariablesView::MessageReceived(BMessage* message)
 			fVariableTableModel->NotifyNodeChanged(node);
 			break;
 		}
+		case B_COPY:
+		{
+			_CopyVariableValueToClipboard();
+			break;
+		}
 		default:
 			BGroupView::MessageReceived(message);
 			break;
@@ -1861,12 +1866,20 @@ VariablesView::SaveSettings(BMessage& settings)
 }
 
 
+void
+VariablesView::SetStackFrameClearPending()
+{
+	fFrameClearPending = true;
+}
 
 
 void
 VariablesView::TreeTableNodeExpandedChanged(TreeTable* table,
 	const TreeTablePath& path, bool expanded)
 {
+	if (fFrameClearPending)
+		return;
+
 	if (expanded) {
 		ModelNode* node = (ModelNode*)fVariableTableModel->NodeForPath(path);
 		if (node == NULL)
@@ -1901,6 +1914,9 @@ VariablesView::TreeTableCellMouseDown(TreeTable* table,
 	uint32 buttons)
 {
 	if ((buttons & B_SECONDARY_MOUSE_BUTTON) == 0)
+		return;
+
+	if (fFrameClearPending)
 		return;
 
 	_FinishContextMenu(true);
@@ -2030,6 +2046,9 @@ VariablesView::_GetContextActionsForNode(ModelNode* node,
 	ContextActionList* actions)
 {
 	ValueLocation* location = node->NodeChild()->Location();
+	if (location == NULL)
+		return B_OK;
+
 	status_t result = B_OK;
 	BMessage* message = NULL;
 
@@ -2069,6 +2088,15 @@ VariablesView::_GetContextActionsForNode(ModelNode* node,
 	if (valueNode == NULL)
 		return B_OK;
 
+	if (valueNode->LocationAndValueResolutionState() == B_OK) {
+		result = _AddContextAction("Copy Value", B_COPY, actions, message);
+		if (result != B_OK)
+			return result;
+	}
+
+	// if the current node isn't itself a ranged container, check if it
+	// contains a hidden node which is, since in the latter case we
+	// want to present the range selection as well.
 	if (!valueNode->IsRangedContainer()) {
 		if (node->CountChildren() == 1 && node->ChildAt(0)->IsHidden()) {
 			valueNode = node->ChildAt(0)->NodeChild()->Node();
@@ -2091,7 +2119,7 @@ status_t
 VariablesView::_AddContextAction(const char* action, uint32 what,
 	ContextActionList* actions, BMessage*& _message)
 {
-	_message = new BMessage(what);
+	_message = new(std::nothrow) BMessage(what);
 	if (_message == NULL)
 		return B_NO_MEMORY;
 
@@ -2278,6 +2306,26 @@ VariablesView::_ApplyViewStateDescendentNodeInfos(VariablesViewState* viewState,
 	}
 
 	return B_OK;
+}
+
+
+void
+VariablesView::_CopyVariableValueToClipboard()
+{
+	ModelNode* node = reinterpret_cast<ModelNode*>(
+		fVariableTable->SelectionModel()->NodeAt(0));
+
+	Value* value = node->GetValue();
+	BString valueData;
+	if (value != NULL && value->ToString(valueData)) {
+		be_clipboard->Lock();
+		be_clipboard->Data()->RemoveData("text/plain");
+		be_clipboard->Data()->AddData ("text/plain",
+			B_MIME_TYPE, valueData.String(),
+			valueData.Length());
+		be_clipboard->Commit();
+		be_clipboard->Unlock();
+	}
 }
 
 

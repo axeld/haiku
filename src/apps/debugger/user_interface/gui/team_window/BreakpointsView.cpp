@@ -10,6 +10,7 @@
 #include <new>
 
 #include <Button.h>
+#include <CheckBox.h>
 #include <LayoutBuilder.h>
 
 #include <AutoLocker.h>
@@ -154,13 +155,13 @@ BreakpointsView::_Init()
 			.SetInsets(B_USE_SMALL_SPACING)
 			.AddGlue()
 			.Add(fConfigureExceptionsButton = new BButton(
-				"Configure exceptions" B_UTF8_ELLIPSIS))
+				"Configure break conditions" B_UTF8_ELLIPSIS))
 			.Add(fRemoveBreakpointButton = new BButton("Remove"))
 			.Add(fToggleBreakpointButton = new BButton("Toggle"))
 		.End();
 
-	fConfigureExceptionsButton->SetMessage(new BMessage(
-		MSG_SHOW_EXCEPTION_CONFIG_WINDOW));
+	fConfigureExceptionsButton->SetMessage(
+		new BMessage(MSG_SHOW_BREAK_CONDITION_CONFIG_WINDOW));
 	fToggleBreakpointButton->SetMessage(new BMessage(MSG_ENABLE_BREAKPOINT));
 	fRemoveBreakpointButton->SetMessage(new BMessage(MSG_CLEAR_BREAKPOINT));
 
