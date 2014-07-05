@@ -1,8 +1,9 @@
 /*
- * Copyright 2008-2012, Axel Dörfler, axeld@pinc-software.de.
+ * Copyright 2008-2013, Axel Dörfler, axeld@pinc-software.de.
  * Copyright 2002/03, Thomas Kurschel. All rights reserved.
  * Distributed under the terms of the MIT License.
  */
+
 
 /*!	Peripheral driver to handle any kind of SCSI disks,
 	i.e. hard disk and floopy disks (ZIP etc.)
@@ -20,7 +21,10 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include <AutoDeleter.h>
+
 #include <fs/devfs.h>
+#include <util/fs_trim_support.h>
 
 #include "dma_resources.h"
 #include "IORequest.h"
@@ -93,7 +97,6 @@ get_geometry(das_handle* handle, device_geometry* geometry)
 	if (status != B_OK)
 		return status;
 
-
 	devfs_compute_geometry_size(geometry, info->capacity, info->block_size);
 
 	geometry->device_type = B_DISK;
@@ -107,9 +110,10 @@ get_geometry(das_handle* handle, device_geometry* geometry)
 	geometry->read_only = false;
 	geometry->write_once = false;
 
-	TRACE("scsi_disk: get_geometry(): %ld, %ld, %ld, %ld, %d, %d, %d, %d\n",
-		geometry->bytes_per_sector, geometry->sectors_per_track,
-		geometry->cylinder_count, geometry->head_count, geometry->device_type,
+	TRACE("scsi_disk: get_geometry(): %" B_PRId32 ", %" B_PRId32 ", %" B_PRId32
+		", %" B_PRId32 ", %d, %d, %d, %d\n", geometry->bytes_per_sector,
+		geometry->sectors_per_track, geometry->cylinder_count,
+		geometry->head_count, geometry->device_type,
 		geometry->removable, geometry->read_only, geometry->write_once);
 
 	return B_OK;
@@ -149,6 +153,31 @@ synchronize_cache(das_driver_info *device)
 	device->scsi->free_ccb(ccb);
 
 	return result.error_code;
+}
+
+
+static status_t
+trim_device(das_driver_info* device, fs_trim_data* trimData)
+{
+	TRACE("trim_device()\n");
+
+	scsi_ccb* request = device->scsi->alloc_ccb(device->scsi_device);
+	if (request == NULL)
+		return B_NO_MEMORY;
+
+	uint64 trimmedSize = 0;
+	for (uint32 i = 0; i < trimData->range_count; i++) {
+		trimmedSize += trimData->ranges[i].size;
+	}
+	status_t status = sSCSIPeripheral->trim_device(device->scsi_periph_device,
+		request, (scsi_block_range*)&trimData->ranges[0],
+		trimData->range_count);
+
+	device->scsi->free_ccb(request);
+	if (status == B_OK)
+		trimData->trimmed_size = trimmedSize;
+
+	return status;
 }
 
 
@@ -209,7 +238,6 @@ das_uninit_device(void* _cookie)
 	das_driver_info* info = (das_driver_info*)_cookie;
 
 	delete info->io_scheduler;
-	delete info->dma_resource;
 }
 
 
@@ -324,7 +352,7 @@ das_ioctl(void* cookie, uint32 op, void* buffer, size_t length)
 	das_handle* handle = (das_handle*)cookie;
 	das_driver_info* info = handle->info;
 
-	TRACE("ioctl(op = %ld)\n", op);
+	TRACE("ioctl(op = %" B_PRIu32 ")\n", op);
 
 	switch (op) {
 		case B_GET_DEVICE_SIZE:
@@ -385,6 +413,22 @@ das_ioctl(void* cookie, uint32 op, void* buffer, size_t length)
 		case B_FLUSH_DRIVE_CACHE:
 			return synchronize_cache(info);
 
+		case B_TRIM_DEVICE:
+		{
+			fs_trim_data* trimData;
+			MemoryDeleter deleter;
+			status_t status = get_trim_data_from_user(buffer, length, deleter,
+				trimData);
+			if (status != B_OK)
+				return status;
+
+			status = trim_device(info, trimData);
+			if (status != B_OK)
+				return status;
+
+			return copy_trim_data_to_user(buffer, trimData);
+		}
+
 		default:
 			return sSCSIPeripheral->ioctl(handle->scsi_periph_handle, op,
 				buffer, length);
@@ -398,8 +442,8 @@ das_ioctl(void* cookie, uint32 op, void* buffer, size_t length)
 static void
 das_set_capacity(das_driver_info* info, uint64 capacity, uint32 blockSize)
 {
-	TRACE("das_set_capacity(device = %p, capacity = %Ld, blockSize = %ld)\n",
-		info, capacity, blockSize);
+	TRACE("das_set_capacity(device = %p, capacity = %" B_PRIu64
+		", blockSize = %" B_PRIu32 ")\n", info, capacity, blockSize);
 
 	// get log2, if possible
 	uint32 blockShift = log2(blockSize);
@@ -555,6 +599,7 @@ das_init_driver(device_node *node, void **cookie)
 		&callbacks, info->scsi_device, info->scsi, info->node,
 		info->removable, 10, &info->scsi_periph_device);
 	if (status != B_OK) {
+		delete info->dma_resource;
 		free(info);
 		return status;
 	}
@@ -570,6 +615,7 @@ das_uninit_driver(void *_cookie)
 	das_driver_info* info = (das_driver_info*)_cookie;
 
 	sSCSIPeripheral->unregister_device(info->scsi_periph_device);
+	delete info->dma_resource;
 	free(info);
 }
 
@@ -591,6 +637,19 @@ das_register_child_devices(void* _cookie)
 	free(name);
 	return status;
 }
+
+
+static status_t
+das_rescan_child_devices(void* _cookie)
+{
+	das_driver_info* info = (das_driver_info*)_cookie;
+	uint64 capacity = info->capacity;
+	update_capacity(info);
+	if (info->capacity != capacity)
+		sSCSIPeripheral->media_changed(info->scsi_periph_device);
+	return B_OK;
+}
+
 
 
 module_dependency module_dependencies[] = {
@@ -634,7 +693,7 @@ struct driver_module_info sSCSIDiskDriver = {
 	das_init_driver,
 	das_uninit_driver,
 	das_register_child_devices,
-	NULL,	// rescan
+	das_rescan_child_devices,
 	NULL,	// removed
 };
 

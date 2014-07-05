@@ -267,13 +267,14 @@ static cache_info* sCacheInfoTable;
 static void delete_area(VMAddressSpace* addressSpace, VMArea* area,
 	bool addressSpaceCleanup);
 static status_t vm_soft_fault(VMAddressSpace* addressSpace, addr_t address,
-	bool isWrite, bool isUser, vm_page** wirePage,
+	bool isWrite, bool isExecute, bool isUser, vm_page** wirePage,
 	VMAreaWiredRange* wiredRange = NULL);
 static status_t map_backing_store(VMAddressSpace* addressSpace,
 	VMCache* cache, off_t offset, const char* areaName, addr_t size, int wiring,
 	int protection, int mapping, uint32 flags,
 	const virtual_address_restrictions* addressRestrictions, bool kernel,
 	VMArea** _area, void** _virtualAddress);
+static void fix_protection(uint32* protection);
 
 
 //	#pragma mark -
@@ -315,6 +316,7 @@ enum {
 	PAGE_FAULT_ERROR_KERNEL_ONLY,
 	PAGE_FAULT_ERROR_WRITE_PROTECTED,
 	PAGE_FAULT_ERROR_READ_PROTECTED,
+	PAGE_FAULT_ERROR_EXECUTE_PROTECTED,
 	PAGE_FAULT_ERROR_KERNEL_BAD_USER_MEMORY,
 	PAGE_FAULT_ERROR_NO_ADDRESS_SPACE
 };
@@ -345,6 +347,10 @@ public:
 				break;
 			case PAGE_FAULT_ERROR_READ_PROTECTED:
 				out.Print("page fault error: area: %ld, read protected", fArea);
+				break;
+			case PAGE_FAULT_ERROR_EXECUTE_PROTECTED:
+				out.Print("page fault error: area: %ld, execute protected",
+					fArea);
 				break;
 			case PAGE_FAULT_ERROR_KERNEL_BAD_USER_MEMORY:
 				out.Print("page fault error: kernel touching bad user memory");
@@ -1127,8 +1133,8 @@ vm_block_address_range(const char* name, void* address, addr_t size)
 	addressRestrictions.address = address;
 	addressRestrictions.address_specification = B_EXACT_ADDRESS;
 	status = map_backing_store(addressSpace, cache, 0, name, size,
-		B_ALREADY_WIRED, B_ALREADY_WIRED, REGION_NO_PRIVATE_MAP, 0,
-		&addressRestrictions, true, &area, NULL);
+		B_ALREADY_WIRED, 0, REGION_NO_PRIVATE_MAP, 0, &addressRestrictions,
+		true, &area, NULL);
 	if (status != B_OK) {
 		cache->ReleaseRefAndUnlock();
 		return status;
@@ -1219,6 +1225,8 @@ vm_create_anonymous_area(team_id team, const char *name, addr_t size,
 		case B_BASE_ADDRESS:
 		case B_ANY_KERNEL_ADDRESS:
 		case B_ANY_KERNEL_BLOCK_ADDRESS:
+		case B_RANDOMIZED_ANY_ADDRESS:
+		case B_RANDOMIZED_BASE_ADDRESS:
 			break;
 
 		default:
@@ -2520,10 +2528,12 @@ vm_copy_area(team_id team, const char* name, void** _address,
 }
 
 
-static status_t
+status_t
 vm_set_area_protection(team_id team, area_id areaID, uint32 newProtection,
 	bool kernel)
 {
+	fix_protection(&newProtection);
+
 	TRACE(("vm_set_area_protection(team = %#" B_PRIx32 ", area = %#" B_PRIx32
 		", protection = %#" B_PRIx32 ")\n", team, areaID, newProtection));
 
@@ -3400,6 +3410,145 @@ dump_available_memory(int argc, char** argv)
 }
 
 
+static int
+dump_mapping_info(int argc, char** argv)
+{
+	bool reverseLookup = false;
+	bool pageLookup = false;
+
+	int argi = 1;
+	for (; argi < argc && argv[argi][0] == '-'; argi++) {
+		const char* arg = argv[argi];
+		if (strcmp(arg, "-r") == 0) {
+			reverseLookup = true;
+		} else if (strcmp(arg, "-p") == 0) {
+			reverseLookup = true;
+			pageLookup = true;
+		} else {
+			print_debugger_command_usage(argv[0]);
+			return 0;
+		}
+	}
+
+	// We need at least one argument, the address. Optionally a thread ID can be
+	// specified.
+	if (argi >= argc || argi + 2 < argc) {
+		print_debugger_command_usage(argv[0]);
+		return 0;
+	}
+
+	uint64 addressValue;
+	if (!evaluate_debug_expression(argv[argi++], &addressValue, false))
+		return 0;
+
+	Team* team = NULL;
+	if (argi < argc) {
+		uint64 threadID;
+		if (!evaluate_debug_expression(argv[argi++], &threadID, false))
+			return 0;
+
+		Thread* thread = Thread::GetDebug(threadID);
+		if (thread == NULL) {
+			kprintf("Invalid thread/team ID \"%s\"\n", argv[argi - 1]);
+			return 0;
+		}
+
+		team = thread->team;
+	}
+
+	if (reverseLookup) {
+		phys_addr_t physicalAddress;
+		if (pageLookup) {
+			vm_page* page = (vm_page*)(addr_t)addressValue;
+			physicalAddress = page->physical_page_number * B_PAGE_SIZE;
+		} else {
+			physicalAddress = (phys_addr_t)addressValue;
+			physicalAddress -= physicalAddress % B_PAGE_SIZE;
+		}
+
+		kprintf("    Team     Virtual Address      Area\n");
+		kprintf("--------------------------------------\n");
+
+		struct Callback : VMTranslationMap::ReverseMappingInfoCallback {
+			Callback()
+				:
+				fAddressSpace(NULL)
+			{
+			}
+
+			void SetAddressSpace(VMAddressSpace* addressSpace)
+			{
+				fAddressSpace = addressSpace;
+			}
+
+			virtual bool HandleVirtualAddress(addr_t virtualAddress)
+			{
+				kprintf("%8" B_PRId32 "  %#18" B_PRIxADDR, fAddressSpace->ID(),
+					virtualAddress);
+				if (VMArea* area = fAddressSpace->LookupArea(virtualAddress))
+					kprintf("  %8" B_PRId32 " %s\n", area->id, area->name);
+				else
+					kprintf("\n");
+				return false;
+			}
+
+		private:
+			VMAddressSpace*	fAddressSpace;
+		} callback;
+
+		if (team != NULL) {
+			// team specified -- get its address space
+			VMAddressSpace* addressSpace = team->address_space;
+			if (addressSpace == NULL) {
+				kprintf("Failed to get address space!\n");
+				return 0;
+			}
+
+			callback.SetAddressSpace(addressSpace);
+			addressSpace->TranslationMap()->DebugGetReverseMappingInfo(
+				physicalAddress, callback);
+		} else {
+			// no team specified -- iterate through all address spaces
+			for (VMAddressSpace* addressSpace = VMAddressSpace::DebugFirst();
+				addressSpace != NULL;
+				addressSpace = VMAddressSpace::DebugNext(addressSpace)) {
+				callback.SetAddressSpace(addressSpace);
+				addressSpace->TranslationMap()->DebugGetReverseMappingInfo(
+					physicalAddress, callback);
+			}
+		}
+	} else {
+		// get the address space
+		addr_t virtualAddress = (addr_t)addressValue;
+		virtualAddress -= virtualAddress % B_PAGE_SIZE;
+		VMAddressSpace* addressSpace;
+		if (IS_KERNEL_ADDRESS(virtualAddress)) {
+			addressSpace = VMAddressSpace::Kernel();
+		} else if (team != NULL) {
+			addressSpace = team->address_space;
+		} else {
+			Thread* thread = debug_get_debugged_thread();
+			if (thread == NULL || thread->team == NULL) {
+				kprintf("Failed to get team!\n");
+				return 0;
+			}
+
+			addressSpace = thread->team->address_space;
+		}
+
+		if (addressSpace == NULL) {
+			kprintf("Failed to get address space!\n");
+			return 0;
+		}
+
+		// let the translation map implementation do the job
+		addressSpace->TranslationMap()->DebugPrintMappingInfo(virtualAddress);
+	}
+
+	return 0;
+}
+
+
 /*!	Deletes all areas and reserved regions in the given address space.
 
 	The caller must ensure that none of the areas has any wired ranges.
@@ -3761,6 +3910,10 @@ vm_allocate_early(kernel_args* args, size_t virtualSize, size_t physicalSize,
 	// find the vaddr to allocate at
 	addr_t virtualBase = allocate_early_virtual(args, virtualSize, alignment);
 	//dprintf("vm_allocate_early: vaddr 0x%lx\n", virtualBase);
+	if (virtualBase == 0) {
+		panic("vm_allocate_early: could not allocate virtual address\n");
+		return 0;
+	}
 
 	// map the pages
 	for (uint32 i = 0; i < PAGE_ALIGN(physicalSize) / B_PAGE_SIZE; i++) {
@@ -3925,6 +4078,21 @@ vm_init(kernel_args* args)
 	add_debugger_command("db", &display_mem, "dump memory bytes (8-bit)");
 	add_debugger_command("string", &display_mem, "dump strings");
 
+	add_debugger_command_etc("mapping", &dump_mapping_info,
+		"Print address mapping information",
+		"[ \"-r\" | \"-p\" ] <address> [ <thread ID> ]\n"
+		"Prints low-level page mapping information for a given address. If\n"
+		"neither \"-r\" nor \"-p\" are specified, <address> is a virtual\n"
+		"address that is looked up in the translation map of the current\n"
+		"team, respectively the team specified by thread ID <thread ID>. If\n"
+		"\"-r\" is specified, <address> is a physical address that is\n"
+		"searched in the translation map of all teams, respectively the team\n"
+		"specified by thread ID <thread ID>. If \"-p\" is specified,\n"
+		"<address> is the address of a vm_page structure. The behavior is\n"
+		"equivalent to specifying \"-r\" with the physical address of that\n"
+		"page.\n",
+		0);
+
 	TRACE(("vm_init: exit\n"));
 
 	vm_cache_init_post_heap();
@@ -3992,8 +4160,8 @@ forbid_page_faults(void)
 
 
 status_t
-vm_page_fault(addr_t address, addr_t faultAddress, bool isWrite, bool isUser,
-	addr_t* newIP)
+vm_page_fault(addr_t address, addr_t faultAddress, bool isWrite, bool isExecute,
+	bool isUser, addr_t* newIP)
 {
 	FTRACE(("vm_page_fault: page fault at 0x%lx, ip 0x%lx\n", address,
 		faultAddress));
@@ -4036,8 +4204,8 @@ vm_page_fault(addr_t address, addr_t faultAddress, bool isWrite, bool isUser,
 	}
 
 	if (status == B_OK) {
-		status = vm_soft_fault(addressSpace, pageAddress, isWrite, isUser,
-			NULL);
+		status = vm_soft_fault(addressSpace, pageAddress, isWrite, isExecute,
+			isUser, NULL);
 	}
 
 	if (status < B_OK) {
@@ -4072,8 +4240,8 @@ vm_page_fault(addr_t address, addr_t faultAddress, bool isWrite, bool isUser,
 				"\"%s\" (%" B_PRId32 ") tried to %s address %#lx, ip %#lx "
 				"(\"%s\" +%#lx)\n", thread->name, thread->id,
 				thread->team->Name(), thread->team->id,
-				isWrite ? "write" : "read", address, faultAddress,
-				area ? area->name : "???", faultAddress - (area ?
+				isWrite ? "write" : (isExecute ? "execute" : "read"), address,
+				faultAddress, area ? area->name : "???", faultAddress - (area ?
 					area->Base() : 0x0));
 
 			// We can print a stack trace of the userland thread here.
@@ -4362,7 +4530,8 @@ fault_get_page(PageFaultContext& context)
 */
 static status_t
 vm_soft_fault(VMAddressSpace* addressSpace, addr_t originalAddress,
-	bool isWrite, bool isUser, vm_page** wirePage, VMAreaWiredRange* wiredRange)
+	bool isWrite, bool isExecute, bool isUser, vm_page** wirePage,
+	VMAreaWiredRange* wiredRange)
 {
 	FTRACE(("vm_soft_fault: thid 0x%" B_PRIx32 " address 0x%" B_PRIxADDR ", "
 		"isWrite %d, isUser %d\n", thread_get_current_thread_id(),
@@ -4417,7 +4586,16 @@ vm_soft_fault(VMAddressSpace* addressSpace, addr_t originalAddress,
 				VMPageFaultTracing::PAGE_FAULT_ERROR_WRITE_PROTECTED));
 			status = B_PERMISSION_DENIED;
 			break;
-		} else if (!isWrite && (protection
+		} else if (isExecute && (protection
+				& (B_EXECUTE_AREA
+					| (isUser ? 0 : B_KERNEL_EXECUTE_AREA))) == 0) {
+			dprintf("instruction fetch attempted on execute-protected area 0x%"
+				B_PRIx32 " at %p\n", area->id, (void*)originalAddress);
+			TPF(PageFaultError(area->id,
+				VMPageFaultTracing::PAGE_FAULT_ERROR_EXECUTE_PROTECTED));
+			status = B_PERMISSION_DENIED;
+			break;
+		} else if (!isWrite && !isExecute && (protection
 				& (B_READ_AREA | (isUser ? 0 : B_KERNEL_READ_AREA))) == 0) {
 			dprintf("read access attempted on read-protected area 0x%" B_PRIx32
 				" at %p\n", area->id, (void*)originalAddress);
@@ -4608,16 +4786,13 @@ vm_put_physical_page_debug(addr_t vaddr, void* handle)
 
 
 void
-vm_get_info(system_memory_info* info)
+vm_get_info(system_info* info)
 {
 	swap_get_info(info);
 
-	info->max_memory = vm_page_num_pages() * B_PAGE_SIZE;
-	info->page_faults = sPageFaults;
-
 	MutexLocker locker(sAvailableMemoryLock);
-	info->free_memory = sAvailableMemory;
 	info->needed_memory = sNeededMemory;
+	info->free_memory = sAvailableMemory;
 }
 
 
@@ -4754,7 +4929,8 @@ vm_set_area_memory_type(area_id id, phys_addr_t physicalBase, uint32 type)
 
 
 /*!	This function enforces some protection properties:
-	 - if B_WRITE_AREA is set, B_WRITE_KERNEL_AREA is set as well
+	 - if B_WRITE_AREA is set, B_KERNEL_WRITE_AREA is set as well
+	 - if B_EXECUTE_AREA is set, B_KERNEL_EXECUTE_AREA is set as well
 	 - if only B_READ_AREA has been set, B_KERNEL_READ_AREA is also set
 	 - if no protection is specified, it defaults to B_KERNEL_READ_AREA
 	   and B_KERNEL_WRITE_AREA.
@@ -4768,6 +4944,8 @@ fix_protection(uint32* protection)
 			*protection |= B_KERNEL_READ_AREA | B_KERNEL_WRITE_AREA;
 		else
 			*protection |= B_KERNEL_READ_AREA;
+		if ((*protection & B_EXECUTE_AREA) != 0)
+			*protection |= B_KERNEL_EXECUTE_AREA;
 	}
 }
 
@@ -4952,7 +5130,7 @@ vm_resize_area(area_id areaID, size_t newSize, bool kernel)
 
 
 status_t
-vm_memset_physical(phys_addr_t address, int value, size_t length)
+vm_memset_physical(phys_addr_t address, int value, phys_size_t length)
 {
 	return sPhysicalPageMapper->MemsetPhysical(address, value, length);
 }
@@ -5220,8 +5398,8 @@ vm_wire_page(team_id team, addr_t address, bool writable,
 		cacheChainLocker.Unlock();
 		addressSpaceLocker.Unlock();
 
-		error = vm_soft_fault(addressSpace, pageAddress, writable, isUser,
-			&page, &info->range);
+		error = vm_soft_fault(addressSpace, pageAddress, writable, false,
+			isUser, &page, &info->range);
 
 		if (error != B_OK) {
 			// The page could not be mapped -- clean up.
@@ -5329,6 +5507,8 @@ lock_memory_etc(team_id team, void* address, size_t numBytes, uint32 flags)
 		return B_ERROR;
 
 	AddressSpaceReadLocker addressSpaceLocker(addressSpace, true);
+		// We get a new address space reference here. The one we got above will
+		// be freed by unlock_memory_etc().
 
 	VMTranslationMap* map = addressSpace->TranslationMap();
 	status_t error = B_OK;
@@ -5399,7 +5579,7 @@ lock_memory_etc(team_id team, void* address, size_t numBytes, uint32 flags)
 				addressSpaceLocker.Unlock();
 
 				error = vm_soft_fault(addressSpace, nextAddress, writable,
-					isUser, &page, range);
+					false, isUser, &page, range);
 
 				addressSpaceLocker.Lock();
 				cacheChainLocker.SetTo(vm_area_get_locked_cache(area));
@@ -5436,8 +5616,8 @@ lock_memory_etc(team_id team, void* address, size_t numBytes, uint32 flags)
 		// even if not a single page was wired, unlock_memory_etc() is called
 		// to put the address space reference.
 		addressSpaceLocker.Unlock();
-		unlock_memory_etc(team, (void*)address, nextAddress - lockBaseAddress,
-			flags);
+		unlock_memory_etc(team, (void*)lockBaseAddress,
+			nextAddress - lockBaseAddress, flags);
 	}
 
 	return error;
@@ -5485,7 +5665,9 @@ unlock_memory_etc(team_id team, void* address, size_t numBytes, uint32 flags)
 	if (addressSpace == NULL)
 		return B_ERROR;
 
-	AddressSpaceReadLocker addressSpaceLocker(addressSpace, true);
+	AddressSpaceReadLocker addressSpaceLocker(addressSpace, false);
+		// Take over the address space reference. We don't unlock until we're
+		// done.
 
 	VMTranslationMap* map = addressSpace->TranslationMap();
 	status_t error = B_OK;
@@ -5571,7 +5753,7 @@ unlock_memory_etc(team_id team, void* address, size_t numBytes, uint32 flags)
 			break;
 	}
 
-	// get rid of the address space reference
+	// get rid of the address space reference lock_memory_etc() acquired
 	addressSpace->Put();
 
 	return error;
@@ -5788,8 +5970,6 @@ _get_next_area_info(team_id team, ssize_t* cookie, area_info* info, size_t size)
 status_t
 set_area_protection(area_id area, uint32 newProtection)
 {
-	fix_protection(&newProtection);
-
 	return vm_set_area_protection(VMAddressSpace::KernelID(), area,
 		newProtection, true);
 }
@@ -6017,8 +6197,6 @@ _user_set_area_protection(area_id area, uint32 newProtection)
 	if ((newProtection & ~B_USER_PROTECTION) != 0)
 		return B_BAD_VALUE;
 
-	fix_protection(&newProtection);
-
 	return vm_set_area_protection(VMAddressSpace::CurrentID(), area,
 		newProtection, false);
 }
@@ -6124,6 +6302,11 @@ _user_create_area(const char* userName, void** userAddress, uint32 addressSpec,
 	if (addressSpec == B_EXACT_ADDRESS
 		&& IS_KERNEL_ADDRESS(address))
 		return B_BAD_VALUE;
+
+	if (addressSpec == B_ANY_ADDRESS)
+		addressSpec = B_RANDOMIZED_ANY_ADDRESS;
+	if (addressSpec == B_BASE_ADDRESS)
+		addressSpec = B_RANDOMIZED_BASE_ADDRESS;
 
 	fix_protection(&protection);
 

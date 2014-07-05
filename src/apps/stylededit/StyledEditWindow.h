@@ -49,8 +49,6 @@ public:
 									bool caseSensitive);
 			bool				IsDocumentEntryRef(const entry_ref* ref);
 
-	static	BMenu*				PopulateEncodingMenu(BMenu* menu,
-									const char* encoding);
 private:
 			void				_InitWindow(uint32 encoding = 0);
 			void				_LoadAttrs();
@@ -79,6 +77,8 @@ private:
 									const BString& label, const BString& label2,
 									const BString& label3,
 									alert_type type) const;
+			BMenu*				_PopulateEncodingMenu(BMenu* menu,
+									const char* encoding);
 
 				// node monitoring helper
 			class _NodeMonitorSuspender {
@@ -105,7 +105,6 @@ private:
 			BMenuBar*			fMenuBar;
 			BMessage*			fPrintSettings;
 			BMessage*			fSaveMessage;
-			BMenu*				fRecentMenu;
 
 			BMenu*				fFontMenu;
 			BMenu*				fFontSizeMenu;
@@ -140,6 +139,7 @@ private:
 			BMenuItem*			fAlignCenter;
 			BMenuItem*			fAlignRight;
 			BMenuItem*			fEncodingItem;
+			BMenuItem*			fRecentMenuItem;
 
 			BString				fStringToFind;
 			BString				fReplaceString;
@@ -171,6 +171,9 @@ private:
 			node_ref			fNodeRef;
 			node_ref			fFolderNodeRef;
 			bool				fNagOnNodeChange;
+
+			BWindow*			fFindWindow;
+			BWindow*			fReplaceWindow;
 };
 
 

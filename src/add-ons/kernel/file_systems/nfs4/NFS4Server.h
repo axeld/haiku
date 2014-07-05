@@ -9,7 +9,7 @@
 #define NFS4SERVER_H
 
 
-#include <lock.h>
+#include <util/AutoLock.h>
 
 #include "ReplyBuilder.h"
 #include "RequestInterpreter.h"
@@ -61,7 +61,6 @@ private:
 			uint32			fLeaseTime;
 
 			uint64			fClientId;
-			bool			fClientIdInit;
 			time_t			fClientIdLastUse;
 			mutex			fClientIdLock;
 

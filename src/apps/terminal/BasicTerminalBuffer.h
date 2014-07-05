@@ -107,6 +107,14 @@ public:
 			int32				LineLength(int32 index) const;
 			int32				GetLineColor(int32 index) const;
 
+			bool				PreviousLinePos(TermPos& pos) const;
+			bool				NextLinePos(TermPos& pos, bool normalize) const;
+									// normalize specifies that the returned
+									// position must be a valid position, i.e.
+									// actually point to a character (as opposed
+									// to just pointing to the position after a
+									// character).
+
 			bool				Find(const char* pattern, const TermPos& start,
 									bool forward, bool caseSensitive,
 									bool matchWord, TermPos& matchStart,
@@ -122,13 +130,8 @@ public:
 			void				CaptureChar(char ch);
 
 			// insert chars/lines
-	inline	void				InsertChar(UTF8Char c);
-			void				InsertChar(UTF8Char c, uint32 width);
-	inline	void				InsertChar(const char* c);
-	inline	void				InsertChar(const char* c, int32 length);
-	inline	void				InsertChar(const char* c, int32 length,
-									uint32 width);
-			void				FillScreen(UTF8Char c, uint32 width, uint32 attr);
+			void				InsertChar(UTF8Char c);
+			void				FillScreen(UTF8Char c, uint32 attr);
 
 			void				InsertCR();
 			void				InsertLF();
@@ -210,6 +213,11 @@ protected:
 			bool				_PreviousChar(TermPos& pos, UTF8Char& c) const;
 			bool				_NextChar(TermPos& pos, UTF8Char& c) const;
 
+			bool				_PreviousLinePos(TerminalLine* lineBuffer,
+									TerminalLine*& line, TermPos& pos) const;
+			bool				_NormalizeLinePos(TerminalLine* lineBuffer,
+									TerminalLine*& line, TermPos& pos) const;
+
 protected:
 			// screen width/height
 			int32				fWidth;
@@ -270,34 +278,6 @@ void
 BasicTerminalBuffer::SetAttributes(uint32 attributes)
 {
 	fAttributes = attributes;
-}
-
-
-void
-BasicTerminalBuffer::InsertChar(UTF8Char c)
-{
-	return InsertChar(c, 1);
-}
-
-
-void
-BasicTerminalBuffer::InsertChar(const char* c)
-{
-	return InsertChar(UTF8Char(c), 1);
-}
-
-
-void
-BasicTerminalBuffer::InsertChar(const char* c, int32 length)
-{
-	return InsertChar(UTF8Char(c, length), 1);
-}
-
-
-void
-BasicTerminalBuffer::InsertChar(const char* c, int32 length, uint32 width)
-{
-	return InsertChar(UTF8Char(c, length), width);
 }
 
 

@@ -1,5 +1,10 @@
-1	polish	x-vnd.Haiku-Playground	1190349404
+1	polish	x-vnd.Haiku-Playground	1375574837
 Line	Playground		Linia
+Fill	Playground		Wypełnienie
+Over	Playground		Ponad
+Quit	Playground		Zakończ
+Rect	Playground		Prostokąt
+Select	Playground		Wybierz
 Click and drag to draw an object	Playground		Kliknij i przeciągnij, żeby narysować obiekt
 Controls	Playground		Sterowanie
 Round rect	Playground		Zaokrąglony prostokąt
@@ -10,6 +15,7 @@ Copy	Playground		Kopiuj
 Cancel	Playground		Anuluj
 Clear	Playground		Wyczyść
 Min	Playground		Min.
+Blend	Playground		Wtapianie
 Invert	Playground		Odwróć
 Clear all drawing objects?	Playground		Wyczyścić wszystkie obiekty rysunkowe?
 Width:	Playground		Szerokość:

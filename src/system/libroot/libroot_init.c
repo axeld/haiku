@@ -7,6 +7,7 @@
 #include <pthread.h>
 #include <string.h>
 
+#include <OS.h>
 #include <image.h>
 
 #include <user_runtime.h>
@@ -24,9 +25,14 @@ struct rld_export *__gRuntimeLoader = NULL;
 	// This little bugger is set to something meaningful by the runtime loader
 	// Ugly, eh?
 
+const void* __gCommPageAddress;
+
 char *__progname = NULL;
 int __libc_argc;
 char **__libc_argv;
+
+int __gABIVersion;
+int32 __gCPUCount;
 
 char _single_threaded = true;
 	// determines if I/O locking needed; needed for BeOS compatibility
@@ -43,7 +49,11 @@ int _data_offset_main_;
 void
 initialize_before(image_id imageID)
 {
+	system_info info;
 	char *programPath = __gRuntimeLoader->program_args->args[0];
+	__gCommPageAddress = __gRuntimeLoader->commpage_address;
+	__gABIVersion = __gRuntimeLoader->abi_version;
+
 	if (programPath) {
 		if ((__progname = strrchr(programPath, '/')) == NULL)
 			__progname = programPath;
@@ -62,11 +72,15 @@ initialize_before(image_id imageID)
 
 	pthread_self()->id = find_thread(NULL);
 
-	__init_time();
+	get_system_info(&info);
+	__gCPUCount = info.cpu_count;
+
+	__init_time((addr_t)__gCommPageAddress);
 	__init_heap();
 	__init_env(__gRuntimeLoader->program_args);
 	__init_heap_post_env();
 	__init_pwd_backend();
+	__set_stack_protection();
 }
 
 

@@ -90,6 +90,8 @@ get_iframe_registers(const iframe* frame, debug_cpu_state* cpuState)
 	cpuState->rcx = frame->cx;
 	cpuState->rbx = frame->bx;
 	cpuState->rax = frame->ax;
+	cpuState->vector = frame->vector;
+	cpuState->error_code = frame->error_code;
 	cpuState->rip = frame->ip;
 	cpuState->cs = frame->cs;
 	cpuState->rflags = frame->flags;
@@ -199,10 +201,7 @@ install_breakpoints(const arch_team_debug_info& teamInfo)
 	asm("mov %0, %%dr0" : : "r"(teamInfo.breakpoints[0].address));
 	asm("mov %0, %%dr1" : : "r"(teamInfo.breakpoints[1].address));
 	asm("mov %0, %%dr2" : : "r"(teamInfo.breakpoints[2].address));
-#ifdef __x86_64__
 	asm("mov %0, %%dr3" : : "r"(teamInfo.breakpoints[3].address));
-		// DR3 is used to hold the current Thread* on 32.
-#endif
 
 	// enable breakpoints
 	asm("mov %0, %%dr7" : : "r"(teamInfo.dr7));

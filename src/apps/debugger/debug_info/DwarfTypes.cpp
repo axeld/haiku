@@ -1,6 +1,6 @@
 /*
  * Copyright 2009-2012, Ingo Weinhold, ingo_weinhold@gmx.de.
- * Copryight 2012, Rene Gollent, rene@gollent.com.
+ * Copryight 2012-2013, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 
@@ -245,6 +245,50 @@ DwarfType::CreateDerivedAddressType(address_type_kind addressType,
 	if (resultType == NULL)
 		return B_NO_MEMORY;
 
+	resultType->SetByteSize(fTypeContext->GetArchitecture()->AddressSize());
+
+	_resultType = resultType;
+	return B_OK;
+}
+
+
+status_t
+DwarfType::CreateDerivedArrayType(int64 lowerBound, int64 elementCount,
+	bool extendExisting, ArrayType*& _resultType)
+{
+	DwarfArrayType* resultType = NULL;
+	BReference<DwarfType> baseTypeReference;
+	if (extendExisting)
+		resultType = dynamic_cast<DwarfArrayType*>(this);
+
+	if (resultType == NULL) {
+		resultType = new(std::nothrow)
+			DwarfArrayType(fTypeContext, fName, NULL, this);
+		baseTypeReference.SetTo(resultType, true);
+	}
+
+	if (resultType == NULL)
+		return B_NO_MEMORY;
+
+	DwarfSubrangeType* subrangeType = new(std::nothrow) DwarfSubrangeType(
+		fTypeContext, fName, NULL, resultType, BVariant(lowerBound),
+		BVariant(lowerBound + elementCount - 1));
+	if (subrangeType == NULL)
+		return B_NO_MEMORY;
+
+	BReference<DwarfSubrangeType> subrangeReference(subrangeType, true);
+
+	DwarfArrayDimension* dimension = new(std::nothrow) DwarfArrayDimension(
+		subrangeType);
+	if (dimension == NULL)
+		return B_NO_MEMORY;
+	BReference<DwarfArrayDimension> dimensionReference(dimension, true);
+
+	if (!resultType->AddDimension(dimension))
+		return B_NO_MEMORY;
+
+	baseTypeReference.Detach();
+
 	_resultType = resultType;
 	return B_OK;
 }
@@ -262,7 +306,10 @@ DwarfType::ResolveObjectDataLocation(const ValueLocation& objectLocation,
 	if (count == 0)
 		return B_BAD_VALUE;
 
-	ValuePieceLocation piece = objectLocation.PieceAt(0);
+	ValuePieceLocation piece;
+	if (!piece.Copy(objectLocation.PieceAt(0)))
+		return B_NO_MEMORY;
+
 	if (count > 1 || piece.type != VALUE_PIECE_LOCATION_MEMORY
 		|| piece.size != 0 || piece.bitSize != 0) {
 		ValueLocation* location
@@ -332,7 +379,10 @@ DwarfType::ResolveLocation(DwarfTypeContext* typeContext,
 	bool bigEndian = typeContext->GetArchitecture()->IsBigEndian();
 	int32 count = _location.CountPieces();
 	for (int32 i = 0; i < count; i++) {
-		ValuePieceLocation piece = _location.PieceAt(i);
+		ValuePieceLocation piece;
+		if (!piece.Copy(_location.PieceAt(i)))
+			return B_NO_MEMORY;
+
 		if (piece.type == VALUE_PIECE_LOCATION_REGISTER) {
 			int32 reg = typeContext->FromDwarfRegisterMap()->MapRegisterIndex(
 				piece.reg);
@@ -359,17 +409,22 @@ DwarfType::ResolveLocation(DwarfTypeContext* typeContext,
 		}
 
 		piece.Normalize(bigEndian);
-		_location.SetPieceAt(i, piece);
+		if (!_location.SetPieceAt(i, piece))
+			return B_NO_MEMORY;
 	}
 
 	// If we only have one piece and that doesn't have a size, try to retrieve
 	// the size of the type.
 	if (count == 1) {
-		ValuePieceLocation piece = _location.PieceAt(0);
+		ValuePieceLocation piece;
+		if (!piece.Copy(_location.PieceAt(0)))
+			return B_NO_MEMORY;
+
 		if (piece.IsValid() && piece.size == 0 && piece.bitSize == 0) {
 			piece.SetSize(ByteSize());
 				// TODO: Use bit size and bit offset, if specified!
-			_location.SetPieceAt(0, piece);
+			if (!_location.SetPieceAt(0, piece))
+				return B_NO_MEMORY;
 
 			TRACE_LOCALS("  set single piece size to %" B_PRIu64 "\n",
 				ByteSize());
@@ -681,7 +736,7 @@ DwarfCompoundType::ResolveBaseTypeLocation(BaseType* _baseType,
 		return B_BAD_VALUE;
 
 	return _ResolveDataMemberLocation(baseType->GetDwarfType(),
-		baseType->Entry()->Location(), parentLocation, _location);
+		baseType->Entry()->Location(), parentLocation, false, _location);
 }
 
 
@@ -694,17 +749,23 @@ DwarfCompoundType::ResolveDataMemberLocation(DataMember* _member,
 		return B_BAD_VALUE;
 	DwarfTypeContext* typeContext = TypeContext();
 
+	bool isBitField = true;
+	DIEMember* memberEntry = member->Entry();
+	// TODO: handle DW_AT_data_bit_offset
+	if (!memberEntry->ByteSize()->IsValid()
+		&& !memberEntry->BitOffset()->IsValid()
+		&& !memberEntry->BitSize()->IsValid()) {
+		isBitField = false;
+	}
+
 	ValueLocation* location;
 	status_t error = _ResolveDataMemberLocation(member->GetDwarfType(),
-		member->Entry()->Location(), parentLocation, location);
+		member->Entry()->Location(), parentLocation, isBitField, location);
 	if (error != B_OK)
 		return error;
 
 	// If the member isn't a bit field, we're done.
-	DIEMember* memberEntry = member->Entry();
-	if (!memberEntry->ByteSize()->IsValid()
-		&& !memberEntry->BitOffset()->IsValid()
-		&& !memberEntry->BitSize()->IsValid()) {
+	if (!isBitField) {
 		_location = location;
 		return B_OK;
 	}
@@ -817,7 +878,8 @@ DwarfCompoundType::AddTemplateParameter(DwarfTemplateParameter* parameter)
 status_t
 DwarfCompoundType::_ResolveDataMemberLocation(DwarfType* memberType,
 	const MemberLocation* memberLocation,
-	const ValueLocation& parentLocation, ValueLocation*& _location)
+	const ValueLocation& parentLocation, bool isBitField,
+	ValueLocation*& _location)
 {
 	// create the value location object for the member
 	ValueLocation* location = new(std::nothrow) ValueLocation(
@@ -829,9 +891,18 @@ DwarfCompoundType::_ResolveDataMemberLocation(DwarfType* memberType,
 	switch (memberLocation->attributeClass) {
 		case ATTRIBUTE_CLASS_CONSTANT:
 		{
-			if (!location->SetTo(parentLocation, memberLocation->constant * 8,
+			if (isBitField) {
+				if (!location->SetTo(parentLocation,
+					memberLocation->constant * 8,
 					memberType->ByteSize() * 8)) {
-				return B_NO_MEMORY;
+					return B_NO_MEMORY;
+				}
+			} else {
+				if (!location->SetToByteOffset(parentLocation,
+					memberLocation->constant,
+					memberType->ByteSize())) {
+					return B_NO_MEMORY;
+				}
 			}
 
 			break;
@@ -844,7 +915,8 @@ DwarfCompoundType::_ResolveDataMemberLocation(DwarfType* memberType,
 			// location to be a memory location.
 			if (parentLocation.CountPieces() != 1)
 				return B_BAD_VALUE;
-			ValuePieceLocation piece = parentLocation.PieceAt(0);
+			const ValuePieceLocation& piece = parentLocation.PieceAt(0);
+
 			if (piece.type != VALUE_PIECE_LOCATION_MEMORY)
 				return B_BAD_VALUE;
 
@@ -878,7 +950,10 @@ DwarfCompoundType::_ResolveDataMemberLocation(DwarfType* memberType,
 			// the location by hand since we don't want the size difference
 			// between the overall union and the member being
 			// factored into the assigned address.
-			ValuePieceLocation piece = parentLocation.PieceAt(0);
+			ValuePieceLocation piece;
+			if (!piece.Copy(parentLocation.PieceAt(0)))
+				return B_NO_MEMORY;
+
 			piece.SetSize(memberType->ByteSize());
 			if (!location->AddPiece(piece))
 				return B_NO_MEMORY;
@@ -949,8 +1024,9 @@ DwarfArrayType::ResolveElementLocation(const ArrayIndexPath& indexPath,
 	// If the array entry has a bit stride, get it. Otherwise fall back to the
 	// element type size.
 	int64 bitStride;
-	if (DIEArrayType* bitStrideOwnerEntry = DwarfUtils::GetDIEByPredicate(
-			fEntry, HasBitStridePredicate<DIEArrayType>())) {
+	DIEArrayType* bitStrideOwnerEntry = NULL;
+	if (fEntry != NULL && (bitStrideOwnerEntry = DwarfUtils::GetDIEByPredicate(
+			fEntry, HasBitStridePredicate<DIEArrayType>()))) {
 		BVariant value;
 		status_t error = typeContext->File()->EvaluateDynamicValue(
 			typeContext->GetCompilationUnit(), typeContext->AddressSize(),
@@ -1062,7 +1138,10 @@ DwarfArrayType::ResolveElementLocation(const ArrayIndexPath& indexPath,
 	// If we have a single memory piece location for the array, we compute the
 	// element's location by hand -- not uncommonly the array size isn't known.
 	if (parentLocation.CountPieces() == 1) {
-		ValuePieceLocation piece = parentLocation.PieceAt(0);
+		ValuePieceLocation piece;
+		if (!piece.Copy(parentLocation.PieceAt(0)))
+			return B_NO_MEMORY;
+
 		if (piece.type == VALUE_PIECE_LOCATION_MEMORY) {
 			int64 byteOffset = elementOffset >= 0
 				? elementOffset / 8 : (elementOffset - 7) / 8;

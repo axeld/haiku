@@ -1,17 +1,22 @@
 SubDir HAIKU_TOP src apps debugger ;
 
-CCFLAGS +=  -Werror ;
-C++FLAGS += -Werror ;
-
 UseHeaders [ FDirName $(HAIKU_TOP) headers compatibility bsd ] : true ;
-UsePrivateHeaders app debug interface kernel shared libroot ;
+
+# for syscall_numbers.h
+UseHeaders [ FDirName $(TARGET_COMMON_DEBUG_OBJECT_DIR_$(TARGET_PACKAGING_ARCH))
+	system kernel ] ;
+
+UsePrivateHeaders app debug interface kernel package shared libroot ;
 UsePrivateSystemHeaders ;
+
+LINKFLAGS += -Wl,--exclude-libs,ALL ;
 
 SEARCH_SOURCE += [ FDirName $(SUBDIR) arch ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) arch x86 ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) arch x86_64 ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) controllers ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) debug_info ] ;
+SEARCH_SOURCE += [ FDirName $(SUBDIR) debug_info loading_state_handlers ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) debug_managers ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) debugger_interface ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) elf ] ;
@@ -25,6 +30,7 @@ SEARCH_SOURCE += [ FDirName $(SUBDIR) source_language ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) types ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) user_interface ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) user_interface cli ] ;
+SEARCH_SOURCE += [ FDirName $(SUBDIR) user_interface cli commands ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) user_interface gui ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) user_interface gui inspector_window ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) user_interface gui model ] ;
@@ -57,6 +63,11 @@ SourceHdrs
 	DwarfTypes.cpp
 	: [ FDirName $(SUBDIR) dwarf ]
 ;
+
+# since syscall_numbers.h is generated on the fly, we need to explicitly
+# let Jam know about the dependency.
+Includes [ FGristFiles TeamDebugger.cpp ]
+	: <syscalls!$(TARGET_PACKAGING_ARCH)>syscall_numbers.h ;
 
 Application Debugger :
 	Debugger.cpp
@@ -92,6 +103,7 @@ Application Debugger :
 	DebuggerTeamDebugInfo.cpp
 	DwarfFunctionDebugInfo.cpp
 	DwarfImageDebugInfo.cpp
+	DwarfImageDebugInfoLoadingState.cpp
 	DwarfStackFrameDebugInfo.cpp
 	DwarfTeamDebugInfo.cpp
 	DwarfTypeFactory.cpp
@@ -101,12 +113,19 @@ Application Debugger :
 	FunctionInstance.cpp
 	GlobalTypeLookup.cpp
 	ImageDebugInfo.cpp
+	ImageDebugInfoLoadingState.cpp
 	ImageDebugInfoProvider.cpp
+	ImageDebugLoadingStateHandler.cpp
+	ImageDebugLoadingStateHandlerRoster.cpp
 	NoOpStackFrameDebugInfo.cpp
 	SpecificImageDebugInfo.cpp
+	SpecificImageDebugInfoLoadingState.cpp
 	SpecificTeamDebugInfo.cpp
 	StackFrameDebugInfo.cpp
 	TeamDebugInfo.cpp
+
+	# debug_info/loading_state_handlers
+	DwarfLoadingStateHandler.cpp
 
 	# debugger_interface
 	DebugEvent.cpp
@@ -139,12 +158,14 @@ Application Debugger :
 	RetrieveMemoryBlockJob.cpp
 
 	# model
+	AreaInfo.cpp
 	Breakpoint.cpp
 	DisassembledCode.cpp
 	FileSourceCode.cpp
 	Image.cpp
 	ImageInfo.cpp
 	ReturnValueInfo.cpp
+	SemaphoreInfo.cpp
 	SourceCode.cpp
 	StackFrame.cpp
 	StackFrameValues.cpp
@@ -152,7 +173,10 @@ Application Debugger :
 	StackTrace.cpp
 	Statement.cpp
 	SymbolInfo.cpp
+	SyscallInfo.cpp
+	SystemInfo.cpp
 	Team.cpp
+	TeamInfo.cpp
 	TeamMemory.cpp
 	TeamMemoryBlock.cpp
 	TeamTypeInformation.cpp
@@ -169,6 +193,7 @@ Application Debugger :
 	BreakpointSetting.cpp
 	GuiTeamUiSettings.cpp
 	SettingsManager.cpp
+	TeamFileManagerSettings.cpp
 	TeamSettings.cpp
 	TeamUiSettings.cpp
 	TeamUiSettingsFactory.cpp
@@ -196,8 +221,11 @@ Application Debugger :
 	UserInterface.cpp
 
 	# user_interface/cli
-	CliCommand.cpp
 	CliContext.cpp
+	CommandLineUserInterface.cpp
+
+	# user_interface/cli/commands
+	CliCommand.cpp
 	CliContinueCommand.cpp
 	CliDebugReportCommand.cpp
 	CliDumpMemoryCommand.cpp
@@ -209,7 +237,6 @@ Application Debugger :
 	CliThreadCommand.cpp
 	CliThreadsCommand.cpp
 	CliVariablesCommand.cpp
-	CommandLineUserInterface.cpp
 
 	# user_interface/gui
 	GraphicalUserInterface.cpp
@@ -223,12 +250,15 @@ Application Debugger :
 	MemoryView.cpp
 
 	# user_interface/gui/teams_window
+	StartTeamWindow.cpp
 	TeamsWindow.cpp
 	TeamsListView.cpp
 
 	# user_interface/gui/team_window
+	BreakConditionConfigWindow.cpp
 	BreakpointListView.cpp
 	BreakpointsView.cpp
+	ConsoleOutputView.cpp
 	ImageFunctionsView.cpp
 	ImageListView.cpp
 	RegistersView.cpp
@@ -262,6 +292,7 @@ Application Debugger :
 	ArchivingUtils.cpp
 	BitBuffer.cpp
 	IntegerFormatter.cpp
+	RangeList.cpp
 	StringUtils.cpp
 	Worker.cpp
 
@@ -320,14 +351,13 @@ Application Debugger :
 	<bin>debug_utils.a
 	libcolumnlistview.a
 	libshared.a
-	libshared.a
 	libexpression_parser.a
 	libmapm.a
 	libedit.a
-	libtermcap.a
+	libncurses.a
 
 	$(TARGET_LIBSTDC++)
-	be tracker libbsd.so libdebug.so
+	be package tracker libbsd.so libdebug.so
 
 	: Debugger.rdef
 ;

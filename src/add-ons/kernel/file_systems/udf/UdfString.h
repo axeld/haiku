@@ -10,13 +10,13 @@
 
 #include <stdio.h>
 
-
 #include "Array.h"
 #include "UdfDebug.h"
 
+#include <new>
 #include <string.h>
 
-#include <util/kernel_cpp.h>
+
 /*! \brief UdfString class that takes as input either a UTF8 string or a
 	CS0 unicode string and then provides access to said string in both
 	formats.
@@ -61,7 +61,8 @@ UdfString::UdfString(const array<char, length> &dString)
 	: fCs0String(NULL)
 	, fUtf8String(NULL)
 {
-	TRACE(("UdfString::UdfString: dString.length(): %ld", dString.length()));
+	TRACE(("UdfString::UdfString: dString.length(): %" B_PRIu32,
+		dString.length()));
 	SetTo(dString);
 }
 

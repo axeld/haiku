@@ -123,11 +123,11 @@ public:
 
 private:
 static	void				_ReadCallback(void *cookie, int32 status,
-								void *data, uint32 actualLength);
+								void *data, size_t actualLength);
 static	void				_WriteCallback(void *cookie, int32 status,
-								void *data, uint32 actualLength);
+								void *data, size_t actualLength);
 static	void				_NotifyCallback(void *cookie, int32 status,
-								void *data, uint32 actualLength);
+								void *data, size_t actualLength);
 
 		status_t			_SetupEndpoints();
 
@@ -162,7 +162,7 @@ static	void				_NotifyCallback(void *cookie, int32 status,
 		bool				fHasConnection;
 		bool				fTXBufferFull;
 		bool				fNonBlocking;
-		vint32				fInsideNotify;
+		int32				fInsideNotify;
 
 		// pipes for notifications, data io and tx packet size
 		usb_pipe			fNotifyEndpoint;

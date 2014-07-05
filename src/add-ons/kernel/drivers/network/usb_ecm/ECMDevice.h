@@ -32,11 +32,11 @@ public:
 
 private:
 static	void				_ReadCallback(void *cookie, int32 status,
-								void *data, uint32 actualLength);
+								void *data, size_t actualLength);
 static	void				_WriteCallback(void *cookie, int32 status,
-								void *data, uint32 actualLength);
+								void *data, size_t actualLength);
 static	void				_NotifyCallback(void *cookie, int32 status,
-								void *data, uint32 actualLength);
+								void *data, size_t actualLength);
 
 		status_t			_SetupDevice();
 		status_t			_ReadMACAddress(usb_device device, uint8 *buffer);
@@ -45,7 +45,7 @@ static	void				_NotifyCallback(void *cookie, int32 status,
 		status_t			fStatus;
 		bool				fOpen;
 		bool				fRemoved;
-		vint32				fInsideNotify;
+		int32				fInsideNotify;
 		usb_device			fDevice;
 		uint16				fVendorID;
 		uint16				fProductID;

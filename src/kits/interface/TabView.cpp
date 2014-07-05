@@ -1,5 +1,5 @@
 /*
- * Copyright 2001-2009, Haiku, Inc. All rights reserved.
+ * Copyright 2001-2013, Haiku, Inc. All rights reserved.
  * Distributed under the terms of the MIT License.
  *
  * Authors:
@@ -7,6 +7,7 @@
  *		Jérôme Duval (korli@users.berlios.de)
  *		Stephan Aßmus <superstippi@gmx.de>
  *		Artur Wyszynski
+ *		Rene Gollent (rene@gollent.com)
  */
 
 
@@ -150,7 +151,7 @@ BTab::Select(BView *owner)
 
 	// NOTE: Views are not added/removed, if there is layout,
 	// they are made visible/invisible in that case.
-	if (!owner->GetLayout())
+	if (!owner->GetLayout() && View()->Parent() == NULL)
 		owner->AddChild(fView);
 
 	fSelected = true;
@@ -243,30 +244,10 @@ BTab::DrawFocusMark(BView *owner, BRect frame)
 void
 BTab::DrawLabel(BView *owner, BRect frame)
 {
-	if (Label() == NULL)
-		return;
-
-	BString label = Label();
-	float frameWidth = frame.Width();
-	float width = owner->StringWidth(label.String());
-	font_height fh;
-
-	if (width > frameWidth) {
-		BFont font;
-		owner->GetFont(&font);
-		font.TruncateString(&label, B_TRUNCATE_END, frameWidth);
-		width = frameWidth;
-		font.GetHeight(&fh);
-	} else {
-		owner->GetFontHeight(&fh);
-	}
-
-	owner->SetDrawingMode(B_OP_OVER);
-	owner->SetHighColor(ui_color(B_CONTROL_TEXT_COLOR));
-	owner->DrawString(label.String(),
-		BPoint((frame.left + frame.right - width) / 2.0,
- 			(frame.top + frame.bottom - fh.ascent - fh.descent) / 2.0
- 			+ fh.ascent));
+	be_control_look->DrawLabel(owner, Label(), frame, frame,
+		ui_color(B_PANEL_BACKGROUND_COLOR),
+		IsEnabled() ? 0 : BPrivate::BControlLook::B_DISABLED,
+		BAlignment(B_ALIGN_HORIZONTAL_CENTER, B_ALIGN_VERTICAL_CENTER));
 }
 
 
@@ -429,7 +410,7 @@ BTabView::BTabView(BMessage *archive)
 	}
 
 	if (archive->FindInt32("_sel", &fSelection) != B_OK)
-		fSelection = 0;
+		fSelection = -1;
 
 	if (archive->FindInt32("_border_style", (int32*)&fBorderStyle) != B_OK)
 		fBorderStyle = B_FANCY_BORDER;
@@ -568,7 +549,8 @@ BTabView::AttachedToWindow()
 {
 	BView::AttachedToWindow();
 
-	Select(fSelection);
+	if (fSelection < 0)
+		Select(0);
 }
 
 
@@ -746,6 +728,9 @@ BTabView::Pulse()
 void
 BTabView::Select(int32 index)
 {
+	if (index == Selection())
+		return;
+
 	if (index < 0 || index >= CountTabs())
 		index = Selection();
 
@@ -1238,13 +1223,10 @@ BTabView::RemoveTab(int32 index)
 	if (fContainerView->GetLayout())
 		fContainerView->GetLayout()->RemoveItem(index);
 
-	if (index <= fSelection && fSelection != 0)
-		fSelection--;
-
 	if (CountTabs() == 0)
 		fFocus = -1;
-	else
-		Select(fSelection);
+	else if (index <= fSelection)
+		Select(fSelection - 1);
 
 	if (fFocus == CountTabs() - 1 || CountTabs() == 0)
 		SetFocusTab(fFocus, false);
@@ -1351,7 +1333,7 @@ BTabView::_InitObject(bool layouted, button_width width)
 	fTabList = new BList;
 
 	fTabWidthSetting = width;
-	fSelection = 0;
+	fSelection = -1;
 	fFocus = -1;
 	fTabOffset = 0.0f;
 	fBorderStyle = B_FANCY_BORDER;

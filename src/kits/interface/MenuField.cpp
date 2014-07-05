@@ -3,28 +3,43 @@
  * Distributed under the terms of the MIT License.
  *
  * Authors:
- *		Marc Flerackers (mflerackers@androme.be)
- *		Stephan Aßmus <superstippi@gmx.de>
- *		Ingo Weinhold <bonefish@cs.tu-berlin.de>
+ *		Stephan Aßmus, superstippi@gmx.de
+ *		Marc Flerackers, mflerackers@androme.be
+ *		John Scipione, jscipione@gmail.com
+ *		Ingo Weinhold, bonefish@cs.tu-berlin.de
  */
 
 
 #include <MenuField.h>
 
+#include <algorithm>
+#include <stdio.h>
+	// for printf in TRACE
 #include <stdlib.h>
 #include <string.h>
 
 #include <AbstractLayoutItem.h>
+#include <BMCPrivate.h>
 #include <ControlLook.h>
 #include <LayoutUtils.h>
 #include <MenuBar.h>
+#include <MenuItem.h>
+#include <MenuPrivate.h>
 #include <Message.h>
-#include <BMCPrivate.h>
+#include <MessageFilter.h>
+#include <Thread.h>
 #include <Window.h>
 
 #include <binary_compatibility/Interface.h>
 #include <binary_compatibility/Support.h>
 
+
+#ifdef CALLED
+#	undef CALLED
+#endif
+#ifdef TRACE
+#	undef TRACE
+#endif
 
 //#define TRACE_MENU_FIELD
 #ifdef TRACE_MENU_FIELD
@@ -41,11 +56,18 @@
 #endif
 
 
+static const float kMinMenuBarWidth = 20.0f;
+	// found by experimenting on BeOS R5
+
+
 namespace {
 	const char* const kFrameField = "BMenuField:layoutItem:frame";
 	const char* const kMenuBarItemField = "BMenuField:barItem";
 	const char* const kLabelItemField = "BMenuField:labelItem";
 }
+
+
+//	#pragma mark - LabelLayoutItem
 
 
 class BMenuField::LabelLayoutItem : public BAbstractLayoutItem {
@@ -76,6 +98,9 @@ private:
 };
 
 
+//	#pragma mark - MenuBarLayoutItem
+
+
 class BMenuField::MenuBarLayoutItem : public BAbstractLayoutItem {
 public:
 								MenuBarLayoutItem(BMenuField* parent);
@@ -104,6 +129,9 @@ private:
 };
 
 
+//	#pragma mark - LayoutData
+
+
 struct BMenuField::LayoutData {
 	LayoutData()
 		:
@@ -127,16 +155,47 @@ struct BMenuField::LayoutData {
 };
 
 
-// #pragma mark -
+// #pragma mark - MouseDownFilter
 
 
-static float kVMargin = 2.0f;
+class MouseDownFilter : public BMessageFilter
+{
+public:
+								MouseDownFilter();
+	virtual						~MouseDownFilter();
 
+	virtual	filter_result		Filter(BMessage* message, BHandler** target);
+};
+
+
+MouseDownFilter::MouseDownFilter()
+	:
+	BMessageFilter(B_ANY_DELIVERY, B_ANY_SOURCE)
+{
+}
+
+
+MouseDownFilter::~MouseDownFilter()
+{
+}
+
+
+filter_result
+MouseDownFilter::Filter(BMessage* message, BHandler** target)
+{
+	return message->what == B_MOUSE_DOWN ? B_SKIP_MESSAGE : B_DISPATCH_MESSAGE;
+}
+
+
+// #pragma mark - BMenuField
+
+
+using BPrivate::MenuPrivate;
 
 BMenuField::BMenuField(BRect frame, const char* name, const char* label,
-		BMenu* menu, uint32 resize, uint32 flags)
+	BMenu* menu, uint32 resizingMode, uint32 flags)
 	:
-	BView(frame, name, resize, flags)
+	BView(frame, name, resizingMode, flags)
 {
 	CALLED();
 
@@ -152,9 +211,9 @@ BMenuField::BMenuField(BRect frame, const char* name, const char* label,
 
 
 BMenuField::BMenuField(BRect frame, const char* name, const char* label,
-		BMenu* menu, bool fixedSize, uint32 resize, uint32 flags)
+	BMenu* menu, bool fixedSize, uint32 resizingMode, uint32 flags)
 	:
-	BView(frame, name, resize, flags)
+	BView(frame, name, resizingMode, flags)
 {
 	InitObject(label);
 
@@ -168,7 +227,7 @@ BMenuField::BMenuField(BRect frame, const char* name, const char* label,
 
 
 BMenuField::BMenuField(const char* name, const char* label, BMenu* menu,
-		uint32 flags)
+	uint32 flags)
 	:
 	BView(name, flags | B_FRAME_EVENTS)
 {
@@ -250,6 +309,7 @@ BMenuField::~BMenuField()
 		wait_for_thread(fMenuTaskID, &dummy);
 
 	delete fLayoutData;
+	delete fMouseDownFilter;
 }
 
 
@@ -353,54 +413,10 @@ BMenuField::AllUnarchived(const BMessage* from)
 
 
 void
-BMenuField::Draw(BRect update)
+BMenuField::Draw(BRect updateRect)
 {
-	BRect bounds(Bounds());
-	bool active = IsFocus() && Window()->IsActive();
-
-	DrawLabel(bounds, update);
-
-	BRect frame(fMenuBar->Frame());
-
-	if (be_control_look != NULL) {
-		frame.InsetBy(-kVMargin, -kVMargin);
-		rgb_color base = fMenuBar->LowColor();
-		rgb_color background = LowColor();
-		uint32 flags = 0;
-		if (!fMenuBar->IsEnabled())
-			flags |= BControlLook::B_DISABLED;
-		if (active)
-			flags |= BControlLook::B_FOCUSED;
-		be_control_look->DrawMenuFieldFrame(this, frame, update, base,
-			background, flags);
-		return;
-	}
-
-	if (frame.InsetByCopy(-kVMargin, -kVMargin).Intersects(update)) {
-		SetHighColor(tint_color(ui_color(B_MENU_BACKGROUND_COLOR), B_DARKEN_2_TINT));
-		StrokeLine(BPoint(frame.left - 1.0f, frame.top - 1.0f),
-			BPoint(frame.left - 1.0f, frame.bottom - 1.0f));
-		StrokeLine(BPoint(frame.left - 1.0f, frame.top - 1.0f),
-			BPoint(frame.right - 1.0f, frame.top - 1.0f));
-
-		StrokeLine(BPoint(frame.left + 1.0f, frame.bottom + 1.0f),
-			BPoint(frame.right + 1.0f, frame.bottom + 1.0f));
-		StrokeLine(BPoint(frame.right + 1.0f, frame.top + 1.0f));
-
-		SetHighColor(tint_color(ui_color(B_MENU_BACKGROUND_COLOR), B_DARKEN_4_TINT));
-		StrokeLine(BPoint(frame.left - 1.0f, frame.bottom),
-			BPoint(frame.left - 1.0f, frame.bottom));
-		StrokeLine(BPoint(frame.right, frame.top - 1.0f),
-			BPoint(frame.right, frame.top - 1.0f));
-	}
-
-	if (active || fTransition) {
-		SetHighColor(active ? ui_color(B_KEYBOARD_NAVIGATION_COLOR) :
-			ViewColor());
-		StrokeRect(frame.InsetByCopy(-kVMargin, -kVMargin));
-
-		fTransition = false;
-	}
+	_DrawLabel(updateRect);
+	_DrawMenuBar(updateRect);
 }
 
 
@@ -431,8 +447,18 @@ BMenuField::AllAttached()
 
 	TRACE("width: %.2f, height: %.2f\n", Frame().Width(), Frame().Height());
 
-	ResizeTo(Bounds().Width(),
-		fMenuBar->Bounds().Height() + kVMargin + kVMargin);
+	float width = Bounds().Width();
+	if (!fFixedSizeMB && _MenuBarWidth() < kMinMenuBarWidth) {
+		// The menu bar is too narrow, resize it to fit the menu items
+		BMenuItem* item = fMenuBar->ItemAt(0);
+		if (item != NULL) {
+			float right;
+			fMenuBar->GetItemMargins(NULL, NULL, &right, NULL);
+			width = item->Frame().Width() + kVMargin + _MenuBarOffset() + right;
+		}
+	}
+
+	ResizeTo(width, fMenuBar->Bounds().Height() + kVMargin * 2);
 
 	TRACE("width: %.2f, height: %.2f\n", Frame().Width(), Frame().Height());
 }
@@ -441,20 +467,19 @@ BMenuField::AllAttached()
 void
 BMenuField::MouseDown(BPoint where)
 {
-	if (!fMenuBar->Frame().Contains(where))
-		return;
-
-	if (!fMenuBar->IsEnabled())
-		return;
-
 	BRect bounds = fMenuBar->ConvertFromParent(Bounds());
 
 	fMenuBar->StartMenuBar(-1, false, true, &bounds);
 
 	fMenuTaskID = spawn_thread((thread_func)_thread_entry,
-			 	"_m_task_", B_NORMAL_PRIORITY, this);
-	if (fMenuTaskID >= 0)
-		resume_thread(fMenuTaskID);
+		"_m_task_", B_NORMAL_PRIORITY, this);
+	if (fMenuTaskID >= 0 && resume_thread(fMenuTaskID) == B_OK) {
+		if (fMouseDownFilter->Looper() == NULL)
+			Window()->AddCommonFilter(fMouseDownFilter);
+
+		MouseDownThread<BMenuField>::TrackMouse(this, &BMenuField::_DoneTracking,
+			&BMenuField::_Track);
+	}
 }
 
 
@@ -473,9 +498,6 @@ BMenuField::KeyDown(const char* bytes, int32 numBytes)
 
 			fMenuBar->StartMenuBar(0, true, true, &bounds);
 
-			fSelected = true;
-			fTransition = true;
-
 			bounds = Bounds();
 			bounds.right = fDivider;
 
@@ -489,29 +511,29 @@ BMenuField::KeyDown(const char* bytes, int32 numBytes)
 
 
 void
-BMenuField::MakeFocus(bool state)
+BMenuField::MakeFocus(bool focused)
 {
-	if (IsFocus() == state)
+	if (IsFocus() == focused)
 		return;
 
-	BView::MakeFocus(state);
+	BView::MakeFocus(focused);
 
-	if (Window())
+	if (Window() != NULL)
 		Invalidate(); // TODO: use fLayoutData->label_width
 }
 
 
 void
-BMenuField::MessageReceived(BMessage* msg)
+BMenuField::MessageReceived(BMessage* message)
 {
-	BView::MessageReceived(msg);
+	BView::MessageReceived(message);
 }
 
 
 void
-BMenuField::WindowActivated(bool state)
+BMenuField::WindowActivated(bool active)
 {
-	BView::WindowActivated(state);
+	BView::WindowActivated(active);
 
 	if (IsFocus())
 		Invalidate();
@@ -519,16 +541,16 @@ BMenuField::WindowActivated(bool state)
 
 
 void
-BMenuField::MouseUp(BPoint point)
+BMenuField::MouseMoved(BPoint point, uint32 code, const BMessage* message)
 {
-	BView::MouseUp(point);
+	BView::MouseMoved(point, code, message);
 }
 
 
 void
-BMenuField::MouseMoved(BPoint point, uint32 code, const BMessage* message)
+BMenuField::MouseUp(BPoint where)
 {
-	BView::MouseMoved(point, code, message);
+	BView::MouseUp(where);
 }
 
 
@@ -557,6 +579,16 @@ void
 BMenuField::FrameResized(float newWidth, float newHeight)
 {
 	BView::FrameResized(newWidth, newHeight);
+
+	if (fFixedSizeMB) {
+		// we have let the menubar resize itself, but
+		// in fixed size mode, the menubar is supposed to
+		// be at the right end of the view always. Since
+		// the menu bar is in follow left/right mode then,
+		// resizing ourselfs might have caused the menubar
+		// to be outside now
+		fMenuBar->ResizeTo(_MenuBarWidth(), fMenuBar->Frame().Height());
+	}
 
 	if (newHeight != fLayoutData->previous_height && Label()) {
 		// The height changed, which means the label has to move and we
@@ -654,18 +686,17 @@ BMenuField::Alignment() const
 
 
 void
-BMenuField::SetDivider(float divider)
+BMenuField::SetDivider(float position)
 {
-	divider = floorf(divider + 0.5);
+	position = roundf(position);
 
-	float dx = fDivider - divider;
-
-	if (dx == 0.0f)
+	float delta = fDivider - position;
+	if (delta == 0.0f)
 		return;
 
-	fDivider = divider;
+	fDivider = position;
 
-	if (Flags() & B_SUPPORTS_LAYOUT) {
+	if ((Flags() & B_SUPPORTS_LAYOUT) != 0) {
 		// We should never get here, since layout support means, we also
 		// layout the divider, and don't use this method at all.
 		Relayout();
@@ -742,15 +773,7 @@ BMenuField::ResizeToPreferred()
 
 	BView::ResizeToPreferred();
 
-	if (fFixedSizeMB) {
-		// we have let the menubar resize itself, but
-		// in fixed size mode, the menubar is supposed to
-		// be at the right end of the view always. Since
-		// the menu bar is in follow left/right mode then,
-		// resizing ourselfs might have caused the menubar
-		// to be outside now
-		fMenuBar->ResizeTo(_MenuBarWidth(), fMenuBar->Frame().Height());
-	}
+	Invalidate();
 }
 
 
@@ -806,8 +829,9 @@ BMenuField::PreferredSize()
 BLayoutItem*
 BMenuField::CreateLabelLayoutItem()
 {
-	if (!fLayoutData->label_layout_item)
+	if (fLayoutData->label_layout_item == NULL)
 		fLayoutData->label_layout_item = new LabelLayoutItem(this);
+
 	return fLayoutData->label_layout_item;
 }
 
@@ -815,12 +839,13 @@ BMenuField::CreateLabelLayoutItem()
 BLayoutItem*
 BMenuField::CreateMenuBarLayoutItem()
 {
-	if (!fLayoutData->menu_bar_layout_item) {
+	if (fLayoutData->menu_bar_layout_item == NULL) {
 		// align the menu bar in the full available space
 		fMenuBar->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH,
 			B_ALIGN_VERTICAL_UNSET));
 		fLayoutData->menu_bar_layout_item = new MenuBarLayoutItem(this);
 	}
+
 	return fLayoutData->menu_bar_layout_item;
 }
 
@@ -833,22 +858,27 @@ BMenuField::Perform(perform_code code, void* _data)
 			((perform_data_min_size*)_data)->return_value
 				= BMenuField::MinSize();
 			return B_OK;
+
 		case PERFORM_CODE_MAX_SIZE:
 			((perform_data_max_size*)_data)->return_value
 				= BMenuField::MaxSize();
 			return B_OK;
+
 		case PERFORM_CODE_PREFERRED_SIZE:
 			((perform_data_preferred_size*)_data)->return_value
 				= BMenuField::PreferredSize();
 			return B_OK;
+
 		case PERFORM_CODE_LAYOUT_ALIGNMENT:
 			((perform_data_layout_alignment*)_data)->return_value
 				= BMenuField::LayoutAlignment();
 			return B_OK;
+
 		case PERFORM_CODE_HAS_HEIGHT_FOR_WIDTH:
 			((perform_data_has_height_for_width*)_data)->return_value
 				= BMenuField::HasHeightForWidth();
 			return B_OK;
+
 		case PERFORM_CODE_GET_HEIGHT_FOR_WIDTH:
 		{
 			perform_data_get_height_for_width* data
@@ -857,12 +887,14 @@ BMenuField::Perform(perform_code code, void* _data)
 				&data->preferred);
 			return B_OK;
 		}
+
 		case PERFORM_CODE_SET_LAYOUT:
 		{
 			perform_data_set_layout* data = (perform_data_set_layout*)_data;
 			BMenuField::SetLayout(data->layout);
 			return B_OK;
 		}
+
 		case PERFORM_CODE_LAYOUT_INVALIDATED:
 		{
 			perform_data_layout_invalidated* data
@@ -870,24 +902,25 @@ BMenuField::Perform(perform_code code, void* _data)
 			BMenuField::LayoutInvalidated(data->descendants);
 			return B_OK;
 		}
+
 		case PERFORM_CODE_DO_LAYOUT:
 		{
 			BMenuField::DoLayout();
 			return B_OK;
 		}
+
 		case PERFORM_CODE_ALL_UNARCHIVED:
 		{
 			perform_data_all_unarchived* data
 				= (perform_data_all_unarchived*)_data;
-
 			data->return_value = BMenuField::AllUnarchived(data->archive);
 			return B_OK;
 		}
+
 		case PERFORM_CODE_ALL_ARCHIVED:
 		{
 			perform_data_all_archived* data
 				= (perform_data_all_archived*)_data;
-
 			data->return_value = BMenuField::AllArchived(data->archive);
 			return B_OK;
 		}
@@ -910,7 +943,7 @@ void
 BMenuField::DoLayout()
 {
 	// Bail out, if we shan't do layout.
-	if (!(Flags() & B_SUPPORTS_LAYOUT))
+	if ((Flags() & B_SUPPORTS_LAYOUT) == 0)
 		return;
 
 	CALLED();
@@ -928,18 +961,22 @@ BMenuField::DoLayout()
 	BSize size(Bounds().Size());
 	if (size.width < fLayoutData->min.width)
 		size.width = fLayoutData->min.width;
+
 	if (size.height < fLayoutData->min.height)
 		size.height = fLayoutData->min.height;
 
 	// divider
 	float divider = 0;
-	if (fLayoutData->label_layout_item && fLayoutData->menu_bar_layout_item) {
-		// We have layout items. They define the divider location.
+	if (fLayoutData->label_layout_item != NULL
+		&& fLayoutData->menu_bar_layout_item != NULL
+		&& fLayoutData->label_layout_item->Frame().IsValid()
+		&& fLayoutData->menu_bar_layout_item->Frame().IsValid()) {
+		// We have valid layout items, they define the divider location.
 		divider = fLayoutData->menu_bar_layout_item->Frame().left
 			- fLayoutData->label_layout_item->Frame().left;
-	} else {
-		if (fLayoutData->label_width > 0)
-			divider = fLayoutData->label_width + 5;
+	} else if (fLayoutData->label_width > 0) {
+		divider = fLayoutData->label_width
+			+ be_control_look->DefaultLabelSpacing();
 	}
 
 	// menu bar
@@ -975,16 +1012,15 @@ BMenuField::InitObject(const char* label)
 	fMenuBar = NULL;
 	fAlign = B_ALIGN_LEFT;
 	fEnabled = true;
-	fSelected = false;
-	fTransition = false;
 	fFixedSizeMB = false;
 	fMenuTaskID = -1;
 	fLayoutData = new LayoutData;
+	fMouseDownFilter = new MouseDownFilter();
 
 	SetLabel(label);
 
 	if (label)
-		fDivider = (float)floor(Frame().Width() / 2.0f);
+		fDivider = floorf(Frame().Width() / 2.0f);
 	else
 		fDivider = 0;
 }
@@ -995,9 +1031,11 @@ BMenuField::InitObject2()
 {
 	CALLED();
 
-	float height;
-	fMenuBar->GetPreferredSize(NULL, &height);
-	fMenuBar->ResizeTo(_MenuBarWidth(), height);
+	if (!fFixedSizeMB) {
+		float height;
+		fMenuBar->GetPreferredSize(NULL, &height);
+		fMenuBar->ResizeTo(_MenuBarWidth(), height);
+	}
 
 	TRACE("frame(%.1f, %.1f, %.1f, %.1f) (%.2f, %.2f)\n",
 		fMenuBar->Frame().left, fMenuBar->Frame().top,
@@ -1009,42 +1047,81 @@ BMenuField::InitObject2()
 
 
 void
-BMenuField::DrawLabel(BRect bounds, BRect update)
+BMenuField::_DrawLabel(BRect updateRect)
 {
 	CALLED();
+
+	BRect rect(Bounds());
+	rect.right = fDivider;
+	if (!rect.IsValid() || !rect.Intersects(updateRect))
+		return;
 
 	_ValidateLayoutData();
 	font_height& fh = fLayoutData->font_info;
 
-	if (Label()) {
-		SetLowColor(ViewColor());
+	const char* label = Label();
+	if (label == NULL)
+		return;
 
-		// horizontal alignment
-		float x;
-		switch (fAlign) {
-			case B_ALIGN_RIGHT:
-				x = fDivider - fLayoutData->label_width - 3.0;
-				break;
+	// horizontal alignment
+	float x;
+	switch (fAlign) {
+		case B_ALIGN_RIGHT:
+			x = fDivider - fLayoutData->label_width - 3.0f;
+			break;
 
-			case B_ALIGN_CENTER:
-				x = fDivider - fLayoutData->label_width / 2.0;
-				break;
+		case B_ALIGN_CENTER:
+			x = fDivider - roundf(fLayoutData->label_width / 2.0f);
+			break;
 
-			default:
-				x = 0.0;
-				break;
-		}
-
-		// vertical alignment
-		float y = Bounds().top
-			+ (Bounds().Height() + 1 - fh.ascent - fh.descent) / 2
-			+ fh.ascent;
-		y = floor(y + 0.5);
-
-		SetHighColor(tint_color(ui_color(B_PANEL_BACKGROUND_COLOR),
-			IsEnabled() ? B_DARKEN_MAX_TINT : B_DISABLED_LABEL_TINT));
-		DrawString(Label(), BPoint(x, y));
+		default:
+			x = 0.0;
+			break;
 	}
+
+	// vertical alignment
+	float y = rect.top
+		+ roundf((rect.Height() + 1 - fh.ascent - fh.descent) / 2.0f)
+		+ fh.ascent;
+
+	const rgb_color lowColor = LowColor();
+
+	MenuPrivate menuPrivate(fMenuBar);
+	if (menuPrivate.State() != MENU_STATE_CLOSED)
+		SetLowColor(ui_color(B_MENU_SELECTED_BACKGROUND_COLOR));
+
+	BRect fillRect(rect.InsetByCopy(0, kVMargin));
+	fillRect.right -= kVMargin * 2;
+	FillRect(fillRect, B_SOLID_LOW);
+
+	uint32 flags = 0;
+	if (!IsEnabled())
+		flags |= BControlLook::B_DISABLED;
+
+	be_control_look->DrawLabel(this, label, LowColor(), flags, BPoint(x, y));
+
+	SetLowColor(lowColor);
+}
+
+
+void
+BMenuField::_DrawMenuBar(BRect updateRect)
+{
+	CALLED();
+
+	BRect rect(fMenuBar->Frame().InsetByCopy(-kVMargin, -kVMargin));
+	if (!rect.IsValid() || !rect.Intersects(updateRect))
+		return;
+
+	uint32 flags = 0;
+	if (!IsEnabled())
+		flags |= BControlLook::B_DISABLED;
+
+	if (IsFocus() && Window()->IsActive())
+		flags |= BControlLook::B_FOCUSED;
+
+	be_control_look->DrawMenuFieldFrame(this, rect, updateRect,
+		fMenuBar->LowColor(), LowColor(), flags);
 }
 
 
@@ -1074,8 +1151,6 @@ BMenuField::_MenuTask()
 	if (!LockLooper())
 		return 0;
 
-	fSelected = true;
-	fTransition = true;
 	Invalidate();
 	UnlockLooper();
 
@@ -1091,8 +1166,6 @@ BMenuField::_MenuTask()
 	} while (tracking);
 
 	if (LockLooper()) {
-		fSelected = false;
-		fTransition = true;
 		Invalidate();
 		UnlockLooper();
 	}
@@ -1106,25 +1179,31 @@ BMenuField::_UpdateFrame()
 {
 	CALLED();
 
-	if (fLayoutData->label_layout_item && fLayoutData->menu_bar_layout_item) {
-		BRect labelFrame = fLayoutData->label_layout_item->Frame();
-		BRect menuFrame = fLayoutData->menu_bar_layout_item->Frame();
-
-		// update divider
-		fDivider = menuFrame.left - labelFrame.left;
-
-		// update our frame
-		MoveTo(labelFrame.left, labelFrame.top);
-		BSize oldSize = Bounds().Size();
-		ResizeTo(menuFrame.left + menuFrame.Width() - labelFrame.left,
-			menuFrame.top + menuFrame.Height() - labelFrame.top);
-		BSize newSize = Bounds().Size();
-
-		// If the size changes, ResizeTo() will trigger a relayout, otherwise
-		// we need to do that explicitly.
-		if (newSize != oldSize)
-			Relayout();
+	if (fLayoutData->label_layout_item == NULL
+		|| fLayoutData->menu_bar_layout_item == NULL) {
+		return;
 	}
+
+	BRect labelFrame = fLayoutData->label_layout_item->Frame();
+	BRect menuFrame = fLayoutData->menu_bar_layout_item->Frame();
+
+	if (!labelFrame.IsValid() || !menuFrame.IsValid())
+		return;
+
+	// update divider
+	fDivider = menuFrame.left - labelFrame.left;
+
+	// update our frame
+	MoveTo(labelFrame.left, labelFrame.top);
+	BSize oldSize = Bounds().Size();
+	ResizeTo(menuFrame.left + menuFrame.Width() - labelFrame.left,
+		menuFrame.top + menuFrame.Height() - labelFrame.top);
+	BSize newSize = Bounds().Size();
+
+	// If the size changes, ResizeTo() will trigger a relayout, otherwise
+	// we need to do that explicitly.
+	if (newSize != oldSize)
+		Relayout();
 }
 
 
@@ -1136,8 +1215,8 @@ BMenuField::_InitMenuBar(BMenu* menu, BRect frame, bool fixedSize)
 	fMenu = menu;
 	InitMenu(menu);
 
-	if ((Flags() & B_SUPPORTS_LAYOUT)) {
-		fMenuBar = new _BMCMenuBar_(fixedSize, this);
+	if ((Flags() & B_SUPPORTS_LAYOUT) != 0) {
+		fMenuBar = new _BMCMenuBar_(this);
 	} else {
 		frame.left = _MenuBarOffset();
 		frame.top = kVMargin;
@@ -1163,7 +1242,6 @@ BMenuField::_InitMenuBar(BMenu* menu, BRect frame, bool fixedSize)
 
 	AddChild(fMenuBar);
 	fMenuBar->AddItem(menu);
-
 	fMenuBar->SetFont(be_plain_font);
 }
 
@@ -1176,7 +1254,7 @@ BMenuField::_InitMenuBar(const BMessage* archive)
 		fFixedSizeMB = fixed;
 
 	fMenuBar = (BMenuBar*)FindView("_mc_mb_");
-	if (!fMenuBar) {
+	if (fMenuBar == NULL) {
 		_InitMenuBar(new BMenu(""), BRect(0, 0, 100, 15), fFixedSizeMB);
 		InitObject2();
 	} else {
@@ -1192,7 +1270,8 @@ BMenuField::_InitMenuBar(const BMessage* archive)
 
 	bool dmark = false;
 	archive->FindBool("be:dmark", &dmark);
-	if (_BMCMenuBar_* menuBar = dynamic_cast<_BMCMenuBar_*>(fMenuBar))
+	_BMCMenuBar_* menuBar = dynamic_cast<_BMCMenuBar_*>(fMenuBar);
+	if (menuBar != NULL)
 		menuBar->TogglePopUpMarker(dmark);
 }
 
@@ -1209,8 +1288,9 @@ BMenuField::_ValidateLayoutData()
 	font_height& fh = fLayoutData->font_info;
 	GetFontHeight(&fh);
 
-	if (Label() != NULL) {
-		fLayoutData->label_width = ceilf(StringWidth(Label()));
+	const char* label = Label();
+	if (label != NULL) {
+		fLayoutData->label_width = ceilf(StringWidth(label));
 		fLayoutData->label_height = ceilf(fh.ascent) + ceilf(fh.descent);
 	} else {
 		fLayoutData->label_width = 0;
@@ -1219,12 +1299,14 @@ BMenuField::_ValidateLayoutData()
 
 	// compute the minimal divider
 	float divider = 0;
-	if (fLayoutData->label_width > 0)
-		divider = fLayoutData->label_width + 5;
+	if (fLayoutData->label_width > 0) {
+		divider = fLayoutData->label_width
+			+ be_control_look->DefaultLabelSpacing();
+	}
 
 	// If we shan't do real layout, we let the current divider take influence.
-	if (!(Flags() & B_SUPPORTS_LAYOUT))
-		divider = max_c(divider, fDivider);
+	if ((Flags() & B_SUPPORTS_LAYOUT) == 0)
+		divider = std::max(divider, fDivider);
 
 	// get the minimal (== preferred) menu bar size
 	// TODO: BMenu::MinSize() is using the ResizeMode() to decide the
@@ -1242,6 +1324,7 @@ BMenuField::_ValidateLayoutData()
 
 	if (divider > 0)
 		min.width += divider;
+
 	if (fLayoutData->label_height > min.height)
 		min.height = fLayoutData->label_height;
 
@@ -1257,7 +1340,7 @@ BMenuField::_ValidateLayoutData()
 float
 BMenuField::_MenuBarOffset() const
 {
-	return max_c(kVMargin, fDivider + kVMargin);
+	return std::max(fDivider + kVMargin, kVMargin);
 }
 
 
@@ -1268,7 +1351,20 @@ BMenuField::_MenuBarWidth() const
 }
 
 
-// #pragma mark -
+void
+BMenuField::_DoneTracking(BPoint point)
+{
+	Window()->RemoveCommonFilter(fMouseDownFilter);
+}
+
+
+void
+BMenuField::_Track(BPoint point, uint32)
+{
+}
+
+
+// #pragma mark - BMenuField::LabelLayoutItem
 
 
 BMenuField::LabelLayoutItem::LabelLayoutItem(BMenuField* parent)
@@ -1337,10 +1433,11 @@ BMenuField::LabelLayoutItem::BaseMinSize()
 {
 	fParent->_ValidateLayoutData();
 
-	if (!fParent->Label())
+	if (fParent->Label() == NULL)
 		return BSize(-1, -1);
 
-	return BSize(fParent->fLayoutData->label_width + 5,
+	return BSize(fParent->fLayoutData->label_width
+			+ be_control_look->DefaultLabelSpacing(),
 		fParent->fLayoutData->label_height);
 }
 
@@ -1384,11 +1481,12 @@ BMenuField::LabelLayoutItem::Instantiate(BMessage* from)
 {
 	if (validate_instantiation(from, "BMenuField::LabelLayoutItem"))
 		return new LabelLayoutItem(from);
+
 	return NULL;
 }
 
 
-// #pragma mark -
+// #pragma mark - BMenuField::MenuBarLayoutItem
 
 
 BMenuField::MenuBarLayoutItem::MenuBarLayoutItem(BMenuField* parent)
@@ -1473,6 +1571,7 @@ BMenuField::MenuBarLayoutItem::BaseMaxSize()
 {
 	BSize size(BaseMinSize());
 	size.width = B_SIZE_UNLIMITED;
+
 	return size;
 }
 

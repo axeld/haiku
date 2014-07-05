@@ -74,8 +74,8 @@ CreateNFS4Server(RPC::Server* serv)
 //	dirtime=X	- attempt revalidate directory cache not more often than each X
 //				  seconds
 static status_t
-ParseArguments(const char* _args, AddressResolver** address, char** _path,
-	MountConfiguration* conf)
+ParseArguments(const char* _args, AddressResolver** address, char** _server,
+	char** _path, MountConfiguration* conf)
 {
 	if (_args == NULL)
 		return B_BAD_VALUE;
@@ -94,12 +94,18 @@ ParseArguments(const char* _args, AddressResolver** address, char** _path,
 		return B_MISMATCHED_VALUES;
 	*path++ = '\0';
 
-	*address = new AddressResolver(args);
-	if (*address == NULL)
+	*_server = strdup(args);
+	if (*_server == NULL)
 		return B_NO_MEMORY;
+	*address = new AddressResolver(args);
+	if (*address == NULL) {
+		free(*_server);
+		return B_NO_MEMORY;
+	}
 
 	*_path = strdup(path);
 	if (*_path == NULL) {
+		free(*_server);
 		delete *address;
 		return B_NO_MEMORY;
 	}
@@ -161,25 +167,29 @@ nfs4_mount(fs_volume* volume, const char* device, uint32 flags,
 
 	/* prepare idmapper server */
 	MutexLocker locker(gIdMapperLock);
-	gIdMapper = new(std::nothrow) IdMap;
-	if (gIdMapper == NULL)
-		return B_NO_MEMORY;
+	if (gIdMapper == NULL) {
+		gIdMapper = new(std::nothrow) IdMap;
+		if (gIdMapper == NULL)
+			return B_NO_MEMORY;
 
-	result = gIdMapper->InitStatus();
-	if (result != B_OK) {
-		delete gIdMapper;
-		gIdMapper = NULL;
-		return result;
+		result = gIdMapper->InitStatus();
+		if (result != B_OK) {
+			delete gIdMapper;
+			gIdMapper = NULL;
+			return result;
+		}
 	}
 	locker.Unlock();
 
 	AddressResolver* resolver;
 	MountConfiguration config;
 	char* path;
-	result = ParseArguments(args, &resolver, &path, &config);
+	char* serverName;
+	result = ParseArguments(args, &resolver, &serverName, &path, &config);
 	if (result != B_OK)
 		return result;
 	MemoryDeleter pathDeleter(path);
+	MemoryDeleter serverNameDeleter(serverName);
 
 	RPC::Server* server;
 	result = gRPCServerManager->Acquire(&server, resolver, CreateNFS4Server);
@@ -188,7 +198,8 @@ nfs4_mount(fs_volume* volume, const char* device, uint32 flags,
 		return result;
 	
 	FileSystem* fs;
-	result = FileSystem::Mount(&fs, server, path, volume->id, config);
+	result = FileSystem::Mount(&fs, server, serverName, path, volume->id,
+		config);
 	if (result != B_OK) {
 		gRPCServerManager->Release(server);
 		return result;
@@ -691,7 +702,10 @@ nfs4_read_stat(fs_volume* volume, fs_vnode* vnode, struct stat* stat)
 	if (inode == NULL)
 		return B_ENTRY_NOT_FOUND;
 
-	return inode->Stat(stat);
+	status_t result = inode->Stat(stat);
+	if (inode->GetOpenState() != NULL)
+		stat->st_size = inode->MaxFileSize();
+	return result;
 }
 
 
@@ -749,7 +763,9 @@ static status_t
 nfs4_create(fs_volume* volume, fs_vnode* dir, const char* name, int openMode,
 	int perms, void** _cookie, ino_t* _newVnodeID)
 {
-	OpenFileCookie* cookie = new OpenFileCookie;
+	FileSystem* fs = reinterpret_cast<FileSystem*>(volume->private_volume);
+
+	OpenFileCookie* cookie = new OpenFileCookie(fs);
 	if (cookie == NULL)
 		return B_NO_MEMORY;
 	*_cookie = cookie;
@@ -763,7 +779,6 @@ nfs4_create(fs_volume* volume, fs_vnode* dir, const char* name, int openMode,
 	if (inode == NULL)
 		return B_ENTRY_NOT_FOUND;
 
-	FileSystem* fs = reinterpret_cast<FileSystem*>(volume->private_volume);
 	MutexLocker createLocker(fs->CreateFileLock());
 
 	OpenDelegationData data;
@@ -823,7 +838,8 @@ nfs4_open(fs_volume* volume, fs_vnode* vnode, int openMode, void** _cookie)
 		return B_OK;
 	}
 
-	OpenFileCookie* cookie = new OpenFileCookie;
+	FileSystem* fs = reinterpret_cast<FileSystem*>(volume->private_volume);
+	OpenFileCookie* cookie = new OpenFileCookie(fs);
 	if (cookie == NULL)
 		return B_NO_MEMORY;
 	*_cookie = cookie;
@@ -1000,7 +1016,8 @@ nfs4_remove_dir(fs_volume* volume, fs_vnode* parent, const char* name)
 static status_t
 nfs4_open_dir(fs_volume* volume, fs_vnode* vnode, void** _cookie)
 {
-	OpenDirCookie* cookie = new(std::nothrow) OpenDirCookie;
+	FileSystem* fs = reinterpret_cast<FileSystem*>(volume->private_volume);
+	OpenDirCookie* cookie = new(std::nothrow) OpenDirCookie(fs);
 	if (cookie == NULL)
 		return B_NO_MEMORY;
 	*_cookie = cookie;
@@ -1084,7 +1101,8 @@ nfs4_rewind_dir(fs_volume* volume, fs_vnode* vnode, void* _cookie)
 static status_t
 nfs4_open_attr_dir(fs_volume* volume, fs_vnode* vnode, void** _cookie)
 {
-	OpenDirCookie* cookie = new(std::nothrow) OpenDirCookie;
+	FileSystem* fs = reinterpret_cast<FileSystem*>(volume->private_volume);
+	OpenDirCookie* cookie = new(std::nothrow) OpenDirCookie(fs);
 	if (cookie == NULL)
 		return B_NO_MEMORY;
 	*_cookie = cookie;
@@ -1145,7 +1163,8 @@ nfs4_create_attr(fs_volume* volume, fs_vnode* vnode, const char* name,
 	if (inode == NULL)
 		return B_ENTRY_NOT_FOUND;
 
-	OpenAttrCookie* cookie = new OpenAttrCookie;
+	FileSystem* fs = reinterpret_cast<FileSystem*>(volume->private_volume);
+	OpenAttrCookie* cookie = new OpenAttrCookie(fs);
 	if (cookie == NULL)
 		return B_NO_MEMORY;
 	*_cookie = cookie;
@@ -1169,7 +1188,8 @@ nfs4_open_attr(fs_volume* volume, fs_vnode* vnode, const char* name,
 	if (inode == NULL)
 		return B_ENTRY_NOT_FOUND;
 
-	OpenAttrCookie* cookie = new OpenAttrCookie;
+	FileSystem* fs = reinterpret_cast<FileSystem*>(volume->private_volume);
+	OpenAttrCookie* cookie = new OpenAttrCookie(fs);
 	if (cookie == NULL)
 		return B_NO_MEMORY;
 	*_cookie = cookie;

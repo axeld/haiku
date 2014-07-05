@@ -148,7 +148,7 @@ FilterHTMLTag(int32 &first, char **t, char *end)
 	// check for some common entities (in ISO-Latin-1)
 	if (first == '&') {
 		// filter out and convert decimal values
-		if (a[1] == '#' && sscanf(a + 2, "%ld;", &first) == 1) {
+		if (a[1] == '#' && sscanf(a + 2, "%" B_SCNd32 ";", &first) == 1) {
 			t[0] += strchr(a, ';') - a;
 			return false;
 		}
@@ -932,11 +932,11 @@ TTextView::UpdateFont(const BFont* newFont)
 	fFont = *newFont;
 
 	// update the text run array safely with new font
-	text_run_array *runArray = RunArray(0, LONG_MAX);
+	text_run_array *runArray = RunArray(0, INT32_MAX);
 	for (int i = 0; i < runArray->count; i++)
 		runArray->runs[i].font = *newFont;
 
-	SetRunArray(0, LONG_MAX, runArray);
+	SetRunArray(0, INT32_MAX, runArray);
 	FreeRunArray(runArray);
 }
 
@@ -1909,7 +1909,7 @@ TTextView::Open(hyper_text *enclosure)
 		case TYPE_BE_ENCLOSURE:
 			if (!enclosure->have_ref) {
 				BPath path;
-				if (find_directory(B_COMMON_TEMP_DIRECTORY, &path) == B_NO_ERROR) {
+				if (find_directory(B_SYSTEM_TEMP_DIRECTORY, &path) == B_NO_ERROR) {
 					BDirectory dir(path.Path());
 					if (dir.InitCheck() == B_NO_ERROR) {
 						char name[B_FILE_NAME_LENGTH];
@@ -1917,7 +1917,7 @@ TTextView::Open(hyper_text *enclosure)
 						strcpy(baseName, enclosure->name ? enclosure->name : "enclosure");
 						strcpy(name, baseName);
 						for (int32 index = 0; dir.Contains(name); index++)
-							sprintf(name, "%s_%ld", baseName, index);
+							sprintf(name, "%s_%" B_PRId32, baseName, index);
 
 						BEntry entry(path.Path());
 						entry_ref ref;
@@ -3121,6 +3121,7 @@ TTextView::AddQuote(int32 start, int32 finish)
 	int32 lineStart;
 	GoToLine(CurrentLine());
 	GetSelection(&lineStart, &lineStart);
+	lineStart = LineStart(lineStart);
 
 	// make sure that we're changing the whole last line, too
 	int32 lineEnd = finish > lineStart ? finish - 1 : finish;
@@ -3198,6 +3199,7 @@ TTextView::RemoveQuote(int32 start, int32 finish)
 	GoToLine(CurrentLine());
 	int32 lineStart;
 	GetSelection(&lineStart, &lineStart);
+	lineStart = LineStart(lineStart);
 
 	// make sure that we're changing the whole last line, too
 	int32 lineEnd = finish > lineStart ? finish - 1 : finish;
@@ -3277,6 +3279,39 @@ TTextView::RemoveQuote(int32 start, int32 finish)
 
 	Select(start, finish);
 	ScrollTo(rect.LeftTop());
+}
+
+
+int32
+TTextView::LineStart(int32 offset)
+{
+	if (offset <= 0)
+		return 0;
+
+	while (offset > 0) {
+		offset = PreviousByte(offset);
+		if (ByteAt(offset) == B_ENTER)
+			return offset + 1;
+	}
+
+	return offset;
+}
+
+
+int32
+TTextView::PreviousByte(int32 offset) const
+{
+	if (offset <= 0)
+		return 0;
+
+	int32 count = 6;
+
+	for (--offset; offset > 0 && count; --offset, --count) {
+		if ((ByteAt(offset) & 0xC0) != 0x80)
+			break;
+	}
+
+	return count ? offset : 0;
 }
 
 
@@ -3374,4 +3409,3 @@ TTextView::Redo()
 		fUndoBuffer.On();
 	}
 }
-

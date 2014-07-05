@@ -238,6 +238,7 @@ m68k_exception_entry(struct iframe *iframe)
 
 			vm_page_fault(fault_address(iframe), iframe->cpu.pc,
 				fault_was_write(iframe), // store or load
+				false,
 				iframe->cpu.sr & SR_S, // was the system in user or supervisor
 				&newip);
 			if (newip != 0) {
@@ -297,8 +298,8 @@ dprintf("handling I/O interrupts done\n");
 
 	int state = disable_interrupts();
 	if (thread->cpu->invoke_scheduler) {
-		SpinLocker schedulerLocker(gSchedulerLock);
-		scheduler_reschedule();
+		SpinLocker schedulerLocker(thread->scheduler_lock);
+		scheduler_reschedule(B_THREAD_READY);
 		schedulerLocker.Unlock();
 		restore_interrupts(state);
 	} else if (hardwareInterrupt && thread->post_interrupt_callback != NULL) {

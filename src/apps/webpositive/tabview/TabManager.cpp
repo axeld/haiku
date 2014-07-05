@@ -2,28 +2,7 @@
  * Copyright (C) 2010 Rene Gollent <rene@gollent.com>
  * Copyright (C) 2010 Stephan Aßmus <superstippi@gmx.de>
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY APPLE COMPUTER, INC. ``AS IS'' AND ANY
- * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE COMPUTER, INC. OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
- * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
- * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * All rights reserved. Distributed under the terms of the MIT License.
  */
 
 #include "TabManager.h"
@@ -181,6 +160,7 @@ class TabMenuTabButton : public TabButton {
 public:
 	TabMenuTabButton(BMessage* message)
 		: TabButton(message)
+		, fCloseTime(0)
 	{
 	}
 
@@ -198,8 +178,14 @@ public:
 
 	virtual void MouseDown(BPoint point)
 	{
-		if (!IsEnabled())
+		// Don't reopen the menu if it's already open or freshly closed.
+		bigtime_t clickSpeed = 2000000;
+		get_click_speed(&clickSpeed);
+		bigtime_t clickTime = Window()->CurrentMessage()->FindInt64("when");
+		if (!IsEnabled() || (Value() == B_CONTROL_ON) 
+			|| clickTime < fCloseTime + clickSpeed) {
 			return;
+		}
 
 		// Invoke must be called before setting B_CONTROL_ON
 		// for the button to stay "down"
@@ -214,8 +200,12 @@ public:
 
 	void MenuClosed()
 	{
+		fCloseTime = system_time();
 		SetValue(B_CONTROL_OFF);
 	}
+
+private:
+	bigtime_t fCloseTime;
 };
 
 
@@ -847,7 +837,7 @@ void
 TabManager::SelectTab(const BView* containedView)
 {
 	int32 tabIndex = TabForView(containedView);
-	if (tabIndex > 0)
+	if (tabIndex >= 0)
 		SelectTab(tabIndex);
 }
 

@@ -77,9 +77,6 @@ private:
 					// of settings, instead it should be configured
 					// to a specific setting from the code one level up
 				Settings*		fCurrentSettings;
-
-				int32			fStatus;
-				int				fSocket;
 };
 
 #endif /* ETHERNET_SETTINGS_VIEW_H */

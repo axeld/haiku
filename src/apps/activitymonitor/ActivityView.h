@@ -17,7 +17,6 @@
 #include "DataSource.h"
 
 
-class BAboutWindow;
 class BBitmap;
 class BMessageRunner;
 class Scale;
@@ -77,7 +76,7 @@ public:
 			void		RemoveAllDataSources();
 
 			bigtime_t	RefreshInterval() const
-							{ return atomic_get64((vint64*)&fRefreshInterval); }
+							{ return atomic_get64((int64*)&fRefreshInterval); }
 
 protected:
 	virtual	void		AttachedToWindow();
@@ -146,8 +145,6 @@ private:
 	int32				fOriginalResolution;
 	SystemInfoHandler*	fSystemInfoHandler;
 	std::map<scale_type, ::Scale*> fScales;
-
-	BAboutWindow*	fAboutWindow;
 };
 
 #endif	// ACTIVITY_VIEW_H

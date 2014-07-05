@@ -1,6 +1,6 @@
 /*
  * Copyright 2009-2010, Ingo Weinhold, ingo_weinhold@gmx.de.
- * Copyright 2012, Rene Gollent, rene@gollent.com.
+ * Copyright 2012-2013, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 #ifndef DWARF_FILE_H
@@ -10,8 +10,10 @@
 #include <ObjectList.h>
 #include <Referenceable.h>
 #include <util/DoublyLinkedList.h>
+#include <util/OpenHashTable.h>
 
 #include "DebugInfoEntries.h"
+#include "TypeUnit.h"
 
 
 class AbbreviationEntry;
@@ -33,11 +35,17 @@ public:
 								DwarfFile();
 								~DwarfFile();
 
-			status_t			Load(const char* fileName);
+			status_t			StartLoading(const char* fileName,
+									BString& _requiredExternalFile);
+			status_t			Load(const BString& externalFilePath);
 			status_t			FinishLoading();
 
 			const char*			Name() const		{ return fName; }
 			ElfFile*			GetElfFile() const	{ return fElfFile; }
+
+			bool				HasFrameInformation() const
+									{ return fDebugFrameSection != NULL
+										|| fEHFrameSection != NULL; }
 
 			int32				CountCompilationUnits() const;
 			CompilationUnit*	CompilationUnitAt(int32 index) const;
@@ -103,15 +111,21 @@ private:
 
 			typedef DoublyLinkedList<AbbreviationTable> AbbreviationTableList;
 			typedef BObjectList<CompilationUnit> CompilationUnitList;
+			typedef BOpenHashTable<TypeUnitTableHashDefinition> TypeUnitTable;
 
 private:
+			status_t			_ParseDebugInfoSection();
+			status_t			_ParseTypesSection();
 			status_t			_ParseCompilationUnit(CompilationUnit* unit);
+			status_t			_ParseTypeUnit(TypeUnit* unit);
 			status_t			_ParseDebugInfoEntry(DataReader& dataReader,
+									BaseUnit* unit,
 									AbbreviationTable* abbreviationTable,
 									DebugInfoEntry*& _entry,
 									bool& _endOfEntryList, int level = 0);
-			status_t			_FinishCompilationUnit(CompilationUnit* unit);
+			status_t			_FinishUnit(BaseUnit* unit);
 			status_t			_ParseEntryAttributes(DataReader& dataReader,
+									BaseUnit* unit,
 									DebugInfoEntry* entry,
 									AbbreviationEntry& abbreviationEntry);
 
@@ -146,8 +160,9 @@ private:
 			status_t			_GetAbbreviationTable(off_t offset,
 									AbbreviationTable*& _table);
 
-			DebugInfoEntry*		_ResolveReference(CompilationUnit* unit,
-									uint64 offset, bool localReference) const;
+			DebugInfoEntry*		_ResolveReference(BaseUnit* unit,
+									uint64 offset,
+									uint8 refType) const;
 
 			status_t			_GetLocationExpression(CompilationUnit* unit,
 									const LocationDescription* location,
@@ -159,9 +174,16 @@ private:
 									const void*& _expression,
 									off_t& _length) const;
 
-			status_t			_LocateDebugInfo();
+			status_t			_LocateDebugInfo(
+									BString& _requiredExternalFileName,
+									const char* locatedFilePath = NULL);
+
 			status_t			_GetDebugInfoPath(const char* fileName,
-									BString& _infoPath);
+									BString& _infoPath) const;
+
+			TypeUnitTableEntry*	_GetTypeUnit(uint64 signature) const;
+			CompilationUnit*	_GetContainingCompilationUnit(
+									off_t refAddr) const;
 
 private:
 			friend class 		DwarfFile::ExpressionEvaluationContext;
@@ -180,10 +202,12 @@ private:
 			ElfSection*			fEHFrameSection;
 			ElfSection*			fDebugLocationSection;
 			ElfSection*			fDebugPublicTypesSection;
+			ElfSection*			fDebugTypesSection;
 			AbbreviationTableList fAbbreviationTables;
 			DebugInfoEntryFactory fDebugInfoFactory;
 			CompilationUnitList	fCompilationUnits;
-			CompilationUnit*	fCurrentCompilationUnit;
+			TypeUnitTable		fTypeUnits;
+			bool				fTypesSectionRequired;
 			bool				fFinished;
 			status_t			fFinishError;
 };

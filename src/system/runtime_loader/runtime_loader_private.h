@@ -43,20 +43,22 @@ struct SymbolLookupCache;
 
 
 extern struct user_space_program_args* gProgramArgs;
+extern void* __gCommPageAddress;
 extern struct rld_export gRuntimeLoader;
 extern char* (*gGetEnv)(const char* name);
 extern bool gProgramLoaded;
 extern image_t* gProgramImage;
 
 
-#ifdef __cplusplus
 extern "C" {
-#endif
 
-int runtime_loader(void* arg);
+int runtime_loader(void* arg, void* commpage);
 int open_executable(char* name, image_type type, const char* rpath,
-	const char* programPath, const char* compatibilitySubDir);
+	const char* programPath, const char* requestingObjectPath,
+	const char* abiSpecificSubDir);
 status_t test_executable(const char* path, char* interpreter);
+status_t get_executable_architecture(const char* path,
+	const char** _architecture);
 
 void terminate_program(void);
 image_id load_program(char const* path, void** entry);
@@ -74,12 +76,13 @@ status_t get_library_symbol(void* handle, void* caller, const char* symbolName,
 status_t get_next_image_dependency(image_id id, uint32* cookie,
 	const char** _name);
 int resolve_symbol(image_t* rootImage, image_t* image, elf_sym* sym,
-	SymbolLookupCache* cache, addr_t* sym_addr);
+	SymbolLookupCache* cache, addr_t* sym_addr, image_t** symbolImage = NULL);
 
 
 status_t elf_verify_header(void* header, size_t length);
 void rldelf_init(void);
 void rldexport_init(void);
+void set_abi_version(int abi_version);
 status_t elf_reinit_after_fork(void);
 
 status_t heap_init(void);
@@ -88,8 +91,6 @@ status_t heap_init(void);
 status_t arch_relocate_image(image_t* rootImage, image_t* image,
 	SymbolLookupCache* cache);
 
-#ifdef __cplusplus
 }
-#endif
 
 #endif	/* RUNTIME_LOADER_PRIVATE_H */

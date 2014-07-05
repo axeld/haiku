@@ -627,11 +627,13 @@ X86VMTranslationMap64Bit::Query(addr_t virtualAddress,
 	// Translate the page state flags.
 	if ((entry & X86_64_PTE_USER) != 0) {
 		*_flags |= ((entry & X86_64_PTE_WRITABLE) != 0 ? B_WRITE_AREA : 0)
-			| B_READ_AREA;
+			| B_READ_AREA
+			| ((entry & X86_64_PTE_NOT_EXECUTABLE) == 0 ? B_EXECUTE_AREA : 0);
 	}
 
 	*_flags |= ((entry & X86_64_PTE_WRITABLE) != 0 ? B_KERNEL_WRITE_AREA : 0)
 		| B_KERNEL_READ_AREA
+		| ((entry & X86_64_PTE_NOT_EXECUTABLE) == 0 ? B_KERNEL_EXECUTE_AREA : 0)
 		| ((entry & X86_64_PTE_DIRTY) != 0 ? PAGE_MODIFIED : 0)
 		| ((entry & X86_64_PTE_ACCESSED) != 0 ? PAGE_ACCESSED : 0)
 		| ((entry & X86_64_PTE_PRESENT) != 0 ? PAGE_PRESENT : 0);
@@ -671,6 +673,10 @@ X86VMTranslationMap64Bit::Protect(addr_t start, addr_t end, uint32 attributes,
 		newProtectionFlags = X86_64_PTE_USER;
 		if ((attributes & B_WRITE_AREA) != 0)
 			newProtectionFlags |= X86_64_PTE_WRITABLE;
+		if ((attributes & B_EXECUTE_AREA) == 0
+			&& x86_check_feature(IA32_FEATURE_AMD_EXT_NX, FEATURE_EXT_AMD)) {
+			newProtectionFlags |= X86_64_PTE_NOT_EXECUTABLE;
+		}
 	} else if ((attributes & B_KERNEL_WRITE_AREA) != 0)
 		newProtectionFlags = X86_64_PTE_WRITABLE;
 

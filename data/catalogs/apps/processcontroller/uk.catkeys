@@ -1,14 +1,15 @@
-1	ukrainian	x-vnd.Haiku-ProcessController	2887520383
+1	ukrainian	x-vnd.Haiku-ProcessController	1761882987
 Memory usage	ProcessController		Використання пам'яті
-Do you really want to kill the team \"%s\"?	ProcessController		Ви дійсно бажаєте вбити потік \"%s\"?
+Kill this team!	ProcessController		Вбити цей поток!
 Idle priority	ProcessController		Idle priority
 Restart Deskbar	ProcessController		Перезапустити Deskbar
 Custom priority	ProcessController		Заданий приорітет
-Debug thread	ProcessController		Нитка відладки
 This team is already gone…	ProcessController		Потік повністю запущений…
 Error saving file	ProcessController		Помилка при збереженні файлу
 Real-time priority	ProcessController		Приорітет реального часу
+Power saving	ProcessController		Режим енергозбереження
 Your setting file could not be saved!\n(%s)	ProcessController		Файл настройки не був збережений!\n(%s)
+What do you want to do with the team \"%s\"?	ProcessController		Що Ви бажаєте зробити з потоком \"%s\"?
 This thread is already gone…	ProcessController		Ці нитки повністю запущені…
 Cancel	ProcessController		Відмінити
 Display priority	ProcessController		Приорітет відображення
@@ -36,13 +37,14 @@ Quit an application	ProcessController		Вийти з додатка
 Install in Deskbar	ProcessController		Встановити у Deskbar
 Threads and CPU usage	ProcessController		Нитки і використання проц.
 Urgent display priority	ProcessController		Терміновий приорітет відображення
+Low latency	ProcessController		Низька затримка
 OK	ProcessController		Гаразд
 Damned!	ProcessController		Жахливо!
+Debug this team!	ProcessController		Відладнати цей поток!
 Usage: %s [-deskbar]\n	ProcessController		Використання: %s [-deskbar]\n
 ProcessController	System name		ProcessController
 Real-time display priority	ProcessController		Приорітет реального часу
 Please confirm	ProcessController		Повторіть
-Yes, kill this team!	ProcessController		Так , вбити цей потік!
 System resources & caches…	ProcessController		Системні ресурси і кеші…
 That's no Fun!	ProcessController		Це не жарт!
 You can run ProcessController in a window or install it in the Deskbar.	ProcessController		Ви можете запустити ProcessController у вікні або встановити в Deskbar.

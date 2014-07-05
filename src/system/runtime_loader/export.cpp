@@ -8,6 +8,7 @@
 
 
 #include "runtime_loader_private.h"
+#include "elf_tls.h"
 
 
 // exported via the rld_export structure in user space program arguments
@@ -53,16 +54,40 @@ struct rld_export gRuntimeLoader = {
 	get_nth_symbol,
 	get_nearest_symbol_at_address,
 	test_executable,
+	get_executable_architecture,
 	get_next_image_dependency,
+	get_tls_address,
+	destroy_thread_tls,
 
 	elf_reinit_after_fork,
 	NULL, // call_atexit_hooks_for_range
-	terminate_program
+	terminate_program,
+
+	// the following values will be set later
+	NULL,	// program_args
+	NULL,	// commpage_address
+	0		// ABI version
 };
+
+rld_export* __gRuntimeLoader = &gRuntimeLoader;
 
 
 void
 rldexport_init(void)
 {
 	gRuntimeLoader.program_args = gProgramArgs;
+	gRuntimeLoader.commpage_address = __gCommPageAddress;
+}
+
+
+/*!	Is called for all images, and sets the minimum ABI version found to the
+	gRuntimeLoader.abi_version field.
+*/
+void
+set_abi_version(int abi_version)
+{
+	if (gRuntimeLoader.abi_version == 0
+		|| gRuntimeLoader.abi_version > abi_version) {
+		gRuntimeLoader.abi_version = abi_version;
+	}
 }

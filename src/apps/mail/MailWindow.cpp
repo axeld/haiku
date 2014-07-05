@@ -342,16 +342,19 @@ TMailWindow::TMailWindow(BRect rect, const char* title, TMailApp* app,
 		new BMessage(M_FIND_AGAIN), 'G'));
 	if (!fIncoming) {
 		menu->AddSeparatorItem();
-		menu->AddItem(fQuote =new BMenuItem(B_TRANSLATE("Quote"),
-			new BMessage(M_QUOTE), B_RIGHT_ARROW));
-		menu->AddItem(fRemoveQuote = new BMenuItem(B_TRANSLATE("Remove quote"),
-			new BMessage(M_REMOVE_QUOTE), B_LEFT_ARROW));
+		fQuote = new BMenuItem(B_TRANSLATE("Quote"),
+			new BMessage(M_QUOTE), '\'');
+		menu->AddItem(fQuote);
+		fRemoveQuote = new BMenuItem(B_TRANSLATE("Remove quote"),
+			new BMessage(M_REMOVE_QUOTE), '\'', B_SHIFT_KEY);
+		menu->AddItem(fRemoveQuote);
+
 		menu->AddSeparatorItem();
 		fSpelling = new BMenuItem(B_TRANSLATE("Check spelling"),
 			new BMessage(M_CHECK_SPELLING), ';');
 		menu->AddItem(fSpelling);
 		if (fApp->StartWithSpellCheckOn())
-			PostMessage (M_CHECK_SPELLING);
+			PostMessage(M_CHECK_SPELLING);
 	}
 	menu->AddSeparatorItem();
 	menu->AddItem(item = new BMenuItem(
@@ -2396,7 +2399,7 @@ TMailWindow::Send(bool now)
 
 			char versionString[255];
 			sprintf(versionString,
-				"Mail/Haiku %ld.%ld.%ld",
+				"Mail/Haiku %" B_PRIu32 ".%" B_PRIu32 ".%" B_PRIu32,
 				info.major, info.middle, info.minor);
 			fMail->SetHeaderField("X-Mailer", versionString);
 		}
@@ -2578,7 +2581,7 @@ TMailWindow::SaveAsDraft()
 					if (status == B_OK)
 						break;
 					char appendix[B_FILE_NAME_LENGTH];
-					sprintf(appendix, " %ld", i++);
+					sprintf(appendix, " %" B_PRId32, i++);
 					int32 pos = min_c(sizeof(fileName) - strlen(appendix),
 						originalLength);
 					sprintf(fileName + pos, "%s", appendix);
@@ -2693,7 +2696,7 @@ TMailWindow::TrainMessageAs(const char *CommandWord)
 				BPath path;
 				entry_ref ref;
 				directory_which places[]
-					= {B_COMMON_BIN_DIRECTORY, B_BEOS_BIN_DIRECTORY};
+					= {B_SYSTEM_NONPACKAGED_BIN_DIRECTORY, B_SYSTEM_BIN_DIRECTORY};
 				for (int32 i = 0; i < 2; i++) {
 					find_directory(places[i],&path);
 					path.Append("spamdbm");
@@ -2746,8 +2749,8 @@ TMailWindow::TrainMessageAs(const char *CommandWord)
 ErrorExit:
 	beep();
 	sprintf(errorString, "Unable to train the message file \"%s\" as %s.  "
-		"Possibly useful error code: %s (%ld).",
-		filePath.Path(), CommandWord, strerror (errorCode), errorCode);
+		"Possibly useful error code: %s (%" B_PRId32 ").",
+		filePath.Path(), CommandWord, strerror(errorCode), errorCode);
 	BAlert* alert = new BAlert("", errorString,	B_TRANSLATE("OK"));
 	alert->SetFlags(alert->Flags() | B_CLOSE_ON_ESCAPE);
 	alert->Go();
@@ -2921,7 +2924,7 @@ TMailWindow::OpenMessage(const entry_ref *ref, uint32 characterSetForDecoding)
 		//	Put the addresses in the 'Save Address' Menu
 		//
 		BMenuItem *item;
-		while ((item = fSaveAddrMenu->RemoveItem(0L)) != NULL)
+		while ((item = fSaveAddrMenu->RemoveItem((int32)0)) != NULL)
 			delete item;
 
 		// create the list of addresses
@@ -2935,7 +2938,7 @@ TMailWindow::OpenMessage(const entry_ref *ref, uint32 characterSetForDecoding)
 		BMessage *msg;
 
 		for (int32 i = addressList.CountItems(); i-- > 0;) {
-			char *address = (char *)addressList.RemoveItem(0L);
+			char *address = (char *)addressList.RemoveItem((int32)0);
 
 			// insert the new address in alphabetical order
 			int32 index = 0;

@@ -302,13 +302,13 @@ FUNCTION(x86_64_syscall_entry):
 	movq	%gs:ARCH_THREAD_syscall_rsp, %rsp
 
 	// Set up an iframe on the stack (R11 = saved RFLAGS, RCX = saved RIP).
-	push	$USER_DATA_SEG				// ss
+	push	$USER_DATA_SELECTOR			// ss
 	push	%gs:ARCH_THREAD_user_rsp	// rsp
 	push	%r11						// flags
-	push	$USER_CODE_SEG				// cs
+	push	$USER_CODE_SELECTOR			// cs
 	push	%rcx						// ip
 	push	$0							// error_code
-	push	$0							// vector
+	push	$99							// vector
 	PUSH_IFRAME_BOTTOM(IFRAME_TYPE_SYSCALL)
 
 	cld

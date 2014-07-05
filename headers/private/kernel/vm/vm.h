@@ -121,6 +121,8 @@ status_t vm_delete_area(team_id teamID, area_id areaID, bool kernel);
 status_t vm_create_vnode_cache(struct vnode *vnode, struct VMCache **_cache);
 status_t vm_set_area_memory_type(area_id id, phys_addr_t physicalBase,
 			uint32 type);
+status_t vm_set_area_protection(team_id team, area_id areaID,
+			uint32 newProtection, bool kernel);
 status_t vm_get_page_mapping(team_id team, addr_t vaddr, phys_addr_t *paddr);
 bool vm_test_map_modification(struct vm_page *page);
 void vm_clear_map_flags(struct vm_page *page, uint32 flags);
@@ -140,14 +142,14 @@ status_t vm_get_physical_page_debug(phys_addr_t paddr, addr_t* vaddr,
 			void** _handle);
 status_t vm_put_physical_page_debug(addr_t vaddr, void* handle);
 
-void vm_get_info(struct system_memory_info *info);
+void vm_get_info(system_info *info);
 uint32 vm_num_page_faults(void);
 off_t vm_available_memory(void);
 off_t vm_available_not_needed_memory(void);
 off_t vm_available_not_needed_memory_debug(void);
 size_t vm_kernel_address_space_left(void);
 
-status_t vm_memset_physical(phys_addr_t address, int value, size_t length);
+status_t vm_memset_physical(phys_addr_t address, int value, phys_size_t length);
 status_t vm_memcpy_from_physical(void* to, phys_addr_t from, size_t length,
 			bool user);
 status_t vm_memcpy_to_physical(phys_addr_t to, const void* from, size_t length,

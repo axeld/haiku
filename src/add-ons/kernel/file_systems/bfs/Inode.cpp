@@ -1,5 +1,5 @@
 /*
- * Copyright 2001-2012, Axel Dörfler, axeld@pinc-software.de.
+ * Copyright 2001-2013, Axel Dörfler, axeld@pinc-software.de.
  * This file may be used under the terms of the MIT License.
  */
 
@@ -206,7 +206,8 @@ InodeAllocator::New(block_run* parentRun, mode_t mode, block_run& run,
 	}
 
 	run = fRun;
-	fInode = new Inode(volume, *fTransaction, volume->ToVnode(run), mode, run);
+	fInode = new(std::nothrow) Inode(volume, *fTransaction,
+		volume->ToVnode(run), mode, run);
 	if (fInode == NULL)
 		RETURN_ERROR(B_NO_MEMORY);
 
@@ -235,9 +236,17 @@ InodeAllocator::CreateTree()
 	if ((fInode->Mode() & S_INDEX_TYPES) == 0)
 		fInode->Node().mode |= HOST_ENDIAN_TO_BFS_INT32(S_STR_INDEX);
 
-	BPlusTree* tree = fInode->fTree = new BPlusTree(*fTransaction, fInode);
-	if (tree == NULL || tree->InitCheck() < B_OK)
+	BPlusTree* tree = new(std::nothrow) BPlusTree(*fTransaction, fInode);
+	if (tree == NULL)
 		return B_ERROR;
+
+	status_t status = tree->InitCheck();
+	if (status != B_OK) {
+		delete tree;
+		return status;
+	}
+
+	fInode->fTree = tree;
 
 	if (fInode->IsRegularNode()) {
 		if (tree->Insert(*fTransaction, ".", fInode->ID()) < B_OK
@@ -347,7 +356,7 @@ Inode::Inode(Volume* volume, ino_t id)
 	fOldLastModified = LastModified();
 
 	if (IsContainer())
-		fTree = new BPlusTree(this);
+		fTree = new(std::nothrow) BPlusTree(this);
 	if (NeedsFileCache()) {
 		SetFileCache(file_cache_create(fVolume->ID(), ID(), Size()));
 		SetMap(file_map_create(volume->ID(), ID(), Size()));
@@ -2881,7 +2890,7 @@ AttributeIterator::GetNext(char* name, size_t* _length, uint32* _type,
 
 		BPlusTree* tree = fAttributes->Tree();
 		if (tree == NULL
-			|| (fIterator = new TreeIterator(tree)) == NULL) {
+			|| (fIterator = new(std::nothrow) TreeIterator(tree)) == NULL) {
 			FATAL(("could not get tree in AttributeIterator::GetNext(ino_t"
 				" = %" B_PRIdINO ",name = \"%s\")\n", fInode->ID(), name));
 			return B_ENTRY_NOT_FOUND;
@@ -2892,7 +2901,7 @@ AttributeIterator::GetNext(char* name, size_t* _length, uint32* _type,
 	ino_t id;
 	status_t status = fIterator->GetNextEntry(name, &length,
 		B_FILE_NAME_LENGTH, &id);
-	if (status < B_OK)
+	if (status != B_OK)
 		return status;
 
 	Vnode vnode(volume, id);

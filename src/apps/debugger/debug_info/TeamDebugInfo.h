@@ -1,5 +1,6 @@
 /*
  * Copyright 2009, Ingo Weinhold, ingo_weinhold@gmx.de.
+ * Copyright 2014, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 #ifndef TEAM_DEBUG_INFO_H
@@ -26,6 +27,7 @@ class Function;
 class FunctionID;
 class FunctionInstance;
 class ImageDebugInfo;
+class ImageDebugInfoLoadingState;
 class ImageInfo;
 class LocatableFile;
 class SourceCode;
@@ -54,6 +56,7 @@ public:
 
 			status_t			LoadImageDebugInfo(const ImageInfo& imageInfo,
 									LocatableFile* imageFile,
+									ImageDebugInfoLoadingState& state,
 									ImageDebugInfo*& _imageDebugInfo);
 
 			status_t			LoadSourceCode(LocatableFile* file,
@@ -63,6 +66,8 @@ public:
 									FunctionInstance* functionInstance,
 									DisassembledCode*& _sourceCode);
 										// returns reference
+			FunctionInstance*	MainFunction() const
+									{ return fMainFunction; }
 
 			// team is locked
 			status_t			AddImageDebugInfo(
@@ -99,6 +104,7 @@ private:
 			FunctionTable*		fFunctions;
 			SourceFileTable*	fSourceFiles;
 			GlobalTypeCache*	fTypeCache;
+			FunctionInstance*	fMainFunction;
 };
 
 

@@ -96,6 +96,9 @@ private:
 									addr_t* _textAddress, size_t* _textSize,
 									addr_t* _dataAddress, size_t* _dataSize);
 
+			status_t			_FindTableInSection(elf_ehdr* elfHeader,
+									uint16 sectionType);
+
 private:
 			int					fFD;
 			off_t				fFileSize;
@@ -107,6 +110,15 @@ class KernelImage : public SymbolTableBasedImage {
 public:
 								KernelImage();
 	virtual						~KernelImage();
+
+			status_t			Init(const image_info& info);
+};
+
+
+class CommPageImage : public SymbolTableBasedImage {
+public:
+								CommPageImage();
+	virtual						~CommPageImage();
 
 			status_t			Init(const image_info& info);
 };

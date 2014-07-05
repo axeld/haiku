@@ -16,6 +16,7 @@
 #include <BufferProducer.h>
 #include <MediaNode.h>
 #include <RealtimeAlloc.h>
+#include <StackOrHeapArray.h>
 #include <StopWatch.h>
 #include <TimeSource.h>
 
@@ -492,7 +493,7 @@ MixerCore::_MixThread()
 
 	if (!LockFromMixThread())
 		return;
-	bigtime_t latency = max(3600LL, bigtime_t(0.4 * buffer_duration(
+	bigtime_t latency = max((bigtime_t)3600, bigtime_t(0.4 * buffer_duration(
 		fOutput->MediaOutput().format.u.raw_audio)));
 
 	// TODO: when the format changes while running, everything is wrong!
@@ -520,8 +521,9 @@ MixerCore::_MixThread()
 	uint64 bufferIndex = 0;
 #endif
 
-	RtList<chan_info> inputChanInfos[MAX_CHANNEL_TYPES];
-	RtList<chan_info> mixChanInfos[fMixBufferChannelCount];
+	typedef RtList<chan_info> chan_info_list;
+	chan_info_list inputChanInfos[MAX_CHANNEL_TYPES];
+	BStackOrHeapArray<chan_info_list, 16> mixChanInfos(fMixBufferChannelCount);
 		// TODO: this does not support changing output channel count
 
 	bigtime_t eventTime = timeBase;

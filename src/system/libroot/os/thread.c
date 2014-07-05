@@ -11,6 +11,7 @@
 
 #include <libroot_private.h>
 #include <pthread_private.h>
+#include <runtime_loader.h>
 #include <thread_defs.h>
 #include <tls.h>
 #include <syscalls.h>
@@ -70,7 +71,26 @@ _thread_do_exit_work(void)
 
 	tls_set(TLS_ON_EXIT_THREAD_SLOT, NULL);
 
+	__gRuntimeLoader->destroy_thread_tls();
+
 	__pthread_destroy_thread();
+}
+
+
+void
+__set_stack_protection(void)
+{
+	if (__gABIVersion < B_HAIKU_ABI_GCC_2_HAIKU) {
+		area_info info;
+		ssize_t cookie = 0;
+
+		while (get_next_area_info(B_CURRENT_TEAM, &cookie, &info) == B_OK) {
+			if ((info.protection & B_STACK_AREA) != 0) {
+				_kern_set_area_protection(info.area,
+					B_READ_AREA | B_WRITE_AREA | B_EXECUTE_AREA | B_STACK_AREA);
+			}
+		}
+	}
 }
 
 
@@ -93,14 +113,18 @@ spawn_thread(thread_func entry, const char *name, int32 priority, void *data)
 
 	__pthread_init_creation_attributes(NULL, thread, &thread_entry, entry,
 		thread, name, &attributes);
+	thread->flags |= THREAD_DETACHED;
 
 	attributes.priority = priority;
 
 	id = _kern_spawn_thread(&attributes);
 	if (id < 0)
 		free(thread);
-	else
+	else {
 		thread->id = id;
+		__set_stack_protection();
+	}
+
 	return id;
 }
 
@@ -236,4 +260,3 @@ snooze_until(bigtime_t timeout, int timeBase)
 {
 	return _kern_snooze_etc(timeout, timeBase, B_ABSOLUTE_TIMEOUT, NULL);
 }
-

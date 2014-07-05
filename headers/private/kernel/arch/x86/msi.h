@@ -24,10 +24,10 @@
 #define MSI_DELIVERY_MODE_EXT_INT		0x00000700
 
 
-void		msi_init();
 bool		msi_supported();
 status_t	msi_allocate_vectors(uint8 count, uint8 *startVector,
 				uint64 *address, uint16 *data);
 void		msi_free_vectors(uint8 count, uint8 startVector);
+void		msi_assign_interrupt_to_cpu(uint8 irq, int32 cpu);
 
 #endif // _KERNEL_ARCH_x86_MSI_H

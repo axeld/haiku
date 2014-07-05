@@ -134,6 +134,8 @@ static const char* const PREF_ROWS = "Rows";
 static const char* const PREF_TEXT_ENCODING = "Text encoding";
 
 static const char* const PREF_BLINK_CURSOR = "Blinking cursor";
+static const char* const PREF_BRIGHT_INSTEAD_OF_BOLD =
+	"Bright instead of bold text";
 static const char* const PREF_WARN_ON_EXIT = "Warn on exit";
 static const char* const PREF_CURSOR_STYLE = "Cursor style";
 static const char* const PREF_EMULATE_BOLD = "Emulate bold";
@@ -144,6 +146,10 @@ static const char* const PREF_WINDOW_TITLE = "Window title";
 // shared strings
 extern const char* const kTooTipSetTabTitlePlaceholders;
 extern const char* const kTooTipSetWindowTitlePlaceholders;
+
+extern const char* const kShellEscapeCharacters;
+extern const char* const kDefaultAdditionalWordCharacters;
+extern const char* const kURLAdditionalWordCharacters;
 
 
 // Cursor style
@@ -159,8 +165,10 @@ enum {
 static const int32 DEFAULT = -1;
 
 // Font Width
-static const int  HALF_WIDTH = 1;
-static const int  FULL_WIDTH = 2;
+enum {
+	HALF_WIDTH = 1,
+	FULL_WIDTH = 2
+};
 
 #define M_UTF8 -1
 

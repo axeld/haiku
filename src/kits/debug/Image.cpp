@@ -305,9 +305,6 @@ ImageFile::_LoadFile(const char* path, addr_t* _textAddress, size_t* _textSize,
 		return B_NOT_AN_EXECUTABLE;
 	}
 
-	elf_shdr* sectionHeaders
-		= (elf_shdr*)(fMappedFile + elfHeader->e_shoff);
-
 	// find the text and data segment -- we need load address and size
 	*_textAddress = 0;
 	*_textSize = 0;
@@ -328,12 +325,26 @@ ImageFile::_LoadFile(const char* path, addr_t* _textAddress, size_t* _textSize,
 		}
 	}
 
+	status_t error = _FindTableInSection(elfHeader, SHT_SYMTAB);
+	if (error != B_OK)
+		error = _FindTableInSection(elfHeader, SHT_DYNSYM);
+
+	return error;
+}
+
+
+status_t
+ImageFile::_FindTableInSection(elf_ehdr* elfHeader, uint16 sectionType)
+{
+	elf_shdr* sectionHeaders
+		= (elf_shdr*)(fMappedFile + elfHeader->e_shoff);
+
 	// find the symbol table
 	for (int32 i = 0; i < elfHeader->e_shnum; i++) {
 		elf_shdr* sectionHeader = (elf_shdr*)
 			((uint8*)sectionHeaders + i * elfHeader->e_shentsize);
 
-		if (sectionHeader->sh_type == SHT_SYMTAB) {
+		if (sectionHeader->sh_type == sectionType) {
 			elf_shdr& stringHeader = *(elf_shdr*)
 				((uint8*)sectionHeaders
 					+ sectionHeader->sh_link * elfHeader->e_shentsize);
@@ -399,4 +410,66 @@ KernelImage::Init(const image_info& info)
 	return _kern_read_kernel_image_symbols(fInfo.id,
 		fSymbolTable, &fSymbolCount, fStringTable, &fStringTableSize,
 		&fLoadDelta);
+}
+
+
+CommPageImage::CommPageImage()
+{
+}
+
+
+CommPageImage::~CommPageImage()
+{
+	delete[] fSymbolTable;
+	delete[] fStringTable;
+}
+
+
+status_t
+CommPageImage::Init(const image_info& info)
+{
+	// find kernel image for commpage
+	image_id commPageID = -1;
+	image_info commPageInfo;
+
+	int32 cookie = 0;
+	while (_kern_get_next_image_info(B_SYSTEM_TEAM, &cookie, &commPageInfo,
+			sizeof(image_info)) == B_OK) {
+		if (!strcmp("commpage", commPageInfo.name)) {
+			commPageID = commPageInfo.id;
+			break;
+		}
+	}
+	if (commPageID < 0)
+		return B_ENTRY_NOT_FOUND;
+
+	fInfo = commPageInfo;
+	fInfo.text = info.text;
+
+	// get the table sizes
+	fSymbolCount = 0;
+	fStringTableSize = 0;
+	status_t error = _kern_read_kernel_image_symbols(commPageID, NULL,
+		&fSymbolCount, NULL, &fStringTableSize, NULL);
+	if (error != B_OK)
+		return error;
+
+	// allocate the tables
+	fSymbolTable = new(std::nothrow) elf_sym[fSymbolCount];
+	fStringTable = new(std::nothrow) char[fStringTableSize];
+	if (fSymbolTable == NULL || fStringTable == NULL)
+		return B_NO_MEMORY;
+
+	// get the info
+	error = _kern_read_kernel_image_symbols(commPageID,
+		fSymbolTable, &fSymbolCount, fStringTable, &fStringTableSize, NULL);
+	if (error != B_OK) {
+		delete[] fSymbolTable;
+		delete[] fStringTable;
+		return error;
+	}
+
+	fLoadDelta = (addr_t)info.text;
+
+	return B_OK;
 }

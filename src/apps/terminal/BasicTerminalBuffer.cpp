@@ -18,6 +18,7 @@
 
 #include <algorithm>
 
+#include <StackOrHeapArray.h>
 #include <String.h>
 
 #include "TermConst.h"
@@ -429,54 +430,66 @@ BasicTerminalBuffer::FindWord(const TermPos& pos,
 
 	// find the beginning
 	TermPos start(x, y);
-	TermPos end(x + (IS_WIDTH(line->cells[x].attributes) ? 2 : 1), y);
-	while (true) {
-		if (--x < 0) {
-			// Hit the beginning of the line -- continue at the end of the
-			// previous line, if it soft-breaks.
-			y--;
-			if ((line = _HistoryLineAt(y, lineBuffer)) == NULL
-					|| !line->softBreak || line->length == 0) {
-				break;
-			}
-			x = line->length - 1;
-		}
-		if (x > 0 && IS_WIDTH(line->cells[x - 1].attributes))
-			x--;
-
-		if (classifier->Classify(line->cells[x].character) != type)
+	TermPos end(x + (IS_WIDTH(line->cells[x].attributes)
+				? FULL_WIDTH : HALF_WIDTH), y);
+	for (;;) {
+		TermPos previousPos = start;
+		if (!_PreviousLinePos(lineBuffer, line, previousPos)
+			|| classifier->Classify(line->cells[previousPos.x].character)
+				!= type) {
 			break;
+		}
 
-		start.SetTo(x, y);
+		start = previousPos;
 	}
 
 	// find the end
-	x = end.x;
-	y = end.y;
-	line = _HistoryLineAt(y, lineBuffer);
+	line = _HistoryLineAt(end.y, lineBuffer);
 
-	while (true) {
-		if (x >= line->length) {
-			// Hit the end of the line -- if it soft-breaks continue with the
-			// next line.
-			if (!line->softBreak)
-				break;
-			y++;
-			x = 0;
-			if ((line = _HistoryLineAt(y, lineBuffer)) == NULL)
-				break;
-		}
-
-		if (classifier->Classify(line->cells[x].character) != type)
+	for (;;) {
+		TermPos nextPos = end;
+		if (!_NormalizeLinePos(lineBuffer, line, nextPos))
 			break;
 
-		x += IS_WIDTH(line->cells[x].attributes) ? 2 : 1;
-		end.SetTo(x, y);
+		if (classifier->Classify(line->cells[nextPos.x].character) != type)
+			break;
+
+		nextPos.x += IS_WIDTH(line->cells[nextPos.x].attributes)
+			? FULL_WIDTH : HALF_WIDTH;
+		end = nextPos;
 	}
 
 	_start = start;
 	_end = end;
 	return true;
+}
+
+
+bool
+BasicTerminalBuffer::PreviousLinePos(TermPos& pos) const
+{
+	TerminalLine* lineBuffer = ALLOC_LINE_ON_STACK(fWidth);
+	TerminalLine* line = _HistoryLineAt(pos.y, lineBuffer);
+	if (line == NULL || pos.x < 0 || pos.x >= fWidth)
+		return false;
+
+	return _PreviousLinePos(lineBuffer, line, pos);
+}
+
+
+bool
+BasicTerminalBuffer::NextLinePos(TermPos& pos, bool normalize) const
+{
+	TerminalLine* lineBuffer = ALLOC_LINE_ON_STACK(fWidth);
+	TerminalLine* line = _HistoryLineAt(pos.y, lineBuffer);
+	if (line == NULL || pos.x < 0 || pos.x > fWidth)
+		return false;
+
+	if (!_NormalizeLinePos(lineBuffer, line, pos))
+		return false;
+
+	pos.x += IS_WIDTH(line->cells[pos.x].attributes) ? FULL_WIDTH : HALF_WIDTH;
+	return !normalize || _NormalizeLinePos(lineBuffer, line, pos);
 }
 
 
@@ -525,7 +538,7 @@ BasicTerminalBuffer::Find(const char* _pattern, const TermPos& start,
 	int32 patternByteLen = strlen(_pattern);
 
 	// convert pattern to UTF8Char array
-	UTF8Char pattern[patternByteLen];
+	BStackOrHeapArray<UTF8Char, 64> pattern(patternByteLen);
 	int32 patternLen = 0;
 	while (*_pattern != '\0') {
 		int32 charLen = UTF8Char::ByteCount(*_pattern);
@@ -606,14 +619,13 @@ BasicTerminalBuffer::Find(const char* _pattern, const TermPos& start,
 
 
 void
-BasicTerminalBuffer::InsertChar(UTF8Char c, uint32 width)
+BasicTerminalBuffer::InsertChar(UTF8Char c)
 {
 //debug_printf("BasicTerminalBuffer::InsertChar('%.*s' (%d), %#lx)\n",
 //(int)c.ByteCount(), c.bytes, c.bytes[0], attributes);
-	if ((int32)width == FULL_WIDTH)
-		fAttributes |= A_WIDTH;
+	int32 width = c.IsFullWidth() ? FULL_WIDTH : HALF_WIDTH;
 
-	if (fSoftWrappedCursor || fCursor.x + (int32)width > fWidth)
+	if (fSoftWrappedCursor || (fCursor.x + width) > fWidth)
 		_SoftBreakLine();
 	else
 		_PadLineToCursor();
@@ -625,7 +637,8 @@ BasicTerminalBuffer::InsertChar(UTF8Char c, uint32 width)
 
 	TerminalLine* line = _LineAt(fCursor.y);
 	line->cells[fCursor.x].character = c;
-	line->cells[fCursor.x].attributes = fAttributes;
+	line->cells[fCursor.x].attributes
+		= fAttributes | (width == FULL_WIDTH ? A_WIDTH : 0);
 
 	if (line->length < fCursor.x + width)
 		line->length = fCursor.x + width;
@@ -645,10 +658,13 @@ BasicTerminalBuffer::InsertChar(UTF8Char c, uint32 width)
 
 
 void
-BasicTerminalBuffer::FillScreen(UTF8Char c, uint32 width, uint32 attributes)
+BasicTerminalBuffer::FillScreen(UTF8Char c, uint32 attributes)
 {
-	if ((int32)width == FULL_WIDTH)
+	uint32 width = HALF_WIDTH;
+	if (c.IsFullWidth()) {
 		attributes |= A_WIDTH;
+		width = FULL_WIDTH;
+	}
 
 	fSoftWrappedCursor = false;
 
@@ -1688,6 +1704,46 @@ BasicTerminalBuffer::_NextChar(TermPos& pos, UTF8Char& c) const
 }
 
 
+bool
+BasicTerminalBuffer::_PreviousLinePos(TerminalLine* lineBuffer,
+	TerminalLine*& line, TermPos& pos) const
+{
+	if (--pos.x < 0) {
+		// Hit the beginning of the line -- continue at the end of the
+		// previous line, if it soft-breaks.
+		pos.y--;
+		if ((line = _HistoryLineAt(pos.y, lineBuffer)) == NULL
+				|| !line->softBreak || line->length == 0) {
+			return false;
+		}
+		pos.x = line->length - 1;
+	}
+	if (pos.x > 0 && IS_WIDTH(line->cells[pos.x - 1].attributes))
+		pos.x--;
+
+	return true;
+}
+
+
+bool
+BasicTerminalBuffer::_NormalizeLinePos(TerminalLine* lineBuffer,
+	TerminalLine*& line, TermPos& pos) const
+{
+	if (pos.x < line->length)
+		return true;
+
+	// Hit the end of the line -- if it soft-breaks continue with the
+	// next line.
+	if (!line->softBreak)
+		return false;
+
+	pos.y++;
+	pos.x = 0;
+	line = _HistoryLineAt(pos.y, lineBuffer);
+	return line != NULL;
+}
+
+
 #ifdef USE_DEBUG_SNAPSHOTS
 
 void
@@ -1724,7 +1780,9 @@ BasicTerminalBuffer::MakeLinesSnapshots(time_t timeStamp, const char* fileName)
 			fprintf(fileOut, "%02" B_PRId16 ":%02" B_PRId16 ":%08" B_PRIx32 ":\n",
 					i, line->length, line->attributes);
 			for (int j = 0; j < line->length; j++)
-				fprintf(fileOut, "%c", line->cells[j].character.bytes[0]);
+				if (line->cells[j].character.bytes[0] != 0)
+					fwrite(line->cells[j].character.bytes, 1,
+						line->cells[j].character.ByteCount(), fileOut);
 
 			fprintf(fileOut, "\n");
 			for (int s = 28; s >= 0; s -= 4) {
@@ -1762,7 +1820,8 @@ BasicTerminalBuffer::StartStopDebugCapture()
 	struct tm* ts = gmtime(&timeStamp);
 	str << ts->tm_hour << ts->tm_min << ts->tm_sec;
 	str << ".Capture.log";
-	fCaptureFile = open(str.String(), O_CREAT | O_WRONLY);
+	fCaptureFile = open(str.String(), O_CREAT | O_WRONLY,
+			S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 }
 
 

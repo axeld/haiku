@@ -490,10 +490,10 @@ VMAnonymousCache::Resize(off_t newSize, int priority)
 {
 	// If the cache size shrinks, drop all swap pages beyond the new size.
 	if (fAllocatedSwapSize > 0) {
-		page_num_t oldPageCount = (virtual_end + B_PAGE_SIZE - 1) >> PAGE_SHIFT;
+		off_t oldPageCount = (virtual_end + B_PAGE_SIZE - 1) >> PAGE_SHIFT;
 		swap_block* swapBlock = NULL;
 
-		for (page_num_t pageIndex = (newSize + B_PAGE_SIZE - 1) >> PAGE_SHIFT;
+		for (off_t pageIndex = (newSize + B_PAGE_SIZE - 1) >> PAGE_SHIFT;
 			pageIndex < oldPageCount && fAllocatedSwapSize > 0; pageIndex++) {
 
 			WriteLocker locker(sSwapHashLock);
@@ -579,7 +579,7 @@ VMAnonymousCache::HasPage(off_t offset)
 bool
 VMAnonymousCache::DebugHasPage(off_t offset)
 {
-	page_num_t pageIndex = offset >> PAGE_SHIFT;
+	off_t pageIndex = offset >> PAGE_SHIFT;
 	swap_hash_key key = { this, pageIndex };
 	swap_block* swap = sSwapHashTable.Lookup(key);
 	if (swap == NULL)
@@ -1093,7 +1093,7 @@ VMAnonymousCache::_MergeSwapPages(VMAnonymousCache* source)
 
 		WriteLocker locker(sSwapHashLock);
 
-		page_num_t swapBlockPageIndex = offset >> PAGE_SHIFT;
+		off_t swapBlockPageIndex = offset >> PAGE_SHIFT;
 		swap_hash_key key = { source, swapBlockPageIndex };
 		swap_block* sourceSwapBlock = sSwapHashTable.Lookup(key);
 
@@ -1484,11 +1484,11 @@ swap_init_post_modules()
 					// User specified a size / volume that seems valid
 					swapAutomatic = false;
 					swapSize = atoll(size);
-					strncpy(selectedVolume.name, volume,
+					strlcpy(selectedVolume.name, volume,
 						sizeof(selectedVolume.name));
-					strncpy(selectedVolume.device, device,
+					strlcpy(selectedVolume.device, device,
 						sizeof(selectedVolume.device));
-					strncpy(selectedVolume.filesystem, filesystem,
+					strlcpy(selectedVolume.filesystem, filesystem,
 						sizeof(selectedVolume.filesystem));
 					selectedVolume.capacity = atoll(capacity);
 				} else {
@@ -1498,8 +1498,8 @@ swap_init_post_modules()
 						"using automatic swap\n", __func__);
 				}
 			}
-			unload_driver_settings(settings);
 		}
+		unload_driver_settings(settings);
 	}
 
 	if (swapAutomatic) {
@@ -1566,8 +1566,8 @@ swap_init_post_modules()
 	if (swapDeviceID == gBootDevice)
 		path = kDefaultSwapPath;
 	else {
-		vfs_entry_ref_to_path(info.dev, info.root,
-			".", path.LockBuffer(), path.BufferSize());
+		vfs_entry_ref_to_path(info.dev, info.root, ".", true, path.LockBuffer(),
+			path.BufferSize());
 		path.UnlockBuffer();
 		path.Append("swap");
 	}
@@ -1667,11 +1667,11 @@ swap_total_swap_pages()
 
 
 void
-swap_get_info(struct system_memory_info* info)
+swap_get_info(system_info* info)
 {
 #if ENABLE_SWAP_SUPPORT
-	info->max_swap_space = (uint64)swap_total_swap_pages() * B_PAGE_SIZE;
-	info->free_swap_space = (uint64)swap_available_pages() * B_PAGE_SIZE;
+	info->max_swap_pages = swap_total_swap_pages();
+	info->free_swap_pages = swap_available_pages();
 #else
 	info->max_swap_space = 0;
 	info->free_swap_space = 0;

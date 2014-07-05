@@ -1,13 +1,13 @@
 /*
- * Copyright 2006-2012, Haiku, Inc. All rights reserved.
+ * Copyright 2006-2013, Haiku, Inc. All rights reserved.
  * Copyright 1997, 1998 R3 Software Ltd. All Rights Reserved.
  * Distributed under the terms of the MIT License.
  *
  * Authors:
- *		Stephan Aßmus <superstippi@gmx.de>
- *		Philippe Saint-Pierre <stpere@gmail.com>
- *		John Scipione <jscipione@gmail.com>
- *		Timothy Wayper <timmy@wunderbear.com>
+ *		Stephan Aßmus, superstippi@gmx.de
+ *		Philippe Saint-Pierre, stpere@gmail.com
+ *		John Scipione, jscipione@gmail.com
+ *		Timothy Wayper, timmy@wunderbear.com
  */
 
 
@@ -45,8 +45,14 @@
 #include "CalcOptions.h"
 #include "ExpressionTextView.h"
 
+
 #undef B_TRANSLATION_CONTEXT
 #define B_TRANSLATION_CONTEXT "CalcView"
+
+
+static const int32 kMsgCalculating = 'calc';
+static const int32 kMsgAnimateDots = 'dots';
+static const int32 kMsgDoneEvaluating = 'done';
 
 //const uint8 K_COLOR_OFFSET				= 32;
 const float kFontScaleY						= 0.4f;
@@ -55,6 +61,8 @@ const float kExpressionFontScaleY			= 0.6f;
 const float kDisplayScaleY					= 0.2f;
 
 static const bigtime_t kFlashOnOffInterval	= 100000;
+static const bigtime_t kCalculatingInterval	= 1000000;
+static const bigtime_t kAnimationInterval	= 333333;
 
 static const float kMinimumWidthCompact		= 130.0f;
 static const float kMaximumWidthCompact		= 400.0f;
@@ -87,10 +95,12 @@ const char *kKeypadDescriptionScientific =
     "1     2     3     +     -    \n"
     "0     .     BS    =     C    \n";
 
+
 enum {
 	FLAGS_FLASH_KEY							= 1 << 0,
 	FLAGS_MOUSE_DOWN						= 1 << 1
 };
+
 
 struct CalcView::CalcKey {
 	char		label[8];
@@ -113,8 +123,7 @@ CalcView::Instantiate(BMessage* archive)
 
 CalcView::CalcView(BRect frame, rgb_color rgbBaseColor, BMessage* settings)
 	:
-	BView(frame, "DeskCalc", B_FOLLOW_ALL_SIDES,
-		B_WILL_DRAW | B_FULL_UPDATE_ON_RESIZE | B_FRAME_EVENTS),
+	BView(frame, "DeskCalc", B_FOLLOW_ALL_SIDES, B_WILL_DRAW | B_FRAME_EVENTS),
 	fColumns(5),
 	fRows(4),
 
@@ -136,7 +145,11 @@ CalcView::CalcView(BRect frame, rgb_color rgbBaseColor, BMessage* settings)
 	fPopUpMenu(NULL),
 	fAutoNumlockItem(NULL),
 	fAudioFeedbackItem(NULL),
-	fOptions(new CalcOptions())
+	fOptions(new CalcOptions()),
+	fEvaluateThread(-1),
+	fEvaluateMessageRunner(NULL),
+	fEvaluateSemaphore(B_BAD_SEM_ID),
+	fEnabled(true)
 {
 	// tell the app server not to erase our b/g
 	SetViewColor(B_TRANSPARENT_32_BIT);
@@ -169,7 +182,11 @@ CalcView::CalcView(BMessage* archive)
 	fPopUpMenu(NULL),
 	fAutoNumlockItem(NULL),
 	fAudioFeedbackItem(NULL),
-	fOptions(new CalcOptions())
+	fOptions(new CalcOptions()),
+	fEvaluateThread(-1),
+	fEvaluateMessageRunner(NULL),
+	fEvaluateSemaphore(B_BAD_SEM_ID),
+	fEnabled(true)
 {
 	// Do not restore the follow mode, in shelfs, we never follow.
 	SetResizingMode(B_FOLLOW_NONE);
@@ -183,10 +200,8 @@ CalcView::~CalcView()
 	delete fKeypad;
 	delete fOptions;
 	free(fKeypadDescription);
-
-	// replicant deleted, destroy the about window
-	if (fAboutWindow != NULL && fAboutWindow->Lock())
-		fAboutWindow->Quit();
+	delete fEvaluateMessageRunner;
+	delete_sem(fEvaluateSemaphore);
 }
 
 
@@ -270,32 +285,30 @@ CalcView::MessageReceived(BMessage* message)
 
 			// (replicant) about box requested
 			case B_ABOUT_REQUESTED:
-				if (fAboutWindow == NULL) {
-					// create the about window
-					const char* extraCopyrights[] = {
-						"1997, 1998 R3 Software Ltd.",
-						NULL
-					};
+			{
+				BAboutWindow* window = new BAboutWindow(kAppName, kSignature);
 
-					const char* authors[] = {
-						"Stephan Aßmus",
-						"John Scipione",
-						"Timothy Wayper",
-						"Ingo Weinhold",
-						NULL
-					};
+				// create the about window
+				const char* extraCopyrights[] = {
+					"1997, 1998 R3 Software Ltd.",
+					NULL
+				};
 
-					fAboutWindow = new BAboutWindow(kAppName, kSignature);
-					fAboutWindow->AddCopyright(2006, "Haiku, Inc.",
-						extraCopyrights);
-					fAboutWindow->AddAuthors(authors);
-					fAboutWindow->Show();
-				} else if (fAboutWindow->IsHidden())
-					fAboutWindow->Show();
-				else
-					fAboutWindow->Activate();
+				const char* authors[] = {
+					"Stephan Aßmus",
+					"John Scipione",
+					"Timothy Wayper",
+					"Ingo Weinhold",
+					NULL
+				};
+
+				window->AddCopyright(2006, "Haiku, Inc.", extraCopyrights);
+				window->AddAuthors(authors);
+
+				window->Show();
 
 				break;
+			}
 
 			case MSG_UNFLASH_KEY:
 			{
@@ -303,6 +316,80 @@ CalcView::MessageReceived(BMessage* message)
 				if (message->FindInt32("key", &key) == B_OK)
 					_FlashKey(key, 0);
 
+				break;
+			}
+
+			case kMsgAnimateDots:
+			{
+				int32 end = fExpressionTextView->TextLength();
+				int32 start = end - 3;
+				if (fEnabled || strcmp(fExpressionTextView->Text() + start, "...") != 0) {
+					// stop the message runner
+					delete fEvaluateMessageRunner;
+					fEvaluateMessageRunner = NULL;
+					break;
+				}
+
+				uint8 dot = 0;
+				if (message->FindUInt8("dot", &dot) == B_OK) {
+					rgb_color fontColor = fExpressionTextView->HighColor();
+					rgb_color backColor = fExpressionTextView->LowColor();
+					fExpressionTextView->SetStylable(true);
+					fExpressionTextView->SetFontAndColor(start, end, NULL, 0, &backColor);
+					fExpressionTextView->SetFontAndColor(start + dot - 1, start + dot, NULL,
+						0, &fontColor);
+					fExpressionTextView->SetStylable(false);
+				}
+
+				dot++;
+				if (dot == 4)
+					dot = 1;
+
+				delete fEvaluateMessageRunner;
+				BMessage animate(kMsgAnimateDots);
+				animate.AddUInt8("dot", dot);
+				fEvaluateMessageRunner = new (std::nothrow) BMessageRunner(
+					BMessenger(this), &animate, kAnimationInterval, 1);
+				break;
+			}
+
+			case kMsgCalculating:
+			{
+				// calculation has taken more than 3 seconds
+				if (fEnabled) {
+					// stop the message runner
+					delete fEvaluateMessageRunner;
+					fEvaluateMessageRunner = NULL;
+					break;
+				}
+
+				BString calculating;
+				calculating << B_TRANSLATE("Calculating") << "...";
+				fExpressionTextView->SetText(calculating.String());
+
+				delete fEvaluateMessageRunner;
+				BMessage animate(kMsgAnimateDots);
+				animate.AddUInt8("dot", 1U);
+				fEvaluateMessageRunner = new (std::nothrow) BMessageRunner(
+					BMessenger(this), &animate, kAnimationInterval, 1);
+				break;
+			}
+
+			case kMsgDoneEvaluating:
+			{
+				_SetEnabled(true);
+				rgb_color fontColor = fExpressionTextView->HighColor();
+				fExpressionTextView->SetFontAndColor(NULL, 0, &fontColor);
+
+				const char* result;
+				if (message->FindString("error", &result) == B_OK)
+					fExpressionTextView->SetText(result);
+				else if (message->FindString("value", &result) == B_OK)
+					fExpressionTextView->SetValue(result);
+
+				// stop the message runner
+				delete fEvaluateMessageRunner;
+				fEvaluateMessageRunner = NULL;
 				break;
 			}
 
@@ -317,12 +404,7 @@ CalcView::MessageReceived(BMessage* message)
 void
 CalcView::Draw(BRect updateRect)
 {
-	bool drawBackground = true;
-	if (Parent() && (Parent()->Flags() & B_DRAW_ON_CHILDREN) != 0) {
-		// CalcView is embedded somewhere, most likely the Tracker Desktop
-		// shelf.
-		drawBackground = false;
-	}
+	bool drawBackground = !_IsEmbedded();
 
 	SetHighColor(fBaseColor);
 	BRect expressionRect(_ExpressionRect());
@@ -364,47 +446,11 @@ CalcView::Draw(BRect updateRect)
 			expressionRect.InsetBy(1, 1);
 		}
 
-		if (be_control_look != NULL) {
-			uint32 flags = 0;
-			if (!drawBackground)
-				flags |= BControlLook::B_BLEND_FRAME;
-			be_control_look->DrawTextControlBorder(this, expressionRect,
-				updateRect, fBaseColor, flags);
-		} else {
-			BeginLineArray(8);
-
-			rgb_color lightShadow = tint_color(fBaseColor, B_DARKEN_1_TINT);
-			rgb_color darkShadow = tint_color(fBaseColor, B_DARKEN_3_TINT);
-
-			AddLine(BPoint(expressionRect.left, expressionRect.bottom),
-					BPoint(expressionRect.left, expressionRect.top),
-					lightShadow);
-			AddLine(BPoint(expressionRect.left + 1, expressionRect.top),
-					BPoint(expressionRect.right, expressionRect.top),
-					lightShadow);
-			AddLine(BPoint(expressionRect.right, expressionRect.top + 1),
-					BPoint(expressionRect.right, expressionRect.bottom),
-					fLightColor);
-			AddLine(BPoint(expressionRect.left + 1, expressionRect.bottom),
-					BPoint(expressionRect.right - 1, expressionRect.bottom),
-					fLightColor);
-
-			expressionRect.InsetBy(1, 1);
-			AddLine(BPoint(expressionRect.left, expressionRect.bottom),
-					BPoint(expressionRect.left, expressionRect.top),
-					darkShadow);
-			AddLine(BPoint(expressionRect.left + 1, expressionRect.top),
-					BPoint(expressionRect.right, expressionRect.top),
-					darkShadow);
-			AddLine(BPoint(expressionRect.right, expressionRect.top + 1),
-					BPoint(expressionRect.right, expressionRect.bottom),
-					fBaseColor);
-			AddLine(BPoint(expressionRect.left + 1, expressionRect.bottom),
-					BPoint(expressionRect.right - 1, expressionRect.bottom),
-					fBaseColor);
-
-			EndLineArray();
-		}
+		uint32 flags = 0;
+		if (!drawBackground)
+			flags |= BControlLook::B_BLEND_FRAME;
+		be_control_look->DrawTextControlBorder(this, expressionRect,
+			updateRect, fBaseColor, flags);
 	}
 
 	if (fOptions->keypad_mode == KEYPAD_MODE_COMPACT)
@@ -428,101 +474,38 @@ CalcView::Draw(BRect updateRect)
 
 	SetFontSize(min_c(sizeRow * kFontScaleY, sizeCol * kFontScaleX));
 
-	if (be_control_look != NULL) {
-		CalcKey* key = fKeypad;
-		for (int row = 0; row < fRows; row++) {
-			for (int col = 0; col < fColumns; col++) {
-				BRect frame;
-				frame.left = keypadRect.left + col * sizeCol;
-				frame.right = keypadRect.left + (col + 1) * sizeCol - 1;
-				frame.top = sizeDisp + row * sizeRow;
-				frame.bottom = sizeDisp + (row + 1) * sizeRow - 1;
-
-				if (drawBackground) {
-					SetHighColor(fBaseColor);
-					StrokeRect(frame);
-				}
-				frame.InsetBy(1, 1);
-
-				uint32 flags = 0;
-				if (!drawBackground)
-					flags |= BControlLook::B_BLEND_FRAME;
-				if (key->flags != 0)
-					flags |= BControlLook::B_ACTIVATED;
-				flags |= BControlLook::B_IGNORE_OUTLINE;
-
-				be_control_look->DrawButtonFrame(this, frame, updateRect,
-					fBaseColor, fBaseColor, flags);
-
-				be_control_look->DrawButtonBackground(this, frame, updateRect,
-					fBaseColor, flags);
-
-				be_control_look->DrawLabel(this, key->label, frame, updateRect,
-					fBaseColor, flags, BAlignment(B_ALIGN_HORIZONTAL_CENTER,
-						B_ALIGN_VERTICAL_CENTER));
-
-				key++;
-			}
-		}
-		return;
-	}
-
-	// TODO: support pressed keys
-
-	// paint keypad b/g
-	SetHighColor(fBaseColor);
-	FillRect(updateRect & keypadRect);
-
-	// render key main grid
-	BeginLineArray(((fColumns + fRows) << 1) + 1);
-
-	// render cols
-	AddLine(BPoint(0.0, sizeDisp),
-			BPoint(0.0, fHeight),
-			fLightColor);
-	for (int col = 1; col < fColumns; col++) {
-		AddLine(BPoint(col * sizeCol - 1.0, sizeDisp),
-				BPoint(col * sizeCol - 1.0, fHeight),
-				fDarkColor);
-		AddLine(BPoint(col * sizeCol, sizeDisp),
-				BPoint(col * sizeCol, fHeight),
-				fLightColor);
-	}
-	AddLine(BPoint(fColumns * sizeCol, sizeDisp),
-			BPoint(fColumns * sizeCol, fHeight),
-			fDarkColor);
-
-	// render rows
-	for (int row = 0; row < fRows; row++) {
-		AddLine(BPoint(0.0, sizeDisp + row * sizeRow - 1.0),
-				BPoint(fWidth, sizeDisp + row * sizeRow - 1.0),
-				fDarkColor);
-		AddLine(BPoint(0.0, sizeDisp + row * sizeRow),
-				BPoint(fWidth, sizeDisp + row * sizeRow),
-				fLightColor);
-	}
-	AddLine(BPoint(0.0, sizeDisp + fRows * sizeRow),
-			BPoint(fWidth, sizeDisp + fRows * sizeRow),
-			fDarkColor);
-
-	// main grid complete
-	EndLineArray();
-
-	// render key symbols
-	float halfSizeCol = sizeCol * 0.5f;
-	SetHighColor(fButtonTextColor);
-	SetLowColor(fBaseColor);
-	SetDrawingMode(B_OP_COPY);
-
-	float baselineOffset = ((fHeight - sizeDisp) / (float)fRows)
-							* (1.0 - kFontScaleY) * 0.5;
 	CalcKey* key = fKeypad;
 	for (int row = 0; row < fRows; row++) {
 		for (int col = 0; col < fColumns; col++) {
-			float halfSymbolWidth = StringWidth(key->label) * 0.5f;
-			DrawString(key->label,
-				BPoint(col * sizeCol + halfSizeCol - halfSymbolWidth,
-				sizeDisp + (row + 1) * sizeRow - baselineOffset));
+			BRect frame;
+			frame.left = keypadRect.left + col * sizeCol;
+			frame.right = keypadRect.left + (col + 1) * sizeCol - 1;
+			frame.top = sizeDisp + row * sizeRow;
+			frame.bottom = sizeDisp + (row + 1) * sizeRow - 1;
+
+			if (drawBackground) {
+				SetHighColor(fBaseColor);
+				StrokeRect(frame);
+			}
+			frame.InsetBy(1, 1);
+
+			uint32 flags = 0;
+			if (!drawBackground)
+				flags |= BControlLook::B_BLEND_FRAME;
+			if (key->flags != 0)
+				flags |= BControlLook::B_ACTIVATED;
+			flags |= BControlLook::B_IGNORE_OUTLINE;
+
+			be_control_look->DrawButtonFrame(this, frame, updateRect,
+				fBaseColor, fBaseColor, flags);
+
+			be_control_look->DrawButtonBackground(this, frame, updateRect,
+				fBaseColor, flags);
+
+			be_control_look->DrawLabel(this, key->label, frame, updateRect,
+				fBaseColor, flags, BAlignment(B_ALIGN_HORIZONTAL_CENTER,
+					B_ALIGN_VERTICAL_CENTER));
+
 			key++;
 		}
 	}
@@ -608,7 +591,7 @@ CalcView::MouseUp(BPoint point)
 void
 CalcView::KeyDown(const char* bytes, int32 numBytes)
 {
- 	// if single byte character...
+	// if single byte character...
 	if (numBytes == 1) {
 
 		//printf("Key pressed: %c\n", bytes[0]);
@@ -677,41 +660,34 @@ CalcView::MakeFocus(bool focused)
 
 
 void
-CalcView::ResizeTo(float width, float height)
-{
-	BView::ResizeTo(width, height);
-	FrameResized(width, height);
-}
-
-
-void
 CalcView::FrameResized(float width, float height)
 {
 	fWidth = width;
 	fHeight = height;
 
 	// layout expression text view
-	BRect frame = _ExpressionRect();
+	BRect expressionRect = _ExpressionRect();
 	if (fOptions->keypad_mode == KEYPAD_MODE_COMPACT) {
-		frame.InsetBy(2, 2);
-		frame.right -= ceilf(fCalcIcon->Bounds().Width() * 1.5);
+		expressionRect.InsetBy(2, 2);
+		expressionRect.right -= ceilf(fCalcIcon->Bounds().Width() * 1.5);
 	} else
-		frame.InsetBy(4, 4);
+		expressionRect.InsetBy(4, 4);
 
-	fExpressionTextView->MoveTo(frame.LeftTop());
-	fExpressionTextView->ResizeTo(frame.Width(), frame.Height());
+	fExpressionTextView->MoveTo(expressionRect.LeftTop());
+	fExpressionTextView->ResizeTo(expressionRect.Width(), expressionRect.Height());
 
 	// configure expression text view font size and color
 	float sizeDisp = fOptions->keypad_mode == KEYPAD_MODE_COMPACT
-					 ? fHeight : fHeight * kDisplayScaleY;
+		? fHeight : fHeight * kDisplayScaleY;
 	BFont font(be_bold_font);
 	font.SetSize(sizeDisp * kExpressionFontScaleY);
-	fExpressionTextView->SetFontAndColor(&font, B_FONT_ALL);
+	rgb_color fontColor = fExpressionTextView->HighColor();
+	fExpressionTextView->SetFontAndColor(&font, B_FONT_ALL, &fontColor);
 
-	frame.OffsetTo(B_ORIGIN);
-	float inset = (frame.Height() - fExpressionTextView->LineHeight(0)) / 2;
-	frame.InsetBy(0, inset);
-	fExpressionTextView->SetTextRect(frame);
+	expressionRect.OffsetTo(B_ORIGIN);
+	float inset = (expressionRect.Height() - fExpressionTextView->LineHeight(0)) / 2;
+	expressionRect.InsetBy(0, inset);
+	fExpressionTextView->SetTextRect(expressionRect);
 	Invalidate();
 }
 
@@ -851,31 +827,39 @@ CalcView::SaveSettings(BMessage* archive) const
 void
 CalcView::Evaluate()
 {
-	BString expression = fExpressionTextView->Text();
-
-	if (expression.Length() == 0) {
+	if (fExpressionTextView->TextLength() == 0) {
 		beep();
 		return;
 	}
 
-	_AudioFeedback(false);
-
-	// evaluate expression
-	BString value;
-
-	try {
-		ExpressionParser parser;
-		parser.SetDegreeMode(fOptions->degree_mode);
-		value = parser.Evaluate(expression.String());
-	} catch (ParseException e) {
-		BString error(e.message.String());
-		error << " at " << (e.position + 1);
-		fExpressionTextView->SetText(error.String());
+	fEvaluateThread = spawn_thread(_EvaluateThread, "Evaluate Thread",
+		B_LOW_PRIORITY, this);
+	if (fEvaluateThread < B_OK) {
+		// failed to create evaluate thread, error out
+		fExpressionTextView->SetText(strerror(fEvaluateThread));
 		return;
 	}
 
-	// render new result to display
-	fExpressionTextView->SetValue(value.String());
+	_AudioFeedback(false);
+	_SetEnabled(false);
+		// Disable input while we evaluate
+
+	status_t threadStatus = resume_thread(fEvaluateThread);
+	if (threadStatus != B_OK) {
+		// evaluate thread failed to start, error out
+		fExpressionTextView->SetText(strerror(threadStatus));
+		_SetEnabled(true);
+		return;
+	}
+
+	if (fEvaluateMessageRunner == NULL) {
+		BMessage message(kMsgCalculating);
+		fEvaluateMessageRunner = new (std::nothrow) BMessageRunner(
+			BMessenger(this), &message, kCalculatingInterval, 1);
+		status_t runnerStatus = fEvaluateMessageRunner->InitCheck();
+		if (runnerStatus != B_OK)
+			printf("Evaluate Message Runner: %s\n", strerror(runnerStatus));
+	}
 }
 
 
@@ -918,11 +902,14 @@ CalcView::SetDegreeMode(bool degrees)
 void
 CalcView::SetKeypadMode(uint8 mode)
 {
-	if (fOptions->keypad_mode == mode)
+	if (_IsEmbedded())
 		return;
 
 	BWindow* window = Window();
 	if (window == NULL)
+		return;
+
+	if (fOptions->keypad_mode == mode)
 		return;
 
 	fOptions->keypad_mode = mode;
@@ -936,12 +923,12 @@ CalcView::SetKeypadMode(uint8 mode)
 		{
 			if (window->Bounds() == Frame()) {
 				window->SetSizeLimits(kMinimumWidthCompact,
-									  kMaximumWidthCompact,
-									  kMinimumHeightCompact,
-									  kMaximumHeightCompact);
+					kMaximumWidthCompact, kMinimumHeightCompact,
+					kMaximumHeightCompact);
 				window->ResizeTo(width, height * kDisplayScaleY);
 			} else
 				ResizeTo(width, height * kDisplayScaleY);
+
 			break;
 		}
 
@@ -953,22 +940,29 @@ CalcView::SetKeypadMode(uint8 mode)
 			_ParseCalcDesc(fKeypadDescription);
 
 			window->SetSizeLimits(kMinimumWidthScientific,
-								  kMaximumWidthScientific,
-								  kMinimumHeightScientific,
-								  kMaximumHeightScientific);
+				kMaximumWidthScientific, kMinimumHeightScientific,
+				kMaximumHeightScientific);
+
 			if (width < kMinimumWidthScientific)
 				width = kMinimumWidthScientific;
-			if (width > kMaximumWidthScientific)
+			else if (width > kMaximumWidthScientific)
 				width = kMaximumWidthScientific;
+
 			if (height < kMinimumHeightScientific)
 				height = kMinimumHeightScientific;
-			if (height > kMaximumHeightScientific)
+			else if (height > kMaximumHeightScientific)
 				height = kMaximumHeightScientific;
-			ResizeTo(width, height);
+
+			if (width != fWidth || height != fHeight)
+				ResizeTo(width, height);
+			else
+				Invalidate();
+
 			break;
 		}
 
-		default: // KEYPAD_MODE_BASIC is the default
+		case KEYPAD_MODE_BASIC:
+		default:
 		{
 			free(fKeypadDescription);
 			fKeypadDescription = strdup(kKeypadDescriptionBasic);
@@ -976,22 +970,63 @@ CalcView::SetKeypadMode(uint8 mode)
 			_ParseCalcDesc(fKeypadDescription);
 
 			window->SetSizeLimits(kMinimumWidthBasic, kMaximumWidthBasic,
-								  kMinimumHeightBasic, kMaximumHeightBasic);
+				kMinimumHeightBasic, kMaximumHeightBasic);
+
 			if (width < kMinimumWidthBasic)
 				width = kMinimumWidthBasic;
-			if (width > kMaximumWidthBasic)
+			else if (width > kMaximumWidthBasic)
 				width = kMaximumWidthBasic;
+
 			if (height < kMinimumHeightBasic)
 				height = kMinimumHeightBasic;
-			if (height > kMaximumHeightBasic)
+			else if (height > kMaximumHeightBasic)
 				height = kMaximumHeightBasic;
-			ResizeTo(width, height);
+
+			if (width != fWidth || height != fHeight)
+				ResizeTo(width, height);
+			else
+				Invalidate();
 		}
 	}
 }
 
 
 // #pragma mark -
+
+
+/*static*/ status_t
+CalcView::_EvaluateThread(void* data)
+{
+	CalcView* calcView = reinterpret_cast<CalcView*>(data);
+	if (calcView == NULL)
+		return B_BAD_TYPE;
+
+	BMessenger messenger(calcView);
+	if (!messenger.IsValid())
+		return B_BAD_VALUE;
+
+	BString result;
+	status_t status = acquire_sem(calcView->fEvaluateSemaphore);
+	if (status == B_OK) {
+		ExpressionParser parser;
+		parser.SetDegreeMode(calcView->fOptions->degree_mode);
+		BString expression(calcView->fExpressionTextView->Text());
+		try {
+			result = parser.Evaluate(expression.String());
+		} catch (ParseException e) {
+			result << e.message.String() << " at " << (e.position + 1);
+			status = B_ERROR;
+		}
+		release_sem(calcView->fEvaluateSemaphore);
+	} else
+		result = strerror(status);
+
+	BMessage message(kMsgDoneEvaluating);
+	message.AddString(status == B_OK ? "value" : "error", result.String());
+	messenger.SendMessage(&message);
+
+	return status;
+}
 
 
 void
@@ -1007,7 +1042,7 @@ CalcView::_Init(BMessage* settings)
 	// fetch the calc icon for compact view
 	_FetchAppIcon(fCalcIcon);
 
-	fAboutWindow = NULL;
+	fEvaluateSemaphore = create_sem(1, "Evaluate Semaphore");
 }
 
 
@@ -1124,6 +1159,9 @@ CalcView::_ParseCalcDesc(const char* keypadDescription)
 void
 CalcView::_PressKey(int key)
 {
+	if (!fEnabled)
+		return;
+
 	assert(key < (fRows * fColumns));
 	assert(key >= 0);
 
@@ -1385,4 +1423,22 @@ CalcView::_FetchAppIcon(BBitmap* into)
 	}
 	if (status != B_OK)
 		memset(into->Bits(), 0, into->BitsLength());
+}
+
+
+// Returns whether or not CalcView is embedded somewhere, most likely
+// the Desktop
+bool
+CalcView::_IsEmbedded()
+{
+	return Parent() != NULL && (Parent()->Flags() & B_DRAW_ON_CHILDREN) != 0;
+}
+
+
+void
+CalcView::_SetEnabled(bool enable)
+{
+	fEnabled = enable;
+	fExpressionTextView->MakeSelectable(enable);
+	fExpressionTextView->MakeEditable(enable);
 }

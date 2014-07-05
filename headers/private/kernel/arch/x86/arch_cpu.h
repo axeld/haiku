@@ -13,31 +13,75 @@
 #ifndef _ASSEMBLER
 
 #include <module.h>
+
+#include <arch_thread_types.h>
+
 #include <arch/x86/descriptors.h>
 
 #ifdef __x86_64__
-#	include <arch/x86/64/iframe.h>
-#else
-#	include <arch/x86/32/iframe.h>
+#	include <arch/x86/64/cpu.h>
 #endif
 
 #endif	// !_ASSEMBLER
+
+
+#define CPU_MAX_CACHE_LEVEL	8
+
+#define CACHE_LINE_SIZE		64
 
 
 // MSR registers (possibly Intel specific)
 #define IA32_MSR_TSC					0x10
 #define IA32_MSR_APIC_BASE				0x1b
 
+#define IA32_MSR_PLATFORM_INFO			0xce
+#define IA32_MSR_MPERF					0xe7
+#define IA32_MSR_APERF					0xe8
 #define IA32_MSR_MTRR_CAPABILITIES		0xfe
 #define IA32_MSR_SYSENTER_CS			0x174
 #define IA32_MSR_SYSENTER_ESP			0x175
 #define IA32_MSR_SYSENTER_EIP			0x176
+#define IA32_MSR_PERF_STATUS			0x198
+#define IA32_MSR_PERF_CTL				0x199
+#define IA32_MSR_TURBO_RATIO_LIMIT		0x1ad
 #define IA32_MSR_ENERGY_PERF_BIAS		0x1b0
 #define IA32_MSR_MTRR_DEFAULT_TYPE		0x2ff
 #define IA32_MSR_MTRR_PHYSICAL_BASE_0	0x200
 #define IA32_MSR_MTRR_PHYSICAL_MASK_0	0x201
 
 #define IA32_MSR_EFER					0xc0000080
+
+
+// MSR APIC BASE bits
+#define IA32_MSR_APIC_BASE_BSP			0x00000100
+#define IA32_MSR_APIC_BASE_X2APIC		0x00000400
+#define IA32_MSR_APIC_BASE_ENABLED		0x00000800
+#define IA32_MSR_APIC_BASE_ADDRESS		0xfffff000
+
+// MSR EFER bits
+// reference
+#define IA32_MSR_EFER_SYSCALL			(1 << 0)
+#define IA32_MSR_EFER_NX				(1 << 11)
+
+// X2APIC MSRs.
+#define IA32_MSR_APIC_ID					0x00000802
+#define IA32_MSR_APIC_VERSION				0x00000803
+#define IA32_MSR_APIC_TASK_PRIORITY			0x00000808
+#define IA32_MSR_APIC_PROCESSOR_PRIORITY	0x0000080a
+#define IA32_MSR_APIC_EOI					0x0000080b
+#define IA32_MSR_APIC_LOGICAL_DEST			0x0000080d
+#define IA32_MSR_APIC_SPURIOUS_INTR_VECTOR	0x0000080f
+#define IA32_MSR_APIC_ERROR_STATUS			0x00000828
+#define IA32_MSR_APIC_INTR_COMMAND			0x00000830
+#define IA32_MSR_APIC_LVT_TIMER				0x00000832
+#define IA32_MSR_APIC_LVT_THERMAL_SENSOR	0x00000833
+#define IA32_MSR_APIC_LVT_PERFMON_COUNTERS	0x00000834
+#define IA32_MSR_APIC_LVT_LINT0				0x00000835
+#define IA32_MSR_APIC_LVT_LINT1				0x00000836
+#define IA32_MSR_APIC_LVT_ERROR				0x00000837
+#define IA32_MSR_APIC_INITIAL_TIMER_COUNT	0x00000838
+#define IA32_MSR_APIC_CURRENT_TIMER_COUNT	0x00000839
+#define IA32_MSR_APIC_TIMER_DIVIDE_CONFIG	0x0000083e
 
 // x86_64 MSRs.
 #define IA32_MSR_STAR					0xc0000081
@@ -120,6 +164,10 @@
 #define IA32_FEATURE_EXT_RDRND		(1 << 30) // RDRAND instruction
 #define IA32_FEATURE_EXT_HYPERVISOR	(1 << 31) // Running on a hypervisor
 
+// x86 features from cpuid eax 0x80000001, ecx register (AMD)
+#define IA32_FEATURE_AMD_EXT_CMPLEGACY	(1 << 1) // Core MP legacy mode
+#define IA32_FEATURE_AMD_EXT_TOPOLOGY	(1 << 22) // Topology extensions
+
 // x86 features from cpuid eax 0x80000001, edx register (AMD)
 // only care about the ones that are unique to this register
 #define IA32_FEATURE_AMD_EXT_SYSCALL	(1 << 11) // SYSCALL/SYSRET
@@ -130,6 +178,17 @@
 #define IA32_FEATURE_AMD_EXT_LONG		(1 << 29) // long mode
 #define IA32_FEATURE_AMD_EXT_3DNOWEXT	(1 << 30) // 3DNow! extensions
 #define IA32_FEATURE_AMD_EXT_3DNOW		(1 << 31) // 3DNow!
+
+// some of the features from cpuid eax 0x80000001, edx register (AMD) are also
+// available on Intel processors
+#define IA32_FEATURES_INTEL_EXT			(IA32_FEATURE_AMD_EXT_SYSCALL		\
+											| IA32_FEATURE_AMD_EXT_NX		\
+											| IA32_FEATURE_AMD_EXT_RDTSCP	\
+											| IA32_FEATURE_AMD_EXT_LONG)
+
+// x86 defined features from cpuid eax 5, ecx register
+#define IA32_FEATURE_POWER_MWAIT		(1 << 0)
+#define IA32_FEATURE_INTERRUPT_MWAIT	(1 << 1)
 
 // x86 defined features from cpuid eax 6, eax register
 // reference http://www.intel.com/Assets/en_US/PDF/appnote/241618.pdf (Table 5-11)
@@ -144,6 +203,9 @@
 // reference http://www.intel.com/Assets/en_US/PDF/appnote/241618.pdf (Table 5-11)
 #define IA32_FEATURE_APERFMPERF	(1 << 0) //IA32_APERF, IA32_MPERF
 #define IA32_FEATURE_EPB	(1 << 3) //IA32_ENERGY_PERF_BIAS
+
+// x86 defined features from cpuid eax 0x80000007, edx register
+#define IA32_FEATURE_INVARIANT_TSC		(1 << 8)
 
 // cr4 flags
 #define IA32_CR4_PAE					(1UL << 5)
@@ -226,9 +288,12 @@ typedef struct x86_cpu_module_info {
 enum x86_feature_type {
 	FEATURE_COMMON = 0,     // cpuid eax=1, ecx register
 	FEATURE_EXT,            // cpuid eax=1, edx register
+	FEATURE_EXT_AMD_ECX,	// cpuid eax=0x80000001, ecx register (AMD)
 	FEATURE_EXT_AMD,        // cpuid eax=0x80000001, edx register (AMD)
+	FEATURE_5_ECX,			// cpuid eax=5, ecx register
 	FEATURE_6_EAX,          // cpuid eax=6, eax registers
 	FEATURE_6_ECX,          // cpuid eax=6, ecx registers
+	FEATURE_EXT_7_EDX,		// cpuid eax=0x80000007, edx register
 
 	FEATURE_NUM
 };
@@ -262,6 +327,8 @@ typedef struct arch_cpu_info {
 	int					model;
 	int					extended_model;
 
+	uint32				logical_apic_id;
+
 	struct X86PagingStructures* active_paging_structures;
 
 	size_t				dr6;	// temporary storage for debug registers (cf.
@@ -271,12 +338,10 @@ typedef struct arch_cpu_info {
 	struct tss			tss;
 #ifndef __x86_64__
 	struct tss			double_fault_tss;
+	void*				kernel_tls;
 #endif
 } arch_cpu_info;
 
-
-#undef PAUSE
-#define PAUSE() asm volatile ("pause;")
 
 #define nop() __asm__ ("nop"::)
 
@@ -371,6 +436,9 @@ typedef struct arch_cpu_info {
 })
 
 
+extern void (*gCpuIdleFunc)(void);
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -385,8 +453,6 @@ void __x86_setup_system_time(uint32 conversionFactor,
 	uint32 conversionFactorNsecs, bool conversionFactorNsecsShift);
 #endif
 
-void x86_context_switch(struct arch_thread* oldState,
-	struct arch_thread* newState);
 void x86_userspace_thread_exit(void);
 void x86_end_userspace_thread_exit(void);
 void x86_swap_pgdir(addr_t newPageDir);
@@ -395,8 +461,6 @@ void x86_fxrstor(const void* fpuState);
 void x86_noop_swap(void* oldFpuState, const void* newFpuState);
 void x86_fxsave_swap(void* oldFpuState, const void* newFpuState);
 addr_t x86_get_stack_frame();
-uint64 x86_read_msr(uint32 registerNumber);
-void x86_write_msr(uint32 registerNumber, uint64 value);
 uint32 x86_count_mtrrs(void);
 void x86_set_mtrr(uint32 index, uint64 base, uint64 length, uint8 type);
 status_t x86_get_mtrr(uint32 index, uint64* _base, uint64* _length,
@@ -416,11 +480,31 @@ void x86_page_fault_exception(iframe* iframe);
 
 #ifndef __x86_64__
 
+uint64 x86_read_msr(uint32 registerNumber);
+void x86_write_msr(uint32 registerNumber, uint64 value);
+
+void x86_context_switch(struct arch_thread* oldState,
+	struct arch_thread* newState);
+
 void x86_fnsave(void* fpuState);
 void x86_frstor(const void* fpuState);
 void x86_fnsave_swap(void* oldFpuState, const void* newFpuState);
 
 #endif
+
+
+static inline void
+arch_cpu_idle(void)
+{
+	gCpuIdleFunc();
+}
+
+
+static inline void
+arch_cpu_pause(void)
+{
+	asm volatile("pause" : : : "memory");
+}
 
 
 #ifdef __cplusplus

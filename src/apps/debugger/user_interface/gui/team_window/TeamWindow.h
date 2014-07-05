@@ -1,6 +1,6 @@
 /*
  * Copyright 2009, Ingo Weinhold, ingo_weinhold@gmx.de.
- * Copyright 2010-2011, Rene Gollent, rene@gollent.com.
+ * Copyright 2010-2013, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 #ifndef TEAM_WINDOW_H
@@ -26,9 +26,13 @@
 class BButton;
 class BFilePanel;
 class BMenuBar;
+class BMessageRunner;
 class BSplitView;
+class BStringList;
 class BStringView;
 class BTabView;
+class ConsoleOutputView;
+class BreakConditionConfigWindow;
 class Image;
 class InspectorWindow;
 class RegistersView;
@@ -88,15 +92,13 @@ private:
 
 	// BreakpointsView::Listener
 	virtual	void				BreakpointSelectionChanged(
-									UserBreakpoint* breakpoint);
+									BreakpointProxyList& proxies);
 	virtual	void				SetBreakpointEnabledRequested(
 									UserBreakpoint* breakpoint,
 									bool enabled);
 	virtual	void				ClearBreakpointRequested(
 									UserBreakpoint* breakpoint);
 
-	virtual	void				WatchpointSelectionChanged(
-									Watchpoint* Watchpoint);
 	virtual	void				SetWatchpointEnabledRequested(
 									Watchpoint* breakpoint,
 									bool enabled);
@@ -107,7 +109,14 @@ private:
 	// SourceView::Listener
 	virtual	void				SetBreakpointRequested(target_addr_t address,
 									bool enabled);
-	virtual	void				ClearBreakpointRequested(target_addr_t address);
+	virtual	void				ClearBreakpointRequested(
+									target_addr_t address);
+	virtual	void				ThreadActionRequested(::Thread* thread,
+									uint32 action, target_addr_t address);
+	virtual	void				FunctionSourceCodeRequested(
+									FunctionInstance* function,
+									bool forceDisassembly);
+
 
 	// VariablesView::Listener
 	virtual	void				ValueNodeValueRequested(CpuState* cpuState,
@@ -123,6 +132,8 @@ private:
 									const Team::ThreadEvent& event);
 	virtual	void				ImageDebugInfoChanged(
 									const Team::ImageEvent& event);
+	virtual	void				ConsoleOutputReceived(
+									const Team::ConsoleOutputEvent& event);
 	virtual	void				UserBreakpointChanged(
 									const Team::UserBreakpointEvent& event);
 	virtual	void				WatchpointChanged(
@@ -157,8 +168,15 @@ private:
 									UserBreakpoint* breakpoint);
 			void				_HandleWatchpointChanged(
 									Watchpoint* watchpoint);
+
+	static	status_t			_RetrieveMatchingSourceWorker(void* arg);
 			void				_HandleResolveMissingSourceFile(entry_ref&
 									locatedPath);
+			void				_HandleLocateSourceRequest(
+									BStringList* entries = NULL);
+	static	status_t			_RetrieveMatchingSourceEntries(
+									const BString& path,
+									BStringList* _entries);
 
 			status_t			_SaveInspectorSettings(
 									const BMessage* settings);
@@ -173,6 +191,7 @@ private:
 			SourceCode*			fActiveSourceCode;
 			ActiveSourceObject	fActiveSourceObject;
 			UserInterfaceListener* fListener;
+			BMessageRunner*		fTraceUpdateRunner;
 			BTabView*			fTabView;
 			BTabView*			fLocalsTabView;
 			ThreadListView*		fThreadListView;
@@ -189,13 +208,17 @@ private:
 			BButton*			fStepOutButton;
 			BMenuBar*			fMenuBar;
 			BStringView*		fSourcePathView;
+			ConsoleOutputView*	fConsoleOutputView;
 			BSplitView*			fFunctionSplitView;
 			BSplitView*			fSourceSplitView;
 			BSplitView*			fImageSplitView;
 			BSplitView*			fThreadSplitView;
+			BSplitView*			fConsoleSplitView;
+			BreakConditionConfigWindow* fBreakConditionConfigWindow;
 			InspectorWindow*	fInspectorWindow;
 			GuiTeamUiSettings	fUiSettings;
 			BFilePanel*			fFilePanel;
+			thread_id			fActiveSourceWorker;
 };
 
 

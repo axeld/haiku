@@ -86,7 +86,7 @@ using std::max;
 
 const char* const kInstantiateItemCFunctionName = "instantiate_deskbar_item";
 const char* const kInstantiateEntryCFunctionName = "instantiate_deskbar_entry";
-const char* const kReplicantSettingsFile = "Deskbar_replicants";
+const char* const kReplicantSettingsFile = "replicants";
 const char* const kReplicantPathField = "replicant_path";
 
 float sMinimumWindowWidth = kGutter + kMinimumTrayWidth + kDragRegionWidth;
@@ -467,7 +467,7 @@ TReplicantTray::InitAddOnSupport()
 	fItemList = new BList();
 	BPath path;
 
-	if (find_directory(B_USER_SETTINGS_DIRECTORY, &path, true) == B_OK) {
+	if (GetDeskbarSettingsDirectory(path, true) == B_OK) {
 		path.Append(kReplicantSettingsFile);
 
 		BFile file(path.Path(), B_READ_ONLY);
@@ -500,7 +500,7 @@ TReplicantTray::DeleteAddOnSupport()
 {
 	_SaveSettings();
 
-	for (int32 i = fItemList->CountItems(); i-- > 0 ;) {
+	for (int32 i = fItemList->CountItems() - 1; i >= 0; i--) {
 		DeskbarItemInfo* item = (DeskbarItemInfo*)fItemList->RemoveItem(i);
 		if (item) {
 			if (item->isAddOn)
@@ -519,7 +519,7 @@ TReplicantTray::DeleteAddOnSupport()
 DeskbarItemInfo*
 TReplicantTray::DeskbarItemFor(node_ref& nodeRef)
 {
-	for (int32 i = fItemList->CountItems(); i-- > 0 ;) {
+	for (int32 i = fItemList->CountItems() - 1; i >= 0; i--) {
 		DeskbarItemInfo* item = (DeskbarItemInfo*)fItemList->ItemAt(i);
 		if (item == NULL)
 			continue;
@@ -535,7 +535,7 @@ TReplicantTray::DeskbarItemFor(node_ref& nodeRef)
 DeskbarItemInfo*
 TReplicantTray::DeskbarItemFor(int32 id)
 {
-	for (int32 i = fItemList->CountItems(); i-- > 0 ;) {
+	for (int32 i = fItemList->CountItems() - 1; i >= 0; i--) {
 		DeskbarItemInfo* item = (DeskbarItemInfo*)fItemList->ItemAt(i);
 		if (item == NULL)
 			continue;
@@ -719,7 +719,7 @@ void
 TReplicantTray::UnloadAddOn(node_ref* nodeRef, dev_t* device,
 	bool which, bool removeAll)
 {
-	for (int32 i = fItemList->CountItems(); i-- > 0 ;) {
+	for (int32 i = fItemList->CountItems() - 1; i >= 0; i--) {
 		DeskbarItemInfo* item = (DeskbarItemInfo*)fItemList->ItemAt(i);
 		if (!item)
 			continue;
@@ -783,7 +783,7 @@ TReplicantTray::MoveItem(entry_ref* ref, ino_t toDirectory)
 	//
 	// don't need to change node info as it does not change
 
-	for (int32 i = fItemList->CountItems(); i-- > 0 ;) {
+	for (int32 i = fItemList->CountItems() - 1; i >= 0; i--) {
 		DeskbarItemInfo* item = (DeskbarItemInfo*)fItemList->ItemAt(i);
 		if (!item)
 			continue;
@@ -1259,8 +1259,7 @@ TReplicantTray::_SaveSettings()
 {
 	status_t result;
 	BPath path;
-	if ((result = find_directory(B_USER_SETTINGS_DIRECTORY, &path, true))
-		 == B_OK) {
+	if ((result = GetDeskbarSettingsDirectory(path, true)) == B_OK) {
 		path.Append(kReplicantSettingsFile);
 
 		BFile file(path.Path(), B_READ_WRITE | B_CREATE_FILE | B_ERASE_FILE);

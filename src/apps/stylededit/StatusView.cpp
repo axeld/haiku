@@ -26,7 +26,6 @@
 #include <Window.h>
 
 #include "Constants.h"
-#include "StyledEditWindow.h"
 
 
 const float kHorzSpacing = 5.f;
@@ -45,7 +44,8 @@ StatusView::StatusView(BScrollView* scrollView)
 				B_FOLLOW_BOTTOM | B_FOLLOW_LEFT, B_WILL_DRAW),
 			fScrollView(scrollView),
 			fPreferredSize(0., 0.),
-			fReadOnly(false)
+			fReadOnly(false),
+			fCanUnlock(false)
 {
 	memset(fCellWidth, 0, sizeof(fCellWidth));
 }
@@ -156,10 +156,11 @@ StatusView::Draw(BRect updateRect)
 void
 StatusView::MouseDown(BPoint where)
 {
-	if (!fReadOnly)
+	if (!fReadOnly || !fCanUnlock)
 		return;
 
-	if (where.x < fCellWidth[kPositionCell])
+	float left = fCellWidth[kPositionCell] + fCellWidth[kEncodingCell];
+	if (where.x < left)
 		return;
 
 	int32 clicks = 0;
@@ -169,11 +170,7 @@ StatusView::MouseDown(BPoint where)
 			return;
 
 	BPopUpMenu *menu = new BPopUpMenu(B_EMPTY_STRING, false, false);
-	float left = fCellWidth[kPositionCell] + fCellWidth[kEncodingCell];
-	if (where.x < left)
-		StyledEditWindow::PopulateEncodingMenu(menu, fEncoding);
-	else
-		menu->AddItem(new BMenuItem(B_TRANSLATE("Unlock file"),
+	menu->AddItem(new BMenuItem(B_TRANSLATE("Unlock file"),
 					new BMessage(UNLOCK_FILE)));
 	where.x = left;
 	where.y = Bounds().bottom;
@@ -203,7 +200,8 @@ StatusView::SetStatus(BMessage* message)
 			|| fEncoding.Compare("\xff\xff") == 0
 			|| fEncoding.Compare("UTF-8") == 0)
 		{
-			fCellText[kEncodingCell] = "UTF-8";
+			// do not display default UTF-8 encoding
+			fCellText[kEncodingCell].Truncate(0);
 			fEncoding.Truncate(0);
 		} else {
 			const BCharacterSet* charset
@@ -211,16 +209,17 @@ StatusView::SetStatus(BMessage* message)
 			fCellText[kEncodingCell]
 				= charset != NULL ? charset->GetPrintName() : "";
 		}
-		fCellText[kEncodingCell] << " " UTF8_EXPAND_ARROW;
 	}
 
 	bool modified = false;
 	fReadOnly = false;
+	fCanUnlock = false;
 	if (B_OK == message->FindBool("modified", &modified) && modified) {
 		fCellText[kFileStateCell] = B_TRANSLATE("Modified");
 	} else if (B_OK == message->FindBool("readOnly", &fReadOnly) && fReadOnly) {
 		fCellText[kFileStateCell] = B_TRANSLATE("Read-only");
-		fCellText[kFileStateCell] << " " UTF8_EXPAND_ARROW;
+	    if (B_OK == message->FindBool("canUnlock", &fCanUnlock) && fCanUnlock)
+			fCellText[kFileStateCell] << " " UTF8_EXPAND_ARROW;
 	} else
 		fCellText[kFileStateCell].Truncate(0);
 

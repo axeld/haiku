@@ -311,7 +311,7 @@ __res_vinit(res_state statp, int preinit) {
 	(line[sizeof(name) - 1] == ' ' || \
 	 line[sizeof(name) - 1] == '\t'))
 
-	if (find_directory(B_COMMON_SETTINGS_DIRECTORY, -1, false, path,
+	if (find_directory(B_SYSTEM_SETTINGS_DIRECTORY, -1, false, path,
 			sizeof(path)) == B_OK)
 		strlcat(path, "/network/resolv.conf", sizeof(path));
 
@@ -594,6 +594,8 @@ res_setoptions(res_state statp, const char *options, const char *source)
 			statp->options |= RES_NOTLDQUERY;
 		} else if (!strncmp(cp, "inet6", sizeof("inet6") - 1)) {
 			statp->options |= RES_USE_INET6;
+		} else if (!strncmp(cp, "inet4", sizeof("inet4") - 1)) {
+			statp->options |= RES_USE_INET4;
 		} else if (!strncmp(cp, "rotate", sizeof("rotate") - 1)) {
 			statp->options |= RES_ROTATE;
 		} else if (!strncmp(cp, "no-check-names",

@@ -12,6 +12,7 @@
 #include <KernelExport.h>
 #include <Drivers.h>
 #include <PCI.h>
+#include <PCI_x86.h>
 
 #include <string.h>
 #include <stdlib.h>
@@ -64,7 +65,7 @@ struct hda_multi;
 */
 struct hda_controller {
 	struct pci_info	pci_info;
-	vint32			opened;
+	int32			opened;
 	const char*		devfs_path;
 
 	area_id			regs_area;
@@ -334,6 +335,7 @@ struct hda_multi {
 /* driver.c */
 extern device_hooks gDriverHooks;
 extern pci_module_info* gPci;
+extern pci_x86_module_info* gPCIx86Module;
 extern hda_controller gCards[MAX_CARDS];
 extern uint32 gNumCards;
 

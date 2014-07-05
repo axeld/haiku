@@ -51,6 +51,7 @@
 #else
 #	define TRACE(x...) ;
 #endif
+#define ERROR(x...) dprintf("\33[36mAGP:\33[0m " x)
 
 
 #define MAX_DEVICES	  8
@@ -248,7 +249,7 @@ check_capabilities(agp_device_info &deviceInfo, uint32 &command)
 		agpStatus = fix_rate_support(agpStatus);
 	}
 
-	TRACE("device %u.%u.%u has AGP capabilities %lx\n", deviceInfo.info.bus,
+	TRACE("device %u.%u.%u has AGP capabilities %" B_PRIx32 "\n", deviceInfo.info.bus,
 		deviceInfo.info.device, deviceInfo.info.function, agpStatus);
 
 	// block non-supported AGP modes
@@ -477,13 +478,14 @@ Aperture::CreateMemory(size_t size, size_t alignment, uint32 flags)
 
 	status_t status = _Insert(memory, size, alignment, flags);
 	if (status < B_OK) {
-		// did not find a free space large for this memory object
+		ERROR("Aperture::CreateMemory(): did not find a free space large for "
+			"this memory object\n");
 		delete memory;
 		return NULL;
 	}
 
-	TRACE("create memory %p, base %lx, size %lx, flags %lx\n", memory,
-		memory->base, memory->size, flags);
+	TRACE("create memory %p, base %" B_PRIxADDR ", size %" B_PRIxSIZE
+		", flags %" B_PRIx32 "\n", memory, memory->base, memory->size, flags);
 
 	memory->flags = flags;
 #if defined(__HAIKU__) && !defined(GART_TEST)
@@ -548,8 +550,11 @@ Aperture::AllocateMemory(aperture_memory *memory, uint32 flags)
 		memory->page = vm_page_allocate_page_run(
 			PAGE_STATE_WIRED | VM_PAGE_ALLOC_CLEAR, count, &restrictions,
 			VM_PRIORITY_SYSTEM);
-		if (memory->page == NULL)
+		if (memory->page == NULL) {
+			ERROR("Aperture::AllocateMemory(): vm_page_allocate_page_run() "
+				"failed (with B_APERTURE_NEED_PHYSICAL)\n");
 			return B_NO_MEMORY;
+		}
 	} else {
 		// Allocate table to hold the pages
 		memory->pages = (vm_page **)malloc(count * sizeof(vm_page *));
@@ -564,8 +569,11 @@ Aperture::AllocateMemory(aperture_memory *memory, uint32 flags)
 		vm_page* page = vm_page_allocate_page_run(
 			PAGE_STATE_WIRED | VM_PAGE_ALLOC_CLEAR, count, &restrictions,
 			VM_PRIORITY_SYSTEM);
-		if (page == NULL)
+		if (page == NULL) {
+			ERROR("Aperture::AllocateMemory(): vm_page_allocate_page_run() "
+				"failed (without B_APERTURE_NEED_PHYSICAL)\n");
 			return B_NO_MEMORY;
+		}
 
 		for (uint32 i = 0; i < count; i++)
 			memory->pages[i] = page + i;
@@ -589,8 +597,10 @@ Aperture::AllocateMemory(aperture_memory *memory, uint32 flags)
 	memory->area = create_area("GART memory", &address, B_ANY_KERNEL_ADDRESS,
 		size, B_FULL_LOCK | ((flags & B_APERTURE_NEED_PHYSICAL) != 0
 			? B_CONTIGUOUS : 0), 0);
-	if (memory->area < B_OK)
+	if (memory->area < B_OK) {
+		ERROR("Aperture::AllocateMemory(): create_area() failed\n");
 		return B_NO_MEMORY;
+	}
 #endif
 
 	memory->flags |= ALLOCATED_APERTURE;
@@ -668,8 +678,10 @@ Aperture::BindMemory(aperture_memory *memory, addr_t address, size_t size)
 			physical_entry entry;
 			status = get_memory_map((void *)(address + offset), B_PAGE_SIZE,
 				&entry, 1);
-			if (status < B_OK)
+			if (status < B_OK) {
+				ERROR("Aperture::BindMemory(): get_memory_map() failed\n");
 				return status;
+			}
 
 			physicalAddress = entry.address;
 		} else {
@@ -688,8 +700,10 @@ Aperture::BindMemory(aperture_memory *memory, addr_t address, size_t size)
 
 		status = fModule->bind_page(fPrivateAperture, start + offset,
 			physicalAddress);
-		if (status < B_OK)
+		if (status < B_OK) {
+			ERROR("Aperture::BindMemory(): bind_page() failed\n");
 			return status;
+		}
 	}
 
 	memory->flags |= BIND_APERTURE;
@@ -852,7 +866,7 @@ Aperture::_Insert(aperture_memory *memory, size_t size, size_t alignment,
 status_t
 get_nth_agp_info(uint32 index, agp_info *info)
 {
-	TRACE("get_nth_agp_info(index %lu)\n", index);
+	TRACE("get_nth_agp_info(index %" B_PRIu32 ")\n", index);
 
 	if (index >= sDeviceCount)
 		return B_BAD_VALUE;
@@ -888,7 +902,7 @@ release_agp(void)
 uint32
 set_agp_mode(uint32 command)
 {
-	TRACE("set_agp_mode(command %lx)\n", command);
+	TRACE("set_agp_mode(command %" B_PRIx32 ")\n", command);
 
 	if ((command & AGP_ENABLE) == 0) {
 		set_pci_mode();
@@ -912,7 +926,7 @@ set_agp_mode(uint32 command)
 	}
 
 	command = fix_rate_command(command);
-	TRACE("set AGP command %lx on all capable devices.\n", command);
+	TRACE("set AGP command %" B_PRIx32 " on all capable devices.\n", command);
 
 	// The order of programming differs for enabling/disabling AGP mode
 	// (see AGP specification)
@@ -1213,7 +1227,7 @@ agp_init(void)
 		sDeviceCount++;
 	}
 
-	TRACE("found %ld AGP devices\n", sDeviceCount);
+	TRACE("found %" B_PRId32 " AGP devices\n", sDeviceCount);
 
 	// Since there can be custom aperture modules (for memory management only),
 	// we always succeed if we could get the resources we need.

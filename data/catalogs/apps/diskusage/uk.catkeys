@@ -1,4 +1,4 @@
-1	ukrainian	x-vnd.Haiku-DiskUsage	2682355634
+1	ukrainian	x-vnd.Haiku-DiskUsage	3631077986
 Scanning %refName%	Scanner		Сканування %refName%
 Size	Info Window		Розмір
 Rescan	Pie View		Пересканувати
@@ -9,11 +9,16 @@ no supporting apps	Pie View		відсутні підтримувані дода�
 Path	Info Window		Шлях
 Scan	Status View		Сканувати
 9999.99 GB	Status View		9999.99 
+Rescan	Status View		Пересканувати
 file unavailable	Status View		файл недоступний
+Get info	Pie View		Інформація
 DiskUsage	System name		Використання дисків
+ in %d files	Info Window		 в %d файлах
 %d files	Status View		%d файлів
 Created	Info Window		Створено
 Modified	Info Window		Змінено
+Abort	Status View		Перервати
+Open with	Pie View		Відкрити в
 Open	Pie View		Відкрити
 %a, %d %b %Y, %r	Info Window		%a, %d %b %Y, %r
 Free on %refName%	Scanner		Вільно на %refName%

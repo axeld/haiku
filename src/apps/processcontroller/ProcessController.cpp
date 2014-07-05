@@ -1,7 +1,7 @@
 /*
 	ProcessController © 2000, Georges-Edouard Berenger, All Rights Reserved.
 	Copyright (C) 2004 beunited.org
-	Copyright (c) 2006-2012, Haiku, Inc. All rights reserved.
+	Copyright (c) 2006-2013, Haiku, Inc. All rights reserved.
 
 	This library is free software; you can redistribute it and/or
 	modify it under the terms of the GNU Lesser General Public
@@ -42,6 +42,7 @@
 #include <Screen.h>
 #include <TextView.h>
 
+#include <scheduler.h>
 #include <syscalls.h>
 
 #include "AutoIcon.h"
@@ -69,11 +70,14 @@ const char* kFrameColorPref = "deskbar_frame_color";
 const char* kIdleColorPref = "deskbar_idle_color";
 const char* kActiveColorPref = "deskbar_active_color";
 
+static const char* const kDebuggerSignature
+	= "application/x-vnd.Haiku-Debugger";
+
 const rgb_color kKernelBlue = {20, 20, 231,	255};
 const rgb_color kIdleGreen = {110, 190,110,	255};
 
 ProcessController* gPCView;
-int32 gCPUcount;
+uint32 gCPUcount;
 rgb_color gUserColor;
 rgb_color gUserColorSelected;
 rgb_color gIdleColor;
@@ -154,7 +158,11 @@ ProcessController::ProcessController(BRect frame, bool temp)
 	fTrackerIcon(kTrackerSig),
 	fDeskbarIcon(kDeskbarSig),
 	fTerminalIcon(kTerminalSig),
-	fTemp(temp)
+	kCPUCount(sysconf(_SC_NPROCESSORS_CONF)),
+	fTemp(temp),
+	fLastBarHeight(new float[kCPUCount]),
+	fCPUTimes(new double[kCPUCount]),
+	fPrevActive(new bigtime_t[kCPUCount])
 {
 	if (!temp) {
 		Init();
@@ -174,7 +182,11 @@ ProcessController::ProcessController(BMessage *data)
 	fTrackerIcon(kTrackerSig),
 	fDeskbarIcon(kDeskbarSig),
 	fTerminalIcon(kTerminalSig),
-	fTemp(false)
+	kCPUCount(sysconf(_SC_NPROCESSORS_CONF)),
+	fTemp(false),
+	fLastBarHeight(new float[kCPUCount]),
+	fCPUTimes(new double[kCPUCount]),
+	fPrevActive(new bigtime_t[kCPUCount])
 {
 	Init();
 }
@@ -187,7 +199,11 @@ ProcessController::ProcessController()
 	fTrackerIcon(kTrackerSig),
 	fDeskbarIcon(kDeskbarSig),
 	fTerminalIcon(kTerminalSig),
-	fTemp(false)
+	kCPUCount(sysconf(_SC_NPROCESSORS_CONF)),
+	fTemp(false),
+	fLastBarHeight(new float[kCPUCount]),
+	fCPUTimes(new double[kCPUCount]),
+	fPrevActive(new bigtime_t[kCPUCount])
 {
 	Init();
 }
@@ -205,23 +221,40 @@ ProcessController::~ProcessController()
 	delete fMessageRunner;
 	gPCView = NULL;
 
-	// replicant deleted, destroy the about window
-	if (fAboutWindow != NULL && fAboutWindow->Lock())
-		fAboutWindow->Quit();
+	delete[] fPrevActive;
+	delete[] fCPUTimes;
+	delete[] fLastBarHeight;
 }
 
 
 void
 ProcessController::Init()
 {
+	memset(fLastBarHeight, 0, sizeof(float) * kCPUCount);
+	memset(fCPUTimes, 0, sizeof(double) * kCPUCount);
+	memset(fPrevActive, 0, sizeof(bigtime_t) * kCPUCount);
+
 	gPCView = this;
 	fMessageRunner = NULL;
-	memset(fLastBarHeight, 0, sizeof(fLastBarHeight));
 	fLastMemoryHeight = 0;
-	memset(fCPUTimes, 0, sizeof(fCPUTimes));
-	memset(fPrevActive, 0, sizeof(fPrevActive));
 	fPrevTime = 0;
-	fAboutWindow = NULL;
+}
+
+
+void
+ProcessController::_HandleDebugRequest(team_id team, thread_id thread)
+{
+	char *argv[2];
+	char paramString[16];
+	char idString[16];
+	strlcpy(paramString, thread > 0 ? "--thread" : "--team", sizeof(paramString));
+	snprintf(idString, sizeof(idString), "%" B_PRId32, thread > 0 ? thread : team);
+	argv[0] = paramString;
+	argv[1] = idString;
+	status_t error = be_roster->Launch(kDebuggerSignature, 2, argv);
+	if (error != B_OK) {
+		// TODO: notify user
+	}
 }
 
 
@@ -272,17 +305,27 @@ ProcessController::MessageReceived(BMessage *message)
 				if (get_team_info(team, &infos.team_info) == B_OK) {
 					get_team_name_and_icon(infos);
 					snprintf(question, sizeof(question),
-					B_TRANSLATE("Do you really want to kill the team \"%s\"?"),
+					B_TRANSLATE("What do you want to do with the team \"%s\"?"),
 					infos.team_name);
 					alert = new BAlert(B_TRANSLATE("Please confirm"), question,
-					B_TRANSLATE("Cancel"), B_TRANSLATE("Yes, kill this team!"),
-					NULL, B_WIDTH_AS_USUAL, B_STOP_ALERT);
+					B_TRANSLATE("Cancel"), B_TRANSLATE("Debug this team!"),
+					B_TRANSLATE("Kill this team!"), B_WIDTH_AS_USUAL,
+					B_STOP_ALERT);
 					alert->SetShortcut(0, B_ESCAPE);
-					if (alert->Go())
-						kill_team(team);
+					int result = alert->Go();
+					switch (result) {
+						case 1:
+							_HandleDebugRequest(team, -1);
+							break;
+						case 2:
+							kill_team(team);
+							break;
+						default:
+							break;
+					}
 				} else {
 					alert = new BAlert(B_TRANSLATE("Info"),
-						B_TRANSLATE("This team is already gone"B_UTF8_ELLIPSIS),
+						B_TRANSLATE("This team is already gone" B_UTF8_ELLIPSIS),
 						B_TRANSLATE("Ok!"), NULL, NULL, B_WIDTH_AS_USUAL,
 						B_STOP_ALERT);
 					alert->SetFlags(alert->Flags() | B_CLOSE_ON_ESCAPE);
@@ -322,21 +365,12 @@ ProcessController::MessageReceived(BMessage *message)
 					if (r == KILL)
 						kill_thread(thread);
 					#if DEBUG_THREADS
-					else if (r == 1) {
-						Tdebug_thead_param* param = new Tdebug_thead_param;
-						param->thread = thread;
-						if (thinfo.state == B_THREAD_WAITING)
-							param->sem = thinfo.sem;
-						else
-							param->sem = -1;
-						param->totalTime = thinfo.user_time+thinfo.kernel_time;
-						resume_thread(spawn_thread(thread_debug_thread,
-						B_TRANSLATE("Debug thread"), B_NORMAL_PRIORITY, param));
-					}
+					else if (r == 1)
+						_HandleDebugRequest(thinfo.team, thinfo.thread);
 					#endif
 				} else {
 					alert = new BAlert(B_TRANSLATE("Info"),
-						B_TRANSLATE("This thread is already gone"B_UTF8_ELLIPSIS),
+						B_TRANSLATE("This thread is already gone" B_UTF8_ELLIPSIS),
 						B_TRANSLATE("Ok!"),	NULL, NULL,
 						B_WIDTH_AS_USUAL, B_STOP_ALERT);
 					alert->SetFlags(alert->Flags() | B_CLOSE_ON_ESCAPE);
@@ -402,10 +436,10 @@ ProcessController::MessageReceived(BMessage *message)
 
 		case 'CPU ':
 		{
-			int32 cpu;
-			if (message->FindInt32 ("cpu", &cpu) == B_OK) {
+			uint32 cpu;
+			if (message->FindInt32("cpu", (int32*)&cpu) == B_OK) {
 				bool last = true;
-				for (int p = 0; p < gCPUcount; p++) {
+				for (unsigned int p = 0; p < gCPUcount; p++) {
 					if (p != cpu && _kern_cpu_enabled(p)) {
 						last = false;
 						break;
@@ -425,6 +459,14 @@ ProcessController::MessageReceived(BMessage *message)
 			break;
 		}
 
+		case 'Schd':
+		{
+			int32 mode;
+			if (message->FindInt32 ("mode", &mode) == B_OK)
+				set_scheduler_mode(mode);
+			break;
+		}
+
 		case B_ABOUT_REQUESTED:
 			AboutRequested();
 			break;
@@ -438,27 +480,24 @@ ProcessController::MessageReceived(BMessage *message)
 void
 ProcessController::AboutRequested()
 {
-	if (fAboutWindow == NULL) {
-		const char* extraCopyrights[] = {
-			"2004 beunited.org",
-			"1997-2001 Georges-Edouard Berenger",
-			NULL
-		};
+	BAboutWindow* window = new BAboutWindow(
+		B_TRANSLATE_SYSTEM_NAME("ProcessController"), kSignature);
 
-		const char* authors[] = {
-			"Georges-Edouard Berenger",
-			NULL
-		};
+	const char* extraCopyrights[] = {
+		"2004 beunited.org",
+		"1997-2001 Georges-Edouard Berenger",
+		NULL
+	};
 
-		fAboutWindow = new BAboutWindow(
-			B_TRANSLATE_SYSTEM_NAME("ProcessController"), kSignature);
-		fAboutWindow->AddCopyright(2007, "Haiku, Inc.", extraCopyrights);
-		fAboutWindow->AddAuthors(authors);
-		fAboutWindow->Show();
-	} else if (fAboutWindow->IsHidden())
-		fAboutWindow->Show();
-	else
-		fAboutWindow->Activate();
+	const char* authors[] = {
+		"Georges-Edouard Berenger",
+		NULL
+	};
+
+	window->AddCopyright(2007, "Haiku, Inc.", extraCopyrights);
+	window->AddAuthors(authors);
+
+	window->Show();
 }
 
 
@@ -571,7 +610,7 @@ ProcessController::DoDraw(bool force)
 		SetHighColor(frame_color);
 		StrokeRect(BRect(left - 1, top - 1, right, bottom + 1));
 		if (gCPUcount > 1 && layout[gCPUcount].cpu_inter == 1) {
-			for (int x = 1; x < gCPUcount; x++)
+			for (unsigned int x = 1; x < gCPUcount; x++)
 				StrokeLine(BPoint(left + x * barWidth + x - 1, top),
 					BPoint(left + x * barWidth + x - 1, bottom));
 		}
@@ -581,7 +620,7 @@ ProcessController::DoDraw(bool force)
 		StrokeRect(BRect(leftMem - 1, top - 1,
 			leftMem + layout[gCPUcount].mem_width, bottom + 1));
 
-	for (int x = 0; x < gCPUcount; x++) {
+	for (unsigned int x = 0; x < gCPUcount; x++) {
 		right = left + barWidth - 1;
 		float rem = fCPUTimes[x] * (h + 1);
 		float barHeight = floorf (rem);
@@ -659,14 +698,17 @@ ProcessController::Update()
 	get_system_info(&info);
 	bigtime_t now = system_time();
 
+	cpu_info* cpuInfos = new cpu_info[gCPUcount];
+	get_cpu_info(0, gCPUcount, cpuInfos);
+
 	fMemoryUsage = float(info.used_pages) / float(info.max_pages);
 	// Calculate work done since last call to Update() for each CPU
-	for (int x = 0; x < gCPUcount; x++) {
-		bigtime_t load = info.cpu_infos[x].active_time - fPrevActive[x];
+	for (unsigned int x = 0; x < gCPUcount; x++) {
+		bigtime_t load = cpuInfos[x].active_time - fPrevActive[x];
 		bigtime_t passed = now - fPrevTime;
 		float cpuTime = float(load) / float(passed);
 
-		fPrevActive[x] = info.cpu_infos[x].active_time;
+		fPrevActive[x] = cpuInfos[x].active_time;
 		if (load > passed)
 			fPrevActive[x] -= load - passed; // save overload for next period...
 		if (cpuTime < 0)
@@ -676,6 +718,8 @@ ProcessController::Update()
 		fCPUTimes[x] = cpuTime;
 	}
 	fPrevTime = now;
+
+	delete[] cpuInfos;
 }
 
 
@@ -687,7 +731,8 @@ thread_popup(void *arg)
 {
 	Tpopup_param* param = (Tpopup_param*) arg;
 	int32 mcookie, hcookie;
-	long m, h;
+	unsigned long m;
+	long h;
 	BMenuItem* item;
 	bool top = param->top;
 
@@ -725,14 +770,14 @@ thread_popup(void *arg)
 	// Memory Usage section
 	MemoryBarMenu* MemoryPopup = new MemoryBarMenu(B_TRANSLATE("Memory usage"),
 	infos, systemInfo);
-	int commitedMemory = int(systemInfo.used_pages * B_PAGE_SIZE / 1024);
+	int64 committedMemory = (int64)systemInfo.used_pages * B_PAGE_SIZE / 1024;
 	for (m = 0; m < systemInfo.used_teams; m++) {
 		if (infos[m].team_info.team >= 0) {
 			MemoryBarMenuItem* memoryItem =
 				new MemoryBarMenuItem(infos[m].team_name,
 					infos[m].team_info.team, infos[m].team_icon, false, NULL);
 			MemoryPopup->AddItem(memoryItem);
-			memoryItem->UpdateSituation(commitedMemory);
+			memoryItem->UpdateSituation(committedMemory);
 		}
 	}
 
@@ -759,7 +804,7 @@ thread_popup(void *arg)
 
 	// CPU on/off section
 	if (gCPUcount > 1) {
-		for (int i = 0; i < gCPUcount; i++) {
+		for (unsigned int i = 0; i < gCPUcount; i++) {
 			char item_name[32];
 			sprintf (item_name, B_TRANSLATE("Processor %d"), i + 1);
 			BMessage* m = new BMessage ('CPU ');
@@ -772,6 +817,22 @@ thread_popup(void *arg)
 		}
 		addtopbottom (new BSeparatorItem ());
 	}
+
+	// Scheduler modes
+	static const char* schedulerModes[] = { B_TRANSLATE_MARK("Low latency"),
+		B_TRANSLATE_MARK("Power saving") };
+	unsigned int modesCount = sizeof(schedulerModes) / sizeof(const char*);
+	int32 currentMode = get_scheduler_mode();
+	for (unsigned int i = 0; i < modesCount; i++) {
+		BMessage* m = new BMessage('Schd');
+		m->AddInt32("mode", i);
+		item = new BMenuItem(B_TRANSLATE(schedulerModes[i]), m);
+		if ((uint32)currentMode == i)
+			item->SetMarked(true);
+		item->SetTarget(gPCView);
+		addtopbottom(item);
+	}
+	addtopbottom(new BSeparatorItem());
 
 	if (!be_roster->IsRunning(kTrackerSig)) {
 		item = new IconMenuItem(gPCView->fTrackerIcon,
@@ -821,7 +882,7 @@ thread_popup(void *arg)
 
 
 	item = new IconMenuItem(gPCView->fProcessControllerIcon,
-	B_TRANSLATE("About ProcessController"B_UTF8_ELLIPSIS),
+	B_TRANSLATE("About ProcessController" B_UTF8_ELLIPSIS),
 		new BMessage(B_ABOUT_REQUESTED));
 	item->SetTarget(gPCView);
 	addtopbottom(item);

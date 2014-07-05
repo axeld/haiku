@@ -10,7 +10,8 @@
 
 
 #define TRACE(a...) dprintf("ahci: " a)
-#define FLOW(a...)	dprintf("ahci: " a)
+//#define FLOW(a...)	dprintf("ahci: " a)
+#define FLOW(a...)
 
 #define AHCI_ID_GENERATOR "ahci/id"
 #define AHCI_ID_ITEM "ahci/id"
@@ -142,6 +143,7 @@ const device_info kSupportedDevices[] = {
 
 device_manager_info *gDeviceManager;
 scsi_for_sim_interface *gSCSI;
+pci_x86_module_info* gPCIx86Module;
 
 
 status_t
@@ -179,7 +181,7 @@ register_sim(device_node *parent)
 			{ SCSI_DESCRIPTION_CONTROLLER_NAME, B_STRING_TYPE,
 				{ string: AHCI_DEVICE_MODULE_NAME }},
 			{ B_DMA_MAX_TRANSFER_BLOCKS, B_UINT32_TYPE, { ui32: 255 }},
-			{ AHCI_ID_ITEM, B_UINT32_TYPE, { ui32: id }},
+			{ AHCI_ID_ITEM, B_UINT32_TYPE, { ui32: (uint32)id }},
 //			{ PNP_MANAGER_ID_GENERATOR, B_STRING_TYPE,
 //				{ string: AHCI_ID_GENERATOR }},
 //			{ PNP_MANAGER_AUTO_ID, B_UINT32_TYPE, { ui32: id }},
@@ -209,7 +211,7 @@ ahci_supports_device(device_node *parent)
 	const char *name;
 	const char *bus;
 
-	TRACE("ahci_supports_device\n");
+	FLOW("ahci_supports_device\n");
 
 	if (gDeviceManager->get_attr_string(parent, B_DEVICE_BUS, &bus, false)
 			< B_OK)
@@ -328,7 +330,17 @@ std_ops(int32 op, ...)
 {
 	switch (op) {
 		case B_MODULE_INIT:
+			if (get_module(B_PCI_X86_MODULE_NAME,
+					(module_info**)&gPCIx86Module) != B_OK) {
+				TRACE("failed to get pci x86 module\n");
+				gPCIx86Module = NULL;
+			}
+			return B_OK;
 		case B_MODULE_UNINIT:
+			if (gPCIx86Module != NULL) {
+				put_module(B_PCI_X86_MODULE_NAME);
+				gPCIx86Module = NULL;
+			}
 			return B_OK;
 
 		default:

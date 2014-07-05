@@ -84,7 +84,6 @@ Inode::Create(const char* name, int mode, int perms, OpenFileCookie* cookie,
 	}
 
 	cookie->fOpenState = state;
-	cookie->fFileSystem = fFileSystem;
 
 	*id = FileIdToInoT(state->fInfo.fFileId);
 
@@ -107,8 +106,6 @@ Inode::Open(int mode, OpenFileCookie* cookie)
 	OpenDelegationData data;
 	data.fType = OPEN_DELEGATE_NONE;
 	if (fOpenState == NULL) {
-		RevalidateFileCache();
-
 		OpenState* state = new(std::nothrow) OpenState;
 		if (state == NULL)
 			return B_NO_MEMORY;
@@ -126,6 +123,8 @@ Inode::Open(int mode, OpenFileCookie* cookie)
 		fOpenState = state;
 		cookie->fOpenState = state;
 		locker.Unlock();
+
+		RevalidateFileCache();
 	} else {
 		fOpenState->AcquireReference();
 		cookie->fOpenState = fOpenState;
@@ -144,6 +143,9 @@ Inode::Open(int mode, OpenFileCookie* cookie)
 				return result;
 			}
 			fOpenState->fMode = O_RDWR;
+
+			if (oldMode == O_RDONLY)
+				RevalidateFileCache();
 		} else {
 			int newMode = mode & O_RWMASK;
 			uint32 allowed = 0;
@@ -168,7 +170,6 @@ Inode::Open(int mode, OpenFileCookie* cookie)
 		file_cache_set_size(fFileCache, 0);
 	}
 
-	cookie->fFileSystem = fFileSystem;
 	cookie->fMode = mode;
 	cookie->fLocks = NULL;
 
@@ -192,7 +193,9 @@ Inode::Close(OpenFileCookie* cookie)
 	ASSERT(cookie != NULL);
 	ASSERT(fOpenState == cookie->fOpenState);
 
-	SyncAndCommit();
+	int mode = cookie->fMode & O_RWMASK;
+	if (mode == O_RDWR || mode == O_WRONLY)
+		SyncAndCommit();
 
 	MutexLocker _(fStateLock);
 	ReleaseOpenState();
@@ -262,7 +265,6 @@ Inode::OpenAttr(const char* _name, int mode, OpenAttrCookie* cookie,
 	fFileSystem->AddOpenFile(state);
 
 	cookie->fOpenState = state;
-	cookie->fFileSystem = fFileSystem;
 	cookie->fMode = mode;
 
 	if (data.fType != OPEN_DELEGATE_NONE) {
@@ -410,25 +412,28 @@ Inode::Write(OpenFileCookie* cookie, off_t pos, const void* _buffer,
 	ASSERT(_buffer != NULL);
 	ASSERT(_length != NULL);
 
-	struct stat st;
-	status_t result = Stat(&st);
-	if (result != B_OK)
-		return result;
+	if (pos < 0)
+		pos = 0;
+
+	if ((cookie->fMode & O_RWMASK) == O_RDONLY)
+		return B_NOT_ALLOWED;
 
 	if ((cookie->fMode & O_APPEND) != 0)
-		pos = st.st_size;
+		pos = fMaxFileSize;
 
-	uint64 fileSize = max_c(st.st_size, pos + *_length);
-	fMaxFileSize = max_c(fMaxFileSize, fileSize);
+	uint64 fileSize = pos + *_length;
+	if (fileSize > fMaxFileSize) {
+		status_t result = file_cache_set_size(fFileCache, fileSize);
+		if (result != B_OK)
+			return result;
+		fMaxFileSize = fileSize;
+		fMetaCache.GrowFile(fMaxFileSize);
+	}
 
 	if ((cookie->fMode & O_NOCACHE) != 0) {
 		WriteDirect(cookie, pos, _buffer, _length);
 		Commit();
 	}
-
-	result = file_cache_set_size(fFileCache, fileSize);
-	if (result != B_OK)
-		return result;
 
 	return file_cache_write(fFileCache, cookie, pos, _buffer, _length);
 }
@@ -437,10 +442,10 @@ Inode::Write(OpenFileCookie* cookie, off_t pos, const void* _buffer,
 status_t
 Inode::Commit()
 {
-	WriteLocker _(fWriteLock);
-
 	if (!fWriteDirty)
 		return B_OK;
+
+	WriteLocker _(fWriteLock);
 	status_t result = CommitWrites();
 	if (result != B_OK)
 		return result;

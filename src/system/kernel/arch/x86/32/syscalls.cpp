@@ -55,7 +55,7 @@ set_intel_syscall_stack(addr_t stackTop)
 static void
 init_intel_syscall_registers(void* dummy, int cpuNum)
 {
-	x86_write_msr(IA32_MSR_SYSENTER_CS, KERNEL_CODE_SEG);
+	x86_write_msr(IA32_MSR_SYSENTER_CS, KERNEL_CODE_SELECTOR);
 	x86_write_msr(IA32_MSR_SYSENTER_ESP, 0);
 	x86_write_msr(IA32_MSR_SYSENTER_EIP, (addr_t)x86_sysenter);
 
@@ -106,11 +106,11 @@ x86_initialize_syscall(void)
 
 	// fill in the table entry
 	size_t len = (size_t)((addr_t)syscallCodeEnd - (addr_t)syscallCode);
-	fill_commpage_entry(COMMPAGE_ENTRY_X86_SYSCALL, syscallCode, len);
+	addr_t position = fill_commpage_entry(COMMPAGE_ENTRY_X86_SYSCALL,
+		syscallCode, len);
 
 	// add syscall to the commpage image
 	image_id image = get_commpage_image();
-	elf_add_memory_image_symbol(image, "commpage_syscall",
-		((addr_t*)USER_COMMPAGE_ADDR)[COMMPAGE_ENTRY_X86_SYSCALL], len,
+	elf_add_memory_image_symbol(image, "commpage_syscall", position, len,
 		B_SYMBOL_TYPE_TEXT);
 }

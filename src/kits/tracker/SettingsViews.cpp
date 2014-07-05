@@ -32,41 +32,42 @@ names are registered trademarks or trademarks of their respective holders.
 All rights reserved.
 */
 
-#include <Alert.h>
 
-#include "Commands.h"
-#include "DeskWindow.h"
-#include "Model.h"
 #include "SettingsViews.h"
-#include "Tracker.h"
-#include "WidgetAttributeText.h"
 
 #include <Box.h>
 #include <Button.h>
 #include <Catalog.h>
+#include <CheckBox.h>
+#include <ColorControl.h>
 #include <ControlLook.h>
-#include <GroupLayoutBuilder.h>
+#include <LayoutBuilder.h>
 #include <Locale.h>
 #include <MenuField.h>
-#include <ColorControl.h>
 #include <NodeMonitor.h>
+#include <Point.h>
+#include <RadioButton.h>
 #include <StringView.h>
+
+#include "Commands.h"
+#include "DeskWindow.h"
+#include "Model.h"
+#include "Tracker.h"
+#include "WidgetAttributeText.h"
 
 
 static const uint32 kSpaceBarSwitchColor = 'SBsc';
-static const float kItemExtraSpacing = 2.0f;
-static const float kIndentSpacing = 12.0f;
 
 //TODO: defaults should be set in one place only (TrackerSettings.cpp) while
 //		being accessible from here.
 //		What about adding DefaultValue(), IsDefault() etc... methods to
 //		xxxValueSetting ?
 static const uint8 kSpaceBarAlpha = 192;
-static const rgb_color kDefaultUsedSpaceColor = {0, 203, 0, kSpaceBarAlpha};
+static const rgb_color kDefaultUsedSpaceColor = { 0, 203, 0, kSpaceBarAlpha };
 static const rgb_color kDefaultFreeSpaceColor
-	= {255, 255, 255, kSpaceBarAlpha};
+	= { 255, 255, 255, kSpaceBarAlpha };
 static const rgb_color kDefaultWarningSpaceColor
-	= {203, 0, 0, kSpaceBarAlpha};
+	= { 203, 0, 0, kSpaceBarAlpha };
 
 
 static void
@@ -82,11 +83,12 @@ send_bool_notices(uint32 what, const char* name, bool value)
 }
 
 
-//	#pragma mark -
-
-
 #undef B_TRANSLATION_CONTEXT
 #define B_TRANSLATION_CONTEXT "SettingsView"
+
+
+//	#pragma mark - SettingsView
+
 
 SettingsView::SettingsView(const char* name)
 	:
@@ -168,7 +170,7 @@ SettingsView::IsRevertable() const
 }
 
 
-// #pragma mark -
+// #pragma mark - DesktopSettingsView
 
 
 DesktopSettingsView::DesktopSettingsView()
@@ -193,21 +195,19 @@ DesktopSettingsView::DesktopSettingsView()
 
 	const float spacing = be_control_look->DefaultItemSpacing();
 
-	BGroupLayoutBuilder(this)
+	BLayoutBuilder::Group<>(this, B_VERTICAL, 0)
+		.Add(fShowDisksIconRadioButton)
+		.Add(fMountVolumesOntoDesktopRadioButton)
 		.AddGroup(B_VERTICAL, 0)
-			.Add(fShowDisksIconRadioButton)
-			.Add(fMountVolumesOntoDesktopRadioButton)
-			.AddGroup(B_VERTICAL, 0)
-				.Add(fMountSharedVolumesOntoDesktopCheckBox)
-				.SetInsets(20, 0, 0, 0)
+			.Add(fMountSharedVolumesOntoDesktopCheckBox)
+			.SetInsets(spacing * 2, 0, 0, 0)
 			.End()
+		.AddGlue()
+		.AddGroup(B_HORIZONTAL)
+			.Add(fMountButton)
 			.AddGlue()
-			.AddGroup(B_HORIZONTAL)
-				.Add(fMountButton)
-				.AddGlue()
 			.End()
-		.End()
-		.SetInsets(spacing, spacing, spacing, spacing);
+		.SetInsets(spacing);
 
 	fMountButton->SetTarget(be_app);
 }
@@ -257,7 +257,8 @@ DesktopSettingsView::MessageReceived(BMessage* message)
 				fMountSharedVolumesOntoDesktopCheckBox->Value() == 1);
 
 			// Send the notification message:
-			tracker->SendNotices(kVolumesOnDesktopChanged, &notificationMessage);
+			tracker->SendNotices(kVolumesOnDesktopChanged,
+				&notificationMessage);
 
 			// Tell the settings window the contents have changed:
 			Window()->PostMessage(kSettingsContentsModified);
@@ -289,7 +290,8 @@ DesktopSettingsView::MessageReceived(BMessage* message)
 				fMountSharedVolumesOntoDesktopCheckBox->Value() == 1);
 
 			// Send the notification message:
-			tracker->SendNotices(kVolumesOnDesktopChanged, &notificationMessage);
+			tracker->SendNotices(kVolumesOnDesktopChanged,\
+				&notificationMessage);
 
 			// Tell the settings window the contents have changed:
 			Window()->PostMessage(kSettingsContentsModified);
@@ -298,6 +300,7 @@ DesktopSettingsView::MessageReceived(BMessage* message)
 
 		default:
 			_inherited::MessageReceived(message);
+			break;
 	}
 }
 
@@ -406,7 +409,7 @@ DesktopSettingsView::IsRevertable() const
 }
 
 
-// #pragma mark -
+// #pragma mark - WindowsSettingsView
 
 
 WindowsSettingsView::WindowsSettingsView()
@@ -439,24 +442,22 @@ WindowsSettingsView::WindowsSettingsView()
 
 	const float spacing = be_control_look->DefaultItemSpacing();
 
-	BGroupLayoutBuilder(this)
+	BLayoutBuilder::Group<>(this, B_VERTICAL, 0)
 		.AddGroup(B_VERTICAL, 0)
-			.AddGroup(B_VERTICAL, 0)
-				.Add(fShowFullPathInTitleBarCheckBox)
-				.Add(fSingleWindowBrowseCheckBox)
+			.Add(fShowFullPathInTitleBarCheckBox)
+			.Add(fSingleWindowBrowseCheckBox)
 			.End()
-			.AddGroup(B_VERTICAL)
-				.Add(fShowNavigatorCheckBox)
-				.SetInsets(20, 0, 0, 0)
+		.AddGroup(B_VERTICAL)
+			.Add(fShowNavigatorCheckBox)
+			.SetInsets(spacing * 2, 0, 0, 0)
 			.End()
-			.AddGroup(B_VERTICAL, 0)
-				.Add(fOutlineSelectionCheckBox)
-				.Add(fSortFolderNamesFirstCheckBox)
-				.Add(fTypeAheadFilteringCheckBox)
+		.AddGroup(B_VERTICAL, 0)
+			.Add(fOutlineSelectionCheckBox)
+			.Add(fSortFolderNamesFirstCheckBox)
+			.Add(fTypeAheadFilteringCheckBox)
 			.End()
 		.AddGlue()
-		.End()
-		.SetInsets(spacing, spacing, spacing, spacing);
+		.SetInsets(spacing);
 }
 
 
@@ -476,8 +477,9 @@ void
 WindowsSettingsView::MessageReceived(BMessage* message)
 {
 	TTracker* tracker = dynamic_cast<TTracker*>(be_app);
-	if (!tracker)
+	if (tracker == NULL)
 		return;
+
 	TrackerSettings settings;
 
 	switch (message->what) {
@@ -706,7 +708,7 @@ WindowsSettingsView::IsRevertable() const
 }
 
 
-// #pragma mark -
+// #pragma mark - SpaceBarSettingsView
 
 
 SpaceBarSettingsView::SpaceBarSettingsView()
@@ -733,27 +735,25 @@ SpaceBarSettingsView::SpaceBarSettingsView()
 		B_TRANSLATE("Warning space color"),
 		new BMessage(kSpaceBarSwitchColor)));
 
-	BBox* box = new BBox("box");
-	box->SetLabel(fColorPicker = new BMenuField("menu", NULL, menu));
+	fColorPicker = new BMenuField("menu", NULL, menu);
 
-	fColorControl = new BColorControl(BPoint(8,
-			fColorPicker->Bounds().Height() + 8 + kItemExtraSpacing),
+	fColorControl = new BColorControl(BPoint(0, 0),
 		B_CELLS_16x16, 1, "SpaceColorControl",
 		new BMessage(kSpaceBarColorChanged));
 	fColorControl->SetValue(TrackerSettings().UsedSpaceColor());
-	box->AddChild(fColorControl);
 
-	const float spacing = be_control_look->DefaultItemSpacing();
+	BBox* box = new BBox("box");
+	box->SetLabel(fColorPicker);
+	box->AddChild(BLayoutBuilder::Group<>(B_HORIZONTAL)
+		.Add(fColorControl)
+		.SetInsets(B_USE_DEFAULT_SPACING)
+		.View());
 
-	BGroupLayout* layout = GroupLayout();
-	layout->SetOrientation(B_VERTICAL);
-	layout->SetSpacing(0);
-	BGroupLayoutBuilder(layout)
+	BLayoutBuilder::Group<>(this, B_VERTICAL)
 		.Add(fSpaceBarShowCheckBox)
 		.Add(box)
 		.AddGlue()
-		.SetInsets(spacing, spacing, spacing, spacing);
-
+		.SetInsets(B_USE_DEFAULT_SPACING);
 }
 
 
@@ -796,9 +796,11 @@ SpaceBarSettingsView::MessageReceived(BMessage* message)
 				case 0:
 					fColorControl->SetValue(settings.UsedSpaceColor());
 					break;
+
 				case 1:
 					fColorControl->SetValue(settings.FreeSpaceColor());
 					break;
+
 				case 2:
 					fColorControl->SetValue(settings.WarningSpaceColor());
 					break;
@@ -817,9 +819,11 @@ SpaceBarSettingsView::MessageReceived(BMessage* message)
 				case 0:
 					settings.SetUsedSpaceColor(color);
 					break;
+
 				case 1:
 					settings.SetFreeSpaceColor(color);
 					break;
+
 				case 2:
 					settings.SetWarningSpaceColor(color);
 					break;
@@ -841,7 +845,7 @@ void
 SpaceBarSettingsView::SetDefaults()
 {
 	TTracker* tracker = dynamic_cast<TTracker*>(be_app);
-	if (!tracker)
+	if (tracker == NULL)
 		return;
 
 	TrackerSettings settings;
@@ -880,7 +884,7 @@ void
 SpaceBarSettingsView::Revert()
 {
 	TTracker* tracker = dynamic_cast<TTracker*>(be_app);
-	if (!tracker)
+	if (tracker == NULL)
 		return;
 
 	TrackerSettings settings;

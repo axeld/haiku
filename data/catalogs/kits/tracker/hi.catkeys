@@ -1,5 +1,4 @@
-1	hindi	x-vnd.Haiku-libtracker	1458537919
-common	B_COMMON_DIRECTORY		सामान्य
+1	hindi	x-vnd.Haiku-libtracker	3225742905
 OK	WidgetAttributeText		ठीक है
 Icon view	VolumeWindow		चिह्न दृश्य
 Add-ons	FilePanelPriv		अतिरिक्त जोड़ सकते हैं
@@ -70,7 +69,6 @@ Search	FindPanel		खोजें
 Preparing to empty Trash…	StatusWindow		रद्दी खाली करने की तैयारी ...
 Disks	Model		डिस्कस
 Create link	ContainerWindow		लिंक बनाएँ
-develop	B_COMMON_DEVELOP_DIRECTORY		बनायें
 Decrease size	DeskWindow		आकार घटाएँ
 Size	ContainerWindow		आकार
 All disks	AutoMounterSettings		सभी डिस्कस
@@ -197,7 +195,6 @@ Resize to fit	VolumeWindow		आकार बदलने के फिट कर
 Could not find application \"%appname\"	OpenWithWindow		आवेदन नहीं मिला \"%appname\"
 The selected item cannot be moved to the Trash. Would you like to delete it instead? (This operation cannot be reverted.)	PoseView		चयनित आइटम को कचरा पेटी में स्थानांतरित नहीं किया जा सकता है. क्या आप इसे इसकी बजाय मिटाना चाहते हैं? (यह आपरेशन किया जाना है. नहीं लौट सकते हैं)
 Invert	SelectionWindow		पलटे
-Save Query as template…	FindPanel		टेम्पलेट के रूप में सहेजें क्वेरी...
 rename	InfoWindow	As in 'if you rename this folder...' (en) 'Wird dieser Ordner umbenannt...' (de)	फिर से नाम दें 
 Find	FindPanel		खोजें
 Move	FSUtils	Button label, 'Move' (en), 'Verschieben' (de)	मूव 
@@ -234,7 +231,6 @@ Mount settings…	SettingsView		माउंट सेटिंग ...
 Edit name	InfoWindow		नाम संपादित करें
 Could not open \"%name\" (%error). 	FSUtils		खुल नहीं सका \"%name\". (%error). 
 Paste	ContainerWindow		चिपकाना
-optional	/boot/optional		वैकल्पिक
 Modified:	InfoWindow		संशोधित:
 Error moving \"%name\".	FSUtils		जाने में त्रुटि \"%name\".
 TiB	WidgetAttributeText		ती बी

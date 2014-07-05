@@ -1,6 +1,6 @@
 /*
  * Copyright 2009-2012, Ingo Weinhold, ingo_weinhold@gmx.de.
- * Copyright 2010-2012, Rene Gollent, rene@gollent.com.
+ * Copyright 2010-2014, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 
@@ -19,18 +19,25 @@
 #include <MenuItem.h>
 #include <Message.h>
 #include <MessageFilter.h>
+#include <MessageRunner.h>
 #include <Path.h>
+#include <PopUpMenu.h>
+#include <Query.h>
 #include <StringView.h>
 #include <TabView.h>
 #include <ScrollView.h>
 #include <SplitView.h>
 #include <TextView.h>
+#include <VolumeRoster.h>
 
+#include <AutoDeleter.h>
 #include <AutoLocker.h>
 
 #include "Breakpoint.h"
+#include "ConsoleOutputView.h"
 #include "CpuState.h"
 #include "DisassembledCode.h"
+#include "BreakConditionConfigWindow.h"
 #include "FileSourceCode.h"
 #include "GuiSettingsUtils.h"
 #include "GuiTeamUiSettings.h"
@@ -57,9 +64,11 @@ enum {
 
 
 enum {
-	MSG_CHOOSE_DEBUG_REPORT_LOCATION = 'ccrl',
-	MSG_DEBUG_REPORT_SAVED = 'drsa',
-	MSG_LOCATE_SOURCE_IF_NEEDED = 'lsin'
+	MSG_CHOOSE_DEBUG_REPORT_LOCATION	= 'ccrl',
+	MSG_DEBUG_REPORT_SAVED				= 'drsa',
+	MSG_LOCATE_SOURCE_IF_NEEDED			= 'lsin',
+	MSG_SOURCE_ENTRY_QUERY_COMPLETE		= 'seqc',
+	MSG_CLEAR_STACK_TRACE				= 'clst'
 };
 
 
@@ -101,6 +110,7 @@ TeamWindow::TeamWindow(::Team* team, UserInterfaceListener* listener)
 	fActiveSourceCode(NULL),
 	fActiveSourceObject(ACTIVE_SOURCE_NONE),
 	fListener(listener),
+	fTraceUpdateRunner(NULL),
 	fTabView(NULL),
 	fLocalsTabView(NULL),
 	fThreadListView(NULL),
@@ -115,8 +125,18 @@ TeamWindow::TeamWindow(::Team* team, UserInterfaceListener* listener)
 	fStepOverButton(NULL),
 	fStepIntoButton(NULL),
 	fStepOutButton(NULL),
+	fMenuBar(NULL),
+	fSourcePathView(NULL),
+	fConsoleOutputView(NULL),
+	fFunctionSplitView(NULL),
+	fSourceSplitView(NULL),
+	fImageSplitView(NULL),
+	fThreadSplitView(NULL),
+	fConsoleSplitView(NULL),
+	fBreakConditionConfigWindow(NULL),
 	fInspectorWindow(NULL),
-	fFilePanel(NULL)
+	fFilePanel(NULL),
+	fActiveSourceWorker(-1)
 {
 	fTeam->Lock();
 	BString name = fTeam->Name();
@@ -137,6 +157,11 @@ TeamWindow::~TeamWindow()
 		fStackTraceView->UnsetListener();
 	if (fSourceView != NULL)
 		fSourceView->UnsetListener();
+	if (fInspectorWindow != NULL) {
+		BMessenger messenger(fInspectorWindow);
+		if (messenger.LockTarget())
+			fInspectorWindow->Quit();
+	}
 
 	fTeam->RemoveListener(this);
 
@@ -149,6 +174,9 @@ TeamWindow::~TeamWindow()
 	_SetActiveThread(NULL);
 
 	delete fFilePanel;
+
+	if (fActiveSourceWorker > 0)
+		wait_for_thread(fActiveSourceWorker, NULL);
 }
 
 
@@ -174,7 +202,7 @@ TeamWindow::DispatchMessage(BMessage* message, BHandler* handler)
 	// Handle function key shortcuts for stepping
 	switch (message->what) {
 		case B_KEY_DOWN:
-			if (fActiveThread != NULL) {
+			if (fActiveThread != NULL && fTraceUpdateRunner == NULL) {
 				int32 key;
 				uint32 modifiers;
 				if (message->FindInt32("key", &key) == B_OK
@@ -208,8 +236,10 @@ TeamWindow::DispatchMessage(BMessage* message, BHandler* handler)
 		case B_COPY:
 		case B_SELECT_ALL:
 			BView* focusView = CurrentFocus();
-			if (focusView != NULL)
+			if (focusView != NULL) {
 				focusView->MessageReceived(message);
+				return;
+			}
 			break;
 	}
 	BWindow::DispatchMessage(message, handler);
@@ -220,6 +250,11 @@ void
 TeamWindow::MessageReceived(BMessage* message)
 {
 	switch (message->what) {
+		case MSG_TEAM_RESTART_REQUESTED:
+		{
+			fListener->TeamRestartRequested();
+			break;
+		}
 		case MSG_CHOOSE_DEBUG_REPORT_LOCATION:
 		{
 			try {
@@ -257,8 +292,11 @@ TeamWindow::MessageReceived(BMessage* message)
 			BString data;
 			data.SetToFormat("Debug report successfully saved to '%s'",
 				message->FindString("path"));
-			BAlert *alert = new BAlert("Report saved", data.String(),
-				"OK");
+			BAlert *alert = new(std::nothrow) BAlert("Report saved",
+				data.String(), "Close");
+			if (alert == NULL)
+				break;
+
 			alert->SetFlags(alert->Flags() | B_CLOSE_ON_ESCAPE);
 			alert->Go();
 			break;
@@ -296,6 +334,28 @@ TeamWindow::MessageReceived(BMessage* message)
 			break;
 
 		}
+		case MSG_SHOW_BREAK_CONDITION_CONFIG_WINDOW:
+		{
+			if (fBreakConditionConfigWindow) {
+				fBreakConditionConfigWindow->Activate(true);
+			} else {
+				try {
+					fBreakConditionConfigWindow
+						= BreakConditionConfigWindow::Create(
+						fTeam, fListener, this);
+					if (fBreakConditionConfigWindow != NULL)
+						fBreakConditionConfigWindow->Show();
+	           	} catch (...) {
+	           		// TODO: notify user
+	           	}
+			}
+			break;
+		}
+		case MSG_BREAK_CONDITION_CONFIG_WINDOW_CLOSED:
+		{
+			fBreakConditionConfigWindow = NULL;
+			break;
+		}
 		case MSG_SHOW_WATCH_VARIABLE_PROMPT:
 		{
 			target_addr_t address;
@@ -321,27 +381,25 @@ TeamWindow::MessageReceived(BMessage* message)
 		case B_REFS_RECEIVED:
 		{
 			entry_ref locatedPath;
-			message->FindRef("refs", &locatedPath);
+			if (message->FindRef("refs", &locatedPath) != B_OK)
+				break;
+
 			_HandleResolveMissingSourceFile(locatedPath);
 			break;
 		}
 		case MSG_LOCATE_SOURCE_IF_NEEDED:
 		{
-			if (fActiveFunction != NULL
-				&& fActiveFunction->GetFunctionDebugInfo()
-					->SourceFile() != NULL && fActiveSourceCode != NULL
-				&& fActiveSourceCode->GetSourceFile() == NULL) {
-				try {
-					if (fFilePanel == NULL) {
-						fFilePanel = new BFilePanel(B_OPEN_PANEL,
-							new BMessenger(this));
-					}
-					fFilePanel->Show();
-				} catch (...) {
-					delete fFilePanel;
-					fFilePanel = NULL;
-				}
-			}
+			_HandleLocateSourceRequest();
+			break;
+		}
+		case MSG_SOURCE_ENTRY_QUERY_COMPLETE:
+		{
+			BStringList* entries;
+			if (message->FindPointer("entries", (void**)&entries) != B_OK)
+				break;
+			ObjectDeleter<BStringList> entryDeleter(entries);
+			_HandleLocateSourceRequest(entries);
+			fActiveSourceWorker = -1;
 			break;
 		}
 		case MSG_THREAD_RUN:
@@ -349,12 +407,20 @@ TeamWindow::MessageReceived(BMessage* message)
 		case MSG_THREAD_STEP_OVER:
 		case MSG_THREAD_STEP_INTO:
 		case MSG_THREAD_STEP_OUT:
-			if (fActiveThread != NULL) {
+			if (fActiveThread != NULL && fTraceUpdateRunner == NULL) {
 				fListener->ThreadActionRequested(fActiveThread->ID(),
 					message->what);
 			}
 			break;
 
+		case MSG_CLEAR_STACK_TRACE:
+		{
+			if (fTraceUpdateRunner != NULL) {
+				_SetActiveStackTrace(NULL);
+				_UpdateRunButtons();
+			}
+			break;
+		}
 		case MSG_THREAD_STATE_CHANGED:
 		{
 			int32 threadID;
@@ -391,6 +457,18 @@ TeamWindow::MessageReceived(BMessage* message)
 				break;
 
 			_HandleImageDebugInfoChanged(imageID);
+			break;
+		}
+
+		case MSG_CONSOLE_OUTPUT_RECEIVED:
+		{
+			int32 fd;
+			BString output;
+			if (message->FindInt32("fd", &fd) != B_OK
+					|| message->FindString("output", &output) != B_OK) {
+				break;
+			}
+			fConsoleOutputView->ConsoleOutputReceived(fd, output);
 			break;
 		}
 
@@ -470,6 +548,9 @@ TeamWindow::LoadSettings(const GuiTeamUiSettings* settings)
 	if (teamWindowSettings.FindMessage("threadSplit", &archive) == B_OK)
 		GuiSettingsUtils::UnarchiveSplitView(archive, fThreadSplitView);
 
+	if (teamWindowSettings.FindMessage("consoleSplit", &archive) == B_OK)
+		GuiSettingsUtils::UnarchiveSplitView(archive, fConsoleSplitView);
+
 	if (teamWindowSettings.FindMessage("imageListView", &archive) == B_OK)
 		fImageListView->LoadSettings(archive);
 
@@ -490,6 +571,9 @@ TeamWindow::LoadSettings(const GuiTeamUiSettings* settings)
 
 	if (teamWindowSettings.FindMessage("breakpointsView", &archive) == B_OK)
 		fBreakpointsView->LoadSettings(archive);
+
+	if (teamWindowSettings.FindMessage("consoleOutputView", &archive) == B_OK)
+		fConsoleOutputView->LoadSettings(archive);
 
 	fUiSettings = *settings;
 
@@ -535,6 +619,11 @@ TeamWindow::SaveSettings(GuiTeamUiSettings* settings)
 	if (teamWindowSettings.AddMessage("threadSplit", &archive))
 		return B_NO_MEMORY;
 
+	if (GuiSettingsUtils::ArchiveSplitView(archive, fConsoleSplitView) != B_OK)
+		return B_NO_MEMORY;
+	if (teamWindowSettings.AddMessage("consoleSplit", &archive))
+		return B_NO_MEMORY;
+
 	if (fImageListView->SaveSettings(archive) != B_OK)
 		return B_NO_MEMORY;
 	if (teamWindowSettings.AddMessage("imageListView", &archive))
@@ -568,6 +657,11 @@ TeamWindow::SaveSettings(GuiTeamUiSettings* settings)
 	if (fBreakpointsView->SaveSettings(archive) != B_OK)
 		return B_NO_MEMORY;
 	if (teamWindowSettings.AddMessage("breakpointsView", &archive))
+		return B_NO_MEMORY;
+
+	if (fConsoleOutputView->SaveSettings(archive) != B_OK)
+		return B_NO_MEMORY;
+	if (teamWindowSettings.AddMessage("consoleOutputView", &archive))
 		return B_NO_MEMORY;
 
 	if (!settings->AddSettings("teamWindow", teamWindowSettings))
@@ -610,9 +704,17 @@ TeamWindow::FunctionSelectionChanged(FunctionInstance* function)
 
 
 void
-TeamWindow::BreakpointSelectionChanged(UserBreakpoint* breakpoint)
+TeamWindow::BreakpointSelectionChanged(BreakpointProxyList &proxies)
 {
-	_SetActiveBreakpoint(breakpoint);
+	if (proxies.CountItems() == 0 && fActiveBreakpoint != NULL) {
+		fActiveBreakpoint->ReleaseReference();
+		fActiveBreakpoint = NULL;
+	} else if (proxies.CountItems() == 1) {
+		BreakpointProxy* proxy = proxies.ItemAt(0);
+		if (proxy->Type() == BREAKPOINT_PROXY_TYPE_BREAKPOINT)
+			_SetActiveBreakpoint(proxy->GetBreakpoint());
+	}
+	// if more than one item is selected, do nothing.
 }
 
 
@@ -646,9 +748,19 @@ TeamWindow::ClearBreakpointRequested(target_addr_t address)
 
 
 void
-TeamWindow::WatchpointSelectionChanged(Watchpoint* watchpoint)
+TeamWindow::ThreadActionRequested(::Thread* thread, uint32 action,
+	target_addr_t address)
 {
-	fBreakpointsView->SetBreakpoint(NULL, watchpoint);
+	if (fTraceUpdateRunner == NULL)
+		fListener->ThreadActionRequested(thread->ID(), action, address);
+}
+
+
+void
+TeamWindow::FunctionSourceCodeRequested(FunctionInstance* function,
+	bool forceDisassembly)
+{
+	fListener->FunctionSourceCodeRequested(function, forceDisassembly);
 }
 
 
@@ -712,6 +824,16 @@ TeamWindow::ImageDebugInfoChanged(const Team::ImageEvent& event)
 
 
 void
+TeamWindow::ConsoleOutputReceived(const Team::ConsoleOutputEvent& event)
+{
+	BMessage message(MSG_CONSOLE_OUTPUT_RECEIVED);
+	message.AddInt32("fd", event.Descriptor());
+	message.AddString("output", event.Output());
+	PostMessage(&message);
+}
+
+
+void
 TeamWindow::UserBreakpointChanged(const Team::UserBreakpointEvent& event)
 {
 	BMessage message(MSG_USER_BREAKPOINT_CHANGED);
@@ -760,29 +882,36 @@ TeamWindow::_Init()
 {
 	BScrollView* sourceScrollView;
 
-	BLayoutBuilder::Group<>(this, B_VERTICAL)
+	const float splitSpacing = 3.0f;
+
+	BLayoutBuilder::Group<>(this, B_VERTICAL, 0.0f)
 		.Add(fMenuBar = new BMenuBar("Menu"))
-		.AddSplit(B_VERTICAL, 3.0f)
+		.AddSplit(B_VERTICAL, splitSpacing)
 			.GetSplitView(&fFunctionSplitView)
-			.SetInsets(4.0f, 4.0f, 4.0f, 4.0f)
+			.SetInsets(B_USE_SMALL_INSETS)
 			.Add(fTabView = new BTabView("tab view"), 0.4f)
-			.AddGroup(B_VERTICAL, 4.0f)
-				.AddGroup(B_HORIZONTAL, 4.0f)
-					.Add(fRunButton = new BButton("Run"))
-					.Add(fStepOverButton = new BButton("Step Over"))
-					.Add(fStepIntoButton = new BButton("Step Into"))
-					.Add(fStepOutButton = new BButton("Step Out"))
-					.AddGlue()
-				.End()
-				.Add(fSourcePathView = new BStringView(
-					"source path",
-					"Source path unavailable."), 4.0f)
-				.AddSplit(B_HORIZONTAL, 3.0f)
-					.GetSplitView(&fSourceSplitView)
+			.AddSplit(B_HORIZONTAL, splitSpacing)
+				.GetSplitView(&fSourceSplitView)
+				.AddGroup(B_VERTICAL, B_USE_SMALL_SPACING)
+					.AddGroup(B_HORIZONTAL, B_USE_SMALL_SPACING)
+						.Add(fRunButton = new BButton("Run"))
+						.Add(fStepOverButton = new BButton("Step over"))
+						.Add(fStepIntoButton = new BButton("Step into"))
+						.Add(fStepOutButton = new BButton("Step out"))
+						.AddGlue()
+					.End()
+					.Add(fSourcePathView = new BStringView(
+						"source path",
+						"Source path unavailable."), 4.0f)
 					.Add(sourceScrollView = new BScrollView("source scroll",
-						NULL, 0, true, true), 3.0f)
-					.Add(fLocalsTabView = new BTabView("locals view"))
+						NULL, 0, true, true), splitSpacing)
 				.End()
+				.Add(fLocalsTabView = new BTabView("locals view"))
+			.End()
+			.AddSplit(B_VERTICAL, splitSpacing)
+				.GetSplitView(&fConsoleSplitView)
+				.SetInsets(0.0)
+				.Add(fConsoleOutputView = ConsoleOutputView::Create())
 			.End()
 		.End();
 
@@ -790,7 +919,7 @@ TeamWindow::_Init()
 	sourceScrollView->SetTarget(fSourceView = SourceView::Create(fTeam, this));
 
 	// add threads tab
-	BSplitView* threadGroup = new BSplitView(B_HORIZONTAL);
+	BSplitView* threadGroup = new BSplitView(B_HORIZONTAL, splitSpacing);
 	threadGroup->SetName("Threads");
 	fTabView->AddTab(threadGroup);
 	BLayoutBuilder::Split<>(threadGroup)
@@ -799,7 +928,7 @@ TeamWindow::_Init()
 		.Add(fStackTraceView = StackTraceView::Create(this));
 
 	// add images tab
-	BSplitView* imagesGroup = new BSplitView(B_HORIZONTAL);
+	BSplitView* imagesGroup = new BSplitView(B_HORIZONTAL, splitSpacing);
 	imagesGroup->SetName("Images");
 	fTabView->AddTab(imagesGroup);
 	BLayoutBuilder::Split<>(imagesGroup)
@@ -808,11 +937,12 @@ TeamWindow::_Init()
 		.Add(fImageFunctionsView = ImageFunctionsView::Create(this));
 
 	// add breakpoints tab
-	BGroupView* breakpointsGroup = new BGroupView(B_HORIZONTAL, 4.0f);
+	BGroupView* breakpointsGroup = new BGroupView(B_HORIZONTAL,
+		B_USE_SMALL_SPACING);
 	breakpointsGroup->SetName("Breakpoints");
 	fTabView->AddTab(breakpointsGroup);
 	BLayoutBuilder::Group<>(breakpointsGroup)
-		.SetInsets(4.0f, 4.0f, 4.0f, 4.0f)
+//		.SetInsets(0.0f)
 		.Add(fBreakpointsView = BreakpointsView::Create(fTeam, this));
 
 	// add local variables tab
@@ -840,10 +970,14 @@ TeamWindow::_Init()
 		fSourcePathView->AddFilter(filter);
 
 	// add menus and menu items
-	BMenu* menu = new BMenu("File");
+	BMenu* menu = new BMenu("Team");
 	fMenuBar->AddItem(menu);
-	BMenuItem* item = new BMenuItem("Quit", new BMessage(B_QUIT_REQUESTED),
-		'Q');
+	BMenuItem* item = new BMenuItem("Restart", new BMessage(
+		MSG_TEAM_RESTART_REQUESTED), 'R', B_SHIFT_KEY);
+	menu->AddItem(item);
+	item->SetTarget(this);
+	item = new BMenuItem("Close", new BMessage(B_QUIT_REQUESTED),
+		'W');
 	menu->AddItem(item);
 	item->SetTarget(this);
 	menu = new BMenu("Edit");
@@ -851,16 +985,16 @@ TeamWindow::_Init()
 	item = new BMenuItem("Copy", new BMessage(B_COPY), 'C');
 	menu->AddItem(item);
 	item->SetTarget(this);
-	item = new BMenuItem("Select All", new BMessage(B_SELECT_ALL), 'A');
+	item = new BMenuItem("Select all", new BMessage(B_SELECT_ALL), 'A');
 	menu->AddItem(item);
 	item->SetTarget(this);
 	menu = new BMenu("Tools");
 	fMenuBar->AddItem(menu);
-	item = new BMenuItem("Save Debug Report",
+	item = new BMenuItem("Save debug report",
 		new BMessage(MSG_CHOOSE_DEBUG_REPORT_LOCATION));
 	menu->AddItem(item);
 	item->SetTarget(this);
-	item = new BMenuItem("Inspect Memory",
+	item = new BMenuItem("Inspect memory",
 		new BMessage(MSG_SHOW_INSPECTOR_WINDOW), 'I');
 	menu->AddItem(item);
 	item->SetTarget(this);
@@ -938,6 +1072,9 @@ TeamWindow::_SetActiveImage(Image* image)
 void
 TeamWindow::_SetActiveStackTrace(StackTrace* stackTrace)
 {
+	delete fTraceUpdateRunner;
+	fTraceUpdateRunner = NULL;
+
 	if (stackTrace == fActiveStackTrace)
 		return;
 
@@ -950,10 +1087,12 @@ TeamWindow::_SetActiveStackTrace(StackTrace* stackTrace)
 		fActiveStackTrace->AcquireReference();
 
 	fStackTraceView->SetStackTrace(fActiveStackTrace);
-	fSourceView->SetStackTrace(fActiveStackTrace);
+	fSourceView->SetStackTrace(fActiveStackTrace, fActiveThread);
 
 	if (fActiveStackTrace != NULL)
 		_SetActiveStackFrame(fActiveStackTrace->FrameAt(0));
+	else
+		_SetActiveStackFrame(NULL);
 }
 
 
@@ -1030,8 +1169,6 @@ TeamWindow::_SetActiveBreakpoint(UserBreakpoint* breakpoint)
 		// automatically, if the active function remains the same)
 		_ScrollToActiveFunction();
 	}
-
-	fBreakpointsView->SetBreakpoint(fActiveBreakpoint, NULL);
 }
 
 
@@ -1169,12 +1306,14 @@ TeamWindow::_UpdateRunButtons()
 			fStepOutButton->SetEnabled(false);
 			break;
 		case THREAD_STATE_RUNNING:
-			fRunButton->SetLabel("Debug");
-			fRunButton->SetMessage(new BMessage(MSG_THREAD_STOP));
-			fRunButton->SetEnabled(true);
-			fStepOverButton->SetEnabled(false);
-			fStepIntoButton->SetEnabled(false);
-			fStepOutButton->SetEnabled(false);
+			if (fTraceUpdateRunner == NULL) {
+				fRunButton->SetLabel("Debug");
+				fRunButton->SetMessage(new BMessage(MSG_THREAD_STOP));
+				fRunButton->SetEnabled(true);
+				fStepOverButton->SetEnabled(false);
+				fStepIntoButton->SetEnabled(false);
+				fStepOutButton->SetEnabled(false);
+			}
 			break;
 		case THREAD_STATE_STOPPED:
 			fRunButton->SetLabel("Run");
@@ -1201,15 +1340,17 @@ TeamWindow::_UpdateSourcePathState()
 		if (sourceFile != NULL && !sourceFile->GetLocatedPath(sourceText))
 			sourceFile->GetPath(sourceText);
 
-		if (fActiveSourceCode->GetSourceFile() == NULL && sourceFile != NULL) {
+		if (fActiveFunction->GetFunction()->SourceCodeState()
+			!= FUNCTION_SOURCE_NOT_LOADED
+			&& fActiveSourceCode->GetSourceFile() == NULL
+			&& sourceFile != NULL) {
 			sourceText.Prepend("Click to locate source file '");
 			sourceText += "'";
 			truncatedText = sourceText;
 			fSourcePathView->TruncateString(&truncatedText, B_TRUNCATE_MIDDLE,
 				fSourcePathView->Bounds().Width());
-		} else if (sourceFile != NULL) {
+		} else if (sourceFile != NULL)
 			sourceText.Prepend("File: ");
-		}
 	}
 
 	if (!truncatedText.IsEmpty() && truncatedText != sourceText) {
@@ -1280,8 +1421,15 @@ TeamWindow::_HandleThreadStateChanged(thread_id threadID)
 	}
 
 	// Switch to the threads tab view when the thread has stopped.
-	if (thread->State() == THREAD_STATE_STOPPED)
+	if (thread->State() == THREAD_STATE_STOPPED) {
 		fTabView->Select(MAIN_TAB_INDEX_THREADS);
+
+		// if we hit a breakpoint or exception, raise the window to the
+		// foreground, since if this occurs while e.g. debugging a GUI
+		// app, it might not be immediately obvious that such an event
+		// occurred as the app may simply appear to hang.
+		Activate();
+	}
 
 	_UpdateRunButtons();
 }
@@ -1313,6 +1461,21 @@ TeamWindow::_HandleStackTraceChanged(thread_id threadID)
 		// hold a reference until the register view has one
 
 	locker.Unlock();
+
+	if (stackTrace == NULL) {
+		if (fTraceUpdateRunner != NULL)
+			return;
+
+		BMessage message(MSG_CLEAR_STACK_TRACE);
+		fTraceUpdateRunner = new(std::nothrow) BMessageRunner(this,
+			message, 250000, 1);
+		if (fTraceUpdateRunner != NULL
+			&& fTraceUpdateRunner->InitCheck() == B_OK) {
+			fStackTraceView->SetStackTraceClearPending();
+			fVariablesView->SetStackFrameClearPending();
+			return;
+		}
+	}
 
 	_SetActiveStackTrace(stackTrace);
 }
@@ -1354,8 +1517,11 @@ TeamWindow::_HandleSourceCodeChanged()
 	// get a reference to the source code
 	AutoLocker< ::Team> locker(fTeam);
 
-	SourceCode* sourceCode = fActiveFunction->GetFunction()->GetSourceCode();
-	if (sourceCode == NULL)
+	SourceCode* sourceCode = NULL;
+	if (fActiveFunction->GetFunction()->SourceCodeState()
+		== FUNCTION_SOURCE_LOADED) {
+		sourceCode = fActiveFunction->GetFunction()->GetSourceCode();
+	} else
 		sourceCode = fActiveFunction->GetSourceCode();
 
 	BReference<SourceCode> sourceCodeReference(sourceCode);
@@ -1381,6 +1547,44 @@ TeamWindow::_HandleWatchpointChanged(Watchpoint* watchpoint)
 }
 
 
+status_t
+TeamWindow::_RetrieveMatchingSourceWorker(void* arg)
+{
+	TeamWindow* window = (TeamWindow*)arg;
+
+	BStringList* entries = new(std::nothrow) BStringList();
+	if (entries == NULL)
+		return B_NO_MEMORY;
+	ObjectDeleter<BStringList> stringListDeleter(entries);
+
+	if (!window->Lock())
+		return B_BAD_VALUE;
+
+	BString path;
+	window->fActiveFunction->GetFunctionDebugInfo()->SourceFile()
+		->GetPath(path);
+	window->Unlock();
+
+	status_t error = window->_RetrieveMatchingSourceEntries(path, entries);
+	if (error != B_OK)
+		return error;
+
+	entries->Sort();
+	BMessenger messenger(window);
+	if (messenger.IsValid() && messenger.LockTarget()) {
+		if (window->fActiveSourceWorker == find_thread(NULL)) {
+			BMessage message(MSG_SOURCE_ENTRY_QUERY_COMPLETE);
+			message.AddPointer("entries", entries);
+			if (messenger.SendMessage(&message) == B_OK)
+				stringListDeleter.Detach();
+		}
+		window->Unlock();
+	}
+
+	return B_OK;
+}
+
+
 void
 TeamWindow::_HandleResolveMissingSourceFile(entry_ref& locatedPath)
 {
@@ -1389,14 +1593,167 @@ TeamWindow::_HandleResolveMissingSourceFile(entry_ref& locatedPath)
 			->SourceFile();
 		if (sourceFile != NULL) {
 			BString sourcePath;
-			BString targetPath;
 			sourceFile->GetPath(sourcePath);
-			BPath path(&locatedPath);
-			targetPath = path.Path();
-			fListener->SourceEntryLocateRequested(sourcePath, targetPath);
+			BString sourceFileName(sourcePath);
+			int32 index = sourcePath.FindLast('/');
+			if (index >= 0)
+				sourceFileName.Remove(0, index + 1);
+
+			BPath targetFilePath(&locatedPath);
+			if (targetFilePath.InitCheck() != B_OK)
+				return;
+
+			if (strcmp(sourceFileName.String(), targetFilePath.Leaf()) != 0) {
+				BString message;
+				message.SetToFormat("The names of source file '%s' and located"
+					" file '%s' differ. Use file anyway?",
+					sourceFileName.String(), targetFilePath.Leaf());
+				BAlert* alert = new(std::nothrow) BAlert(
+					"Source path mismatch", message.String(), "Cancel", "Use");
+				if (alert == NULL)
+					return;
+
+				int32 choice = alert->Go();
+				if (choice <= 0)
+					return;
+			}
+			fListener->SourceEntryLocateRequested(sourcePath,
+				targetFilePath.Path());
 			fListener->FunctionSourceCodeRequested(fActiveFunction);
 		}
 	}
+}
+
+
+void
+TeamWindow::_HandleLocateSourceRequest(BStringList* entries)
+{
+	if (fActiveFunction == NULL)
+		return;
+	else if (fActiveFunction->GetFunctionDebugInfo()->SourceFile() == NULL)
+		return;
+	else if (fActiveSourceCode == NULL)
+		return;
+	else if (fActiveSourceCode->GetSourceFile() != NULL)
+		return;
+	else if (fActiveFunction->GetFunction()->SourceCodeState()
+		== FUNCTION_SOURCE_NOT_LOADED) {
+		return;
+	}
+
+	if (entries == NULL) {
+		if (fActiveSourceWorker < 0) {
+			fActiveSourceWorker = spawn_thread(&_RetrieveMatchingSourceWorker,
+				"source file query worker", B_NORMAL_PRIORITY, this);
+			if (fActiveSourceWorker > 0)
+				resume_thread(fActiveSourceWorker);
+		}
+		return;
+	}
+
+	int32 count = entries->CountStrings();
+	if (count > 0) {
+		BPopUpMenu* menu = new(std::nothrow) BPopUpMenu("");
+		if (menu == NULL)
+			return;
+
+		BPrivate::ObjectDeleter<BPopUpMenu> menuDeleter(menu);
+		BMenuItem* item = NULL;
+		for (int32 i = 0; i < count; i++) {
+			item = new(std::nothrow) BMenuItem(entries->StringAt(i).String(),
+				NULL);
+			if (item == NULL || !menu->AddItem(item)) {
+				delete item;
+				return;
+			}
+		}
+
+		menu->AddSeparatorItem();
+		BMenuItem* manualItem = new(std::nothrow) BMenuItem(
+			"Locate manually" B_UTF8_ELLIPSIS, NULL);
+		if (manualItem == NULL || !menu->AddItem(manualItem)) {
+			delete manualItem;
+			return;
+		}
+
+		BPoint point;
+		fSourcePathView->GetMouse(&point, NULL, false);
+		fSourcePathView->ConvertToScreen(&point);
+		item = menu->Go(point, false, true);
+		if (item == NULL)
+			return;
+		else if (item != manualItem) {
+			// if the user picks to locate the entry manually,
+			// then fall through to the usual file panel logic
+			// as if we'd found no matches at all.
+			entry_ref ref;
+			if (get_ref_for_path(item->Label(), &ref) == B_OK) {
+				_HandleResolveMissingSourceFile(ref);
+				return;
+			}
+		}
+	}
+
+	try {
+		if (fFilePanel == NULL) {
+			fFilePanel = new BFilePanel(B_OPEN_PANEL,
+				new BMessenger(this));
+		}
+		fFilePanel->Show();
+	} catch (...) {
+		delete fFilePanel;
+		fFilePanel = NULL;
+	}
+}
+
+
+status_t
+TeamWindow::_RetrieveMatchingSourceEntries(const BString& path,
+	BStringList* _entries)
+{
+	BPath filePath(path);
+	status_t error = filePath.InitCheck();
+	if (error != B_OK)
+		return error;
+
+	_entries->MakeEmpty();
+
+	BQuery query;
+	BString predicate;
+	query.PushAttr("name");
+	query.PushString(filePath.Leaf());
+	query.PushOp(B_EQ);
+
+	error = query.GetPredicate(&predicate);
+	if (error != B_OK)
+		return error;
+
+	BVolumeRoster roster;
+	BVolume volume;
+	while (roster.GetNextVolume(&volume) == B_OK) {
+		if (!volume.KnowsQuery())
+			continue;
+
+		if (query.SetVolume(&volume) != B_OK)
+			continue;
+
+		error = query.SetPredicate(predicate.String());
+		if (error != B_OK)
+			continue;
+
+		if (query.Fetch() != B_OK)
+			continue;
+
+		entry_ref ref;
+		while (query.GetNextRef(&ref) == B_OK) {
+			filePath.SetTo(&ref);
+			_entries->Add(filePath.Path());
+		}
+
+		query.Clear();
+	}
+
+	return B_OK;
 }
 
 

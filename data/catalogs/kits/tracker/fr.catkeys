@@ -1,5 +1,4 @@
-1	french	x-vnd.Haiku-libtracker	3375521561
-common	B_COMMON_DIRECTORY		commun
+1	french	x-vnd.Haiku-libtracker	2212190051
 OK	WidgetAttributeText		OK
 Icon view	VolumeWindow		Vue en icônes
 Add-ons	FilePanelPriv		Extensions
@@ -74,9 +73,9 @@ Arrange by	ContainerWindow		Trier par
 Mount server error	AutoMounterSettings		Erreur du serveur de montage
 Search	FindPanel		Chercher
 Preparing to empty Trash…	StatusWindow		Préparation au vidage de la Corbeille…
+You cannot put the selected item(s) into the trash.	FSUtils		Vous ne pouvez pas déplacer l(es) élément(s) sélectionné(s) vers la corbeille.
 Disks	Model		Disques
 Create link	ContainerWindow		Créer un lien
-develop	B_COMMON_DEVELOP_DIRECTORY		développement
 Decrease size	DeskWindow		Diminuer la taille
 Size	ContainerWindow		Taille
 All disks	AutoMounterSettings		Tout les disques
@@ -101,6 +100,7 @@ New folder	FilePanelPriv		Nouveau dossier
 %name info	InfoWindow	InfoWindow Title	Informations sur %name
 Favorites	FavoritesMenu		Favoris
 Add-ons	VolumeWindow		Extensions
+\"%name\" is an unsupported executable.	FSUtils		« %name » n'est pas un exécutable supporté.
 Sorry, you can't copy items to the Trash.	PoseView		Désolé, vous ne pouvez pas copier des éléments dans la Corbeille.
 List view	VolumeWindow		Vue en liste
 matches wildcard expression	SelectionWindow		correspond à l'expression générique
@@ -142,12 +142,12 @@ Add-ons	ContainerWindow		Extensions
 Edit templates…	TemplatesMenu		Éditer les modèles…
 Finish: %time - Over %finishtime left	StatusWindow		Fin : %time - il reste plus de %finishtime
 An item named \"%name\" already exists in this folder. Would you like to replace it with the symbolic link you are creating?	FSUtils		Un élément nommé « %name » existe déjà dans ce dossier. Voulez vous le remplacer par le lien symbolique que vous créez ?
+Fewer options	FindPanel		Moins d'options
 Sorry, there is not enough free space on the destination volume to copy the selection.	FSUtils		Désolé, il n'y a pas assez d'espace libre dans le volume cible pour copier la sélection.
 Could not open \"%document\" with application \"%app\" (%error). 	FSUtils		Impossible d'ouvrir « %document » avec l'application « %app » (%error). 
 Sorry, saving more than one item is not allowed.	FilePanelPriv		Désolé, il n'est pas permis de sauvegarder plus d'un élément.
 Searching for disks to mount…	StatusWindow		Recherche des disques à monter…
 New folder	FSUtils		Nouveau dossier
-If you %ifYouDoAction the common folder, %osName may not behave properly!\n\nAre you sure you want to do this?\n\nTo %toDoAction the common folder anyway, hold down the Shift key and click \"%toConfirmAction\".	FSUtils		Si vous %ifYouDoAction le dossier commun, %osName pourrait ne pas se comporter correctement !\n\nÊtes vous sûr de vouloir effectuer cette opération ?\n\nPour %toDoAction le dossier commun quand même, maintenez la touche <Maj> enfoncée et cliquez sur « %toConfirmAction ».
 Free space color	SettingsView		Couleur de l'espace libre
 Cut	ContainerWindow		Couper
 Remove	FindPanel		Supprimer
@@ -203,7 +203,7 @@ Open	InfoWindow		Ouvrir
 64 x 64	ContainerWindow		64 x 64
 Replace all	FSUtils		Remplacer tout
 Preparing to restore items…	StatusWindow		Restauration des éléments en préparation...
-Replace other file	WidgetAttributeText		Remplacer un autre fichier
+Replace other file	WidgetAttributeText		Remplacer l'autre fichier
 Some of the selected items cannot be moved to the Trash. Would you like to delete them instead? (This operation cannot be reverted.)	PoseView		Certains des éléments sélectionnés ne peuvent pas être envoyés à la Corbeille. Voulez vous les supprimer ? (Cette opération est irrémédiable.)
 You cannot create a link to the root directory.	FSUtils		Vous ne pouvez pas créer un lien vers le répertoire racine.
 48 x 48	ContainerWindow		48 x 48
@@ -211,7 +211,6 @@ Resize to fit	VolumeWindow		Ajuster
 Could not find application \"%appname\"	OpenWithWindow		Impossible de trouver l'application « %appname »
 The selected item cannot be moved to the Trash. Would you like to delete it instead? (This operation cannot be reverted.)	PoseView		L'élément sélectionné ne peut pas être envoyé à la Corbeille. Voulez vous le supprimer ? (Cette opération est irrémédiable.)
 Invert	SelectionWindow		Inverser
-Save Query as template…	FindPanel		Enregistrer le modèle de la requête…
 rename	InfoWindow	As in 'if you rename this folder...' (en) 'Wird dieser Ordner umbenannt...' (de)	renommez
 Find	FindPanel		Rechercher
 Move	FSUtils	Button label, 'Move' (en), 'Verschieben' (de)	Déplacer
@@ -236,6 +235,7 @@ Temporary	FindPanel		Temporaire
 Version	OpenWithWindow		Version
 Default application	InfoWindow		Application par défaut
 Preparing to copy items…	StatusWindow		Copie des éléments en préparation…
+Save query as template…	FindPanel		Enregistrer le modèle de la requête…
 Show folder location in title tab	SettingsView		Afficher l'emplacement du dossier dans la barre de titre
 Proceed	FSUtils		Procéder
 Some items already exist in this folder with the same names as the items you are %verb.\n \nWould you like to replace them with the ones you are %verb or be prompted for each one?	FSUtils		Plusieurs éléments de ce dossier portent les mêmes noms que des éléments que vous êtes en train de %verb.\n\nVoulez-vous les remplacer par ceux que vous êtes en train de %verb ou voulez-vous qu'une confirmation vous soit demandée pour chacun d'eux ?
@@ -248,7 +248,6 @@ Mount settings…	SettingsView		Réglages du montage…
 Edit name	InfoWindow		Éditer le nom
 Could not open \"%name\" (%error). 	FSUtils		Impossible d'ouvrir « %name » (%error). 
 Paste	ContainerWindow		Coller
-optional	/boot/optional		optionnel
 Modified:	InfoWindow		Modifié :
 Error moving \"%name\".	FSUtils		Erreur au déplacement de « %name ».
 TiB	WidgetAttributeText		Tio
@@ -334,6 +333,7 @@ The specified name is already used as the name of a folder. Please choose anothe
 Clean up	ContainerWindow		Nettoyer
 after	FindPanel		après
 Select…	QueryContainerWindow		Sélectionner…
+More options	FindPanel		Plus d'options
 link	FSUtils	filename link	lien
 At %func \nfind_directory() failed. \nReason: %error	TrackerInitialState		Dans %func\nfind_directory() a échoué.\nMotif : %error
 The specified name is illegal. Please choose another name.	FilePanelPriv		Le nom indiqué n'est pas valide. Veuillez choisir un autre nom.
@@ -409,6 +409,7 @@ Paste layout	ContainerWindow		Coller la disposition
 Select	InfoWindow		Sélectionner
 Could not update permissions of file \"%name\". %error	FSUtils		Impossible de modifier les permissions du fichier « %name ». %error
 Select…	FilePanelPriv		Sélectionner…
+\"%name\" is a legacy executable. Please obtain an updated version or recompile the application.	FSUtils		« %name » est un exécutable ancien. Veuillez vous procurer une version mise à jour, ou recompiler l'application.
 There was an error resolving the link.	Tracker		Une erreur est survenue lors de la résolution du lien.
 %BytesPerSecond/s	StatusWindow		%BytesPerSecond/s
 You can't move or copy the trash.	FSUtils		Vous ne pouvez ni déplacer, ni copier la Corbeille.
@@ -428,6 +429,7 @@ New	ContainerWindow		Nouveau
 Name matches wildcard expression:###	SelectionWindow		Nom correspondant à l'expression générique : ###
 less than	FindPanel		inférieur à
 64 x 64	DeskWindow		64 x 64
+develop	B_SYSTEM_DEVELOP_DIRECTORY		développement
 Modified	ContainerWindow		Modifié
 Edit Query template	FindPanel		Modifier le modèle de requête
 Prompt	FSUtils		Invite
@@ -445,6 +447,7 @@ contains	FindPanel		contient
 Relation	OpenWithWindow		Relation
 Open	FilePanelPriv		Ouvrir
 Mount	DeskWindow		Monter
+Recent queries	FindPanel		Requêtes récentes
 Mount	ContainerWindow		Monter
 %capacity (%used used -- %free free)	InfoWindow		%capacity (%used utilisés -- %free libres)
 Cancel	FSClipBoard		Annuler

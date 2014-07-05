@@ -19,6 +19,8 @@ SimpleTest link_echo : link_echo.cpp : $(TARGET_NETWORK_LIBS) bnetapi be ;
 
 SimpleTest getpeername : getpeername.cpp : $(TARGET_NETWORK_LIBS) ;
 
+SimpleTest if_nameindex : if_nameindex.c : $(TARGET_NETWORK_LIBS) ;
+
 SimpleTest tcp_connection_test : tcp_connection_test.cpp
 	: $(TARGET_NETWORK_LIBS) ;
 
@@ -38,8 +40,8 @@ HaikuSubInclude libnetapi ;
 SubInclude HAIKU_TOP src tests kits net multicast ;
 SubInclude HAIKU_TOP src tests kits net netperf ;
 SubInclude HAIKU_TOP src tests kits net preflet ;
+SubInclude HAIKU_TOP src tests kits net service ;
 SubInclude HAIKU_TOP src tests kits net sock ;
 SubInclude HAIKU_TOP src tests kits net tcp_shell ;
 SubInclude HAIKU_TOP src tests kits net tcptester ;
-SubInclude HAIKU_TOP src tests kits net url ;
 SubInclude HAIKU_TOP src tests kits net urlRequest ;

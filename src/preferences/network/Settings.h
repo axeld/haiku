@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2010 Haiku Inc. All rights reserved.
+ * Copyright 2004-2013 Haiku Inc. All rights reserved.
  * Distributed under the terms of the MIT License.
  *
  * Authors:
@@ -10,6 +10,9 @@
 #define SETTINGS_H
 
 
+#include <vector>
+
+#include <NetworkDevice.h>
 #include <ObjectList.h>
 #include <String.h>
 
@@ -31,8 +34,6 @@ public:
 									{ fAuto = autoConfigure; }
 			void				SetDisabled(bool disabled)
 									{ fDisabled = disabled; }
-			void				SetWirelessNetwork(const char* name)
-									{ fWirelessNetwork.SetTo(name); }
 
 			const char*			IP()  { return fIP.String(); }
 			const char*			Gateway()  { return fGateway.String(); }
@@ -41,25 +42,22 @@ public:
 			const char*			Domain() { return fDomain.String(); }
 			bool				AutoConfigure() { return fAuto; }
 			bool				IsDisabled() { return fDisabled; }
-			const BString&		WirelessNetwork() { return fWirelessNetwork; }
+
+			std::vector<wireless_network> WirelessNetworks();
 
 			BObjectList<BString>& NameServers() { return fNameServers; }
 
 			void				ReadConfiguration();
 
 private:
-			bool				_PrepareRequest(struct ifreq& request);
-
 			BString				fIP;
 			BString				fGateway;
 			BString				fNetmask;
 			BString				fName;
 			BString				fDomain;
-			int					fSocket;
 			bool				fAuto;
 			bool				fDisabled;
 			BObjectList<BString> fNameServers;
-			BString				fWirelessNetwork;
 };
 
 

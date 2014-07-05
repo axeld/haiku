@@ -1,6 +1,6 @@
 /*
  * Copyright 2009-2012, Ingo Weinhold, ingo_weinhold@gmx.de.
- * Copyright 2012, Rene Gollent, rene@gollent.com.
+ * Copyright 2012-2014, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 
@@ -299,7 +299,8 @@ DwarfImageDebugInfo::Init()
 
 
 status_t
-DwarfImageDebugInfo::GetFunctions(BObjectList<FunctionDebugInfo>& functions)
+DwarfImageDebugInfo::GetFunctions(const BObjectList<SymbolInfo>& symbols,
+	BObjectList<FunctionDebugInfo>& functions)
 {
 	TRACE_IMAGES("DwarfImageDebugInfo::GetFunctions()\n");
 	TRACE_IMAGES("  %" B_PRId32 " compilation units\n",
@@ -350,7 +351,7 @@ DwarfImageDebugInfo::GetFunctions(BObjectList<FunctionDebugInfo>& functions)
 			if (rangeList == NULL) {
 				target_addr_t lowPC = subprogramEntry->LowPC();
 				target_addr_t highPC = subprogramEntry->HighPC();
-				if (lowPC >= highPC)
+				if (highPC <= lowPC)
 					continue;
 
 				rangeList = new(std::nothrow) TargetAddressRangeList(
@@ -413,9 +414,14 @@ DwarfImageDebugInfo::GetFunctions(BObjectList<FunctionDebugInfo>& functions)
 		return B_OK;
 
 	// if we had no compilation units, fall back to providing basic
-	// debug infos with DWARF-supported call frame unwinding
-	return SpecificImageDebugInfo::GetFunctionsFromSymbols(functions,
-		fDebuggerInterface, fImageInfo, this);
+	// debug infos with DWARF-supported call frame unwinding,
+	// if available.
+	if (fFile->HasFrameInformation()) {
+		return SpecificImageDebugInfo::GetFunctionsFromSymbols(symbols,
+			functions, fDebuggerInterface, fImageInfo, this);
+	}
+
+	return B_OK;
 }
 
 
@@ -699,7 +705,8 @@ DwarfImageDebugInfo::GetStatement(FunctionDebugInfo* _function,
 		= dynamic_cast<DwarfFunctionDebugInfo*>(_function);
 	if (function == NULL) {
 		TRACE_LINES("  -> no dwarf function\n");
-		return B_BAD_VALUE;
+		// fall back to assembly
+		return fArchitecture->GetStatement(function, address, _statement);
 	}
 
 	AutoLocker<BLocker> locker(fLock);
@@ -1090,41 +1097,30 @@ DwarfImageDebugInfo::_CreateReturnValues(ReturnValueInfoList* returnValueInfos,
 	Image* image, StackFrame* frame, DwarfStackFrameDebugInfo& factory)
 {
 	for (int32 i = 0; i < returnValueInfos->CountItems(); i++) {
+		Image* targetImage = image;
 		ReturnValueInfo* valueInfo = returnValueInfos->ItemAt(i);
 		target_addr_t subroutineAddress = valueInfo->SubroutineAddress();
 		CpuState* subroutineState = valueInfo->State();
-		if (!image->ContainsAddress(subroutineAddress)) {
+		if (!targetImage->ContainsAddress(subroutineAddress)) {
 			// our current image doesn't contain the target function,
 			// locate the one which does.
-			image = image->GetTeam()->ImageByAddress(subroutineAddress);
-			if (image == NULL) {
+			targetImage = image->GetTeam()->ImageByAddress(subroutineAddress);
+			if (targetImage == NULL) {
 				// nothing we can do, try the next entry (if any)
 				continue;
 			}
 		}
 
 		status_t result = B_OK;
-		ImageDebugInfo* imageInfo = image->GetImageDebugInfo();
+		ImageDebugInfo* imageInfo = targetImage->GetImageDebugInfo();
+
 		FunctionInstance* targetFunction;
-		if (subroutineAddress >= fPLTSectionStart
-			&& subroutineAddress < fPLTSectionEnd) {
-			// if the function in question is position-independent, the call
-			// will actually have taken us to its corresponding PLT slot.
-			// in such a case, look at the disassembled jump to determine
-			// where to find the actual function address.
-			InstructionInfo info;
-			if (fDebuggerInterface->GetArchitecture()->GetInstructionInfo(
-				subroutineAddress, info, subroutineState) != B_OK) {
-				return B_BAD_VALUE;
-			}
-
-			target_size_t addressSize = fDebuggerInterface->GetArchitecture()
-				->AddressSize();
-			ssize_t bytesRead = fDebuggerInterface->ReadMemory(
-				info.TargetAddress(), &subroutineAddress, addressSize);
-
-			if (bytesRead != (ssize_t)addressSize)
-				return B_BAD_VALUE;
+		if (imageInfo->GetAddressSectionType(subroutineAddress)
+				== ADDRESS_SECTION_TYPE_PLT) {
+			result = fArchitecture->ResolvePICFunctionAddress(
+				subroutineAddress, subroutineState, subroutineAddress);
+			if (result != B_OK)
+				continue;
 		}
 
 		targetFunction = imageInfo->FunctionAtAddress(subroutineAddress);
@@ -1154,6 +1150,11 @@ DwarfImageDebugInfo::_CreateReturnValues(ReturnValueInfoList* returnValueInfos,
 						byteSize = fArchitecture->AddressSize();
 				} else
 					byteSize = returnType->ByteSize()->constant;
+
+				// if we were unable to determine a size for the type,
+				// simply default to the architecture's register width.
+				if (byteSize == 0)
+					byteSize = fArchitecture->AddressSize();
 
 				ValueLocation* location;
 				result = fArchitecture->GetReturnAddressLocation(frame,

@@ -164,6 +164,7 @@ ppc_exception_entry(int vector, struct iframe *iframe)
 
 			vm_page_fault(iframe->dar, iframe->srr0,
 				iframe->dsisr & (1 << 25), // store or load
+				false,
 				iframe->srr1 & (1 << 14), // was the system in user or supervisor
 				&newip);
 			if (newip != 0) {
@@ -244,8 +245,8 @@ dprintf("handling I/O interrupts done\n");
 
 	cpu_status state = disable_interrupts();
 	if (thread->cpu->invoke_scheduler) {
-		SpinLocker schedulerLocker(gSchedulerLock);
-		scheduler_reschedule();
+		SpinLocker schedulerLocker(thread->scheduler_lock);
+		scheduler_reschedule(B_THREAD_READY);
 		schedulerLocker.Unlock();
 		restore_interrupts(state);
 	} else if (thread->post_interrupt_callback != NULL) {

@@ -13,6 +13,9 @@
 #ifdef _KERNEL_MODE
 #	include <KernelExport.h>
 #	include <util/kernel_cpp.h>
+#	include <util/TypeOperation.h>
+#else
+#	include <TypeOperation.h>
 #endif
 
 
@@ -126,12 +129,17 @@ public:
 		return fTableSize;
 	}
 
+	bool IsEmpty() const
+	{
+		return fItemCount == 0;
+	}
+
 	size_t CountElements() const
 	{
 		return fItemCount;
 	}
 
-	ValueType* Lookup(const KeyType& key) const
+	ValueType* Lookup(typename TypeOperation<KeyType>::ConstRefT key) const
 	{
 		if (fTableSize == 0)
 			return NULL;
@@ -230,7 +238,7 @@ public:
 	*/
 	ValueType* Clear(bool returnElements = false)
 	{
-		if (this->fItemCount == 0)
+		if (fItemCount == 0)
 			return NULL;
 
 		ValueType* result = NULL;
@@ -256,6 +264,7 @@ public:
 		}
 
 		memset(this->fTable, 0, sizeof(ValueType*) * this->fTableSize);
+		fItemCount = 0;
 
 		return result;
 	}
@@ -358,7 +367,7 @@ public:
 		return Iterator(this);
 	}
 
-	Iterator GetIterator(const KeyType& key) const
+	Iterator GetIterator(typename TypeOperation<KeyType>::ConstRefT key) const
 	{
 		if (fTableSize == 0)
 			return Iterator(this, fTableSize, NULL);

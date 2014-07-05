@@ -11,6 +11,7 @@
 #include <arch/vm_translation_map.h>
 
 #include <boot/kernel_args.h>
+#include <safemode.h>
 
 #ifdef __x86_64__
 #	include "paging/64bit/X86PagingMethod64Bit.h"
@@ -86,22 +87,30 @@ arch_vm_translation_map_init(kernel_args *args,
 	gX86PagingMethod = new(&sPagingMethodBuffer) X86PagingMethod64Bit;
 #elif B_HAIKU_PHYSICAL_BITS == 64
 	bool paeAvailable = x86_check_feature(IA32_FEATURE_PAE, FEATURE_COMMON);
-	bool paeNeeded = false;
-	for (uint32 i = 0; i < args->num_physical_memory_ranges; i++) {
-		phys_addr_t end = args->physical_memory_range[i].start
-			+ args->physical_memory_range[i].size;
-		if (end > 0x100000000LL) {
-			paeNeeded = true;
-			break;
+	bool paeNeeded = x86_check_feature(IA32_FEATURE_AMD_EXT_NX,
+		FEATURE_EXT_AMD);
+	if (!paeNeeded) {
+		for (uint32 i = 0; i < args->num_physical_memory_ranges; i++) {
+			phys_addr_t end = args->physical_memory_range[i].start
+				+ args->physical_memory_range[i].size;
+			if (end > 0x100000000LL) {
+				paeNeeded = true;
+				break;
+			}
 		}
 	}
 
-	if (paeAvailable && paeNeeded) {
+	bool paeDisabled = get_safemode_boolean_early(args,
+		B_SAFEMODE_4_GB_MEMORY_LIMIT, false);
+
+	if (paeAvailable && paeNeeded && !paeDisabled) {
 		dprintf("using PAE paging\n");
 		gX86PagingMethod = new(&sPagingMethodBuffer) X86PagingMethodPAE;
 	} else {
-		dprintf("using 32 bit paging (PAE not %s)\n",
-			paeNeeded ? "available" : "needed");
+		dprintf("using 32 bit paging (PAE %s)\n",
+			paeNeeded
+				? "not available"
+				: (paeDisabled ? "disabled" : "not needed"));
 		gX86PagingMethod = new(&sPagingMethodBuffer) X86PagingMethod32Bit;
 	}
 #else
@@ -132,7 +141,8 @@ status_t
 arch_vm_translation_map_early_map(kernel_args *args, addr_t va, phys_addr_t pa,
 	uint8 attributes, phys_addr_t (*get_free_page)(kernel_args *))
 {
-	TRACE("early_tmap: entry pa 0x%lx va 0x%lx\n", pa, va);
+	TRACE("early_tmap: entry pa %#" B_PRIxPHYSADDR " va %#" B_PRIxADDR "\n", pa,
+		va);
 
 	return gX86PagingMethod->MapEarly(args, va, pa, attributes, get_free_page);
 }

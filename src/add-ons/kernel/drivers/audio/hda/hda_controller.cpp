@@ -12,8 +12,6 @@
 
 #include <algorithm>
 
-#include <PCI_x86.h>
-
 #include "driver.h"
 #include "hda_codec_defs.h"
 
@@ -36,10 +34,12 @@
 
 
 #define PCI_VENDOR_AMD			0x1002
+#define PCI_VENDOR_CREATIVE		0x1102
 #define PCI_VENDOR_INTEL		0x8086
 #define PCI_VENDOR_NVIDIA		0x10de
 #define PCI_ALL_DEVICES			0xffffffff
 #define HDA_QUIRK_SNOOP			0x0001
+#define HDA_QUIRK_NO_MSI		0x0002
 
 
 static const struct {
@@ -50,15 +50,24 @@ static const struct {
 	{ PCI_VENDOR_INTEL, 0x1d20, HDA_QUIRK_SNOOP },
 	{ PCI_VENDOR_INTEL, 0x1e20, HDA_QUIRK_SNOOP },
 	{ PCI_VENDOR_INTEL, 0x8c20, HDA_QUIRK_SNOOP },
+	{ PCI_VENDOR_INTEL, 0x8d20, HDA_QUIRK_SNOOP },
+	{ PCI_VENDOR_INTEL, 0x8d21, HDA_QUIRK_SNOOP },
 	{ PCI_VENDOR_INTEL, 0x9c20, HDA_QUIRK_SNOOP },
 	{ PCI_VENDOR_INTEL, 0x9c21, HDA_QUIRK_SNOOP },
+	{ PCI_VENDOR_INTEL, 0x9ca0, HDA_QUIRK_SNOOP },
+	{ PCI_VENDOR_INTEL, 0x0a0c, HDA_QUIRK_SNOOP },
 	{ PCI_VENDOR_INTEL, 0x0c0c, HDA_QUIRK_SNOOP },
+	{ PCI_VENDOR_INTEL, 0x0d0c, HDA_QUIRK_SNOOP },
+	{ PCI_VENDOR_INTEL, 0x160c, HDA_QUIRK_SNOOP },
 	{ PCI_VENDOR_INTEL, 0x811b, HDA_QUIRK_SNOOP },
 	{ PCI_VENDOR_INTEL, 0x080a, HDA_QUIRK_SNOOP },
+	{ PCI_VENDOR_INTEL, 0x0f04, HDA_QUIRK_SNOOP },
 	// Enable snooping for ATI and Nvidia, right now for all their hda-devices,
 	// but only based on guessing.
 	{ PCI_VENDOR_AMD, PCI_ALL_DEVICES, HDA_QUIRK_SNOOP },
-	{ PCI_VENDOR_NVIDIA, PCI_ALL_DEVICES, HDA_QUIRK_SNOOP },
+	{ PCI_VENDOR_NVIDIA, PCI_ALL_DEVICES, HDA_QUIRK_SNOOP | HDA_QUIRK_NO_MSI },
+	{ PCI_VENDOR_CREATIVE, 0x0010, HDA_QUIRK_NO_MSI },
+	{ PCI_VENDOR_CREATIVE, 0x0012, HDA_QUIRK_NO_MSI }
 };
 
 
@@ -81,9 +90,6 @@ static const struct {
 	// this one is not supported by hardware.
 	// {B_SR_384000, MAKE_RATE(44100, ??, ??), 384000},
 };
-
-
-static pci_x86_module_info* sPCIx86Module;
 
 
 static uint32
@@ -853,7 +859,7 @@ hda_hw_init(hda_controller* controller)
 	uint16 stateStatus;
 	uint16 cmd;
 	status_t status;
-	uint32 quirks;
+	uint32 quirks = get_controller_quirks(controller->pci_info);
 
 	// Map MMIO registers
 	controller->regs_area = map_physical_memory("hda_hw_regs",
@@ -884,27 +890,21 @@ hda_hw_init(hda_controller* controller)
 		controller->pci_info.device, controller->pci_info.function,
 			PCI_command, 2, cmd);
 
-	if (get_module(B_PCI_X86_MODULE_NAME, (module_info**)&sPCIx86Module)
-			!= B_OK)
-		sPCIx86Module = NULL;
-
 	// Absolute minimum hw is online; we can now install interrupt handler
 
 	controller->irq = controller->pci_info.u.h0.interrupt_line;
 	controller->msi = false;
 
-	// TODO: temporarily disabled, as at least on my hardware audio becomes
-	// flaky after this.
-/*
-	if (sPCIx86Module != NULL && sPCIx86Module->get_msi_count(
-			controller->pci_info.bus, controller->pci_info.device,
-			controller->pci_info.function) >= 1) {
+	if (gPCIx86Module != NULL && (quirks & HDA_QUIRK_NO_MSI) == 0
+			&& gPCIx86Module->get_msi_count(
+				controller->pci_info.bus, controller->pci_info.device,
+				controller->pci_info.function) >= 1) {
 		// Try MSI first
 		uint8 vector;
-		if (sPCIx86Module->configure_msi(controller->pci_info.bus,
+		if (gPCIx86Module->configure_msi(controller->pci_info.bus,
 				controller->pci_info.device, controller->pci_info.function,
 				1, &vector) == B_OK
-			&& sPCIx86Module->enable_msi(controller->pci_info.bus,
+			&& gPCIx86Module->enable_msi(controller->pci_info.bus,
 				controller->pci_info.device, controller->pci_info.function)
 					== B_OK) {
 			dprintf("hda: using MSI vector %u\n", vector);
@@ -912,7 +912,6 @@ hda_hw_init(hda_controller* controller)
 			controller->msi = true;
 		}
 	}
-*/
 
 	status = install_io_interrupt_handler(controller->irq,
 		(interrupt_handler)hda_interrupt_handler, controller, 0);
@@ -922,7 +921,6 @@ hda_hw_init(hda_controller* controller)
 	// TCSEL is reset to TC0 (clear 0-2 bits)
 	update_pci_register(controller, PCI_HDA_TCSEL, PCI_HDA_TCSEL_MASK, 0, 1);
 
-	quirks = get_controller_quirks(controller->pci_info);
 	if ((quirks & HDA_QUIRK_SNOOP) != 0) {
 		switch (controller->pci_info.vendor_id) {
 			case PCI_VENDOR_NVIDIA:
@@ -1025,7 +1023,7 @@ corb_rirb_failed:
 
 reset_failed:
 	if (controller->msi) {
-		sPCIx86Module->disable_msi(controller->pci_info.bus,
+		gPCIx86Module->disable_msi(controller->pci_info.bus,
 			controller->pci_info.device, controller->pci_info.function);
 	}
 
@@ -1036,11 +1034,6 @@ no_irq:
 	delete_area(controller->regs_area);
 	controller->regs_area = B_ERROR;
 	controller->regs = NULL;
-
-	if (sPCIx86Module != NULL) {
-		put_module(B_PCI_X86_MODULE_NAME);
-		sPCIx86Module = NULL;
-	}
 
 error:
 	dprintf("hda: ERROR: %s(%ld)\n", strerror(status), status);
@@ -1083,16 +1076,16 @@ hda_hw_uninit(hda_controller* controller)
 
 	if (controller->msi) {
 		// Disable MSI
-		sPCIx86Module->disable_msi(controller->pci_info.bus,
+		gPCIx86Module->disable_msi(controller->pci_info.bus,
 			controller->pci_info.device, controller->pci_info.function);
 	}
 
 	remove_io_interrupt_handler(controller->irq,
 		(interrupt_handler)hda_interrupt_handler, controller);
 
-	if (sPCIx86Module != NULL) {
+	if (gPCIx86Module != NULL) {
 		put_module(B_PCI_X86_MODULE_NAME);
-		sPCIx86Module = NULL;
+		gPCIx86Module = NULL;
 	}
 
 	// Delete corb/rirb area

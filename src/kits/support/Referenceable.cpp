@@ -6,10 +6,14 @@
 
 #include <Referenceable.h>
 
-#include <debugger.h>
+#ifdef DEBUG
+#include <stdio.h>
+#endif
+
+#include <OS.h>
 
 //#define TRACE_REFERENCEABLE
-#ifdef TRACE_REFERENCEABLE
+#if defined(TRACE_REFERENCEABLE) && defined(_KERNEL_MODE)
 #	include <tracing.h>
 #	define TRACE(x, ...) ktrace_printf(x, __VA_ARGS__);
 #else
@@ -26,8 +30,9 @@ BReferenceable::BReferenceable()
 
 BReferenceable::~BReferenceable()
 {
-#ifdef DEBUG
+#if defined(DEBUG) && !defined(_BOOT_MODE)
 	bool enterDebugger = false;
+	char message[256];
 	if (fReferenceCount == 1) {
 		// Simple heuristic to test if this object was allocated
 		// on the stack: check if this is within 1KB in either
@@ -36,22 +41,29 @@ BReferenceable::~BReferenceable()
 		// imply the object was allocated/destroyed on the stack
 		// without any references being acquired or released.
 		char test;
-		size_t testOffset = (addr_t)this - (addr_t)&test;
+		ssize_t testOffset = (addr_t)this - (addr_t)&test;
 		if (testOffset > 1024 || -testOffset > 1024) {
 			// might still be a stack object, check the thread's
 			// stack range to be sure.
 			thread_info info;
 			status_t result = get_thread_info(find_thread(NULL), &info);
-			if (result != B_OK || this < info.stack_base
-				|| this > info.stack_end) {
+			if (result == B_OK &&  (this < info.stack_base
+					|| this > info.stack_end)) {
+				snprintf(message, sizeof(message), "Deleted referenceable "
+					"object that's not on the stack (this: %p, stack_base: %p,"
+					" stack_end: %p)\n", this, info.stack_base,
+					info.stack_end);
 				enterDebugger = true;
 			}
 		}
-	} else if (fReferenceCount != 0)
+	} else if (fReferenceCount != 0) {
+		snprintf(message, sizeof(message), "Deleted referenceable object %p with "
+			"non-zero reference count (%" B_PRId32 ")\n", this, fReferenceCount);
 		enterDebugger = true;
+	}
 
 	if (enterDebugger)
-		debugger("Deleted referenceable object with non-zero ref count.");
+		debugger(message);
 #endif
 }
 

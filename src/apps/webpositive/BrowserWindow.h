@@ -2,8 +2,7 @@
  * Copyright (C) 2007 Ryan Leavengood <leavengood@gmail.com>
  * Copyright (C) 2009 Maxime Simon <simon.maxime@gmail.com>
  * Copyright (C) 2010 Stephan Aßmus <superstippi@gmx.de>
- *
- * All rights reserved.
+ * Copyright 2013-2014 Haiku, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -38,6 +37,7 @@ class BButton;
 class BCheckBox;
 class BDirectory;
 class BFile;
+class BFilePanel;
 class BLayoutItem;
 class BMenu;
 class BMenuItem;
@@ -46,11 +46,19 @@ class BPath;
 class BStatusBar;
 class BStringView;
 class BTextControl;
+class BUrlContext;
 class BWebView;
-class IconButton;
+
+class BookmarkBar;
 class SettingsMessage;
 class TabManager;
 class URLInputGroup;
+
+namespace BPrivate {
+	class BIconButton;
+}
+
+using BPrivate::BIconButton;
 
 enum {
 	INTERFACE_ELEMENT_MENU			= 1 << 0,
@@ -74,7 +82,8 @@ enum {
 	WINDOW_OPENED					= 'wndo',
 	WINDOW_CLOSED					= 'wndc',
 	SHOW_DOWNLOAD_WINDOW			= 'sdwd',
-	SHOW_SETTINGS_WINDOW			= 'sswd'
+	SHOW_SETTINGS_WINDOW			= 'sswd',
+	SHOW_CONSOLE_WINDOW				= 'scwd'
 };
 
 #define INTEGRATE_MENU_INTO_TAB_BAR 0
@@ -85,6 +94,7 @@ public:
 								BrowserWindow(BRect frame,
 									SettingsMessage* appSettings,
 									const BString& url,
+									BUrlContext* context,
 									uint32 interfaceElements
 										= INTERFACE_ELEMENT_ALL,
 									BWebView* webView = NULL);
@@ -95,6 +105,7 @@ public:
 	virtual	void				MessageReceived(BMessage* message);
 	virtual	bool				QuitRequested();
 	virtual	void				MenusBeginning();
+	virtual	void				MenusEnded();
 
 	virtual void				ScreenChanged(BRect screenSize,
 									color_space format);
@@ -200,6 +211,8 @@ private:
 			void				_HandlePageSourceResult(
 									const BMessage* message);
 
+			void				_ShowBookmarkBar(bool show);
+
 private:
 			BMenu*				fHistoryMenu;
 			int32				fHistoryMenuFixedItemCount;
@@ -214,10 +227,10 @@ private:
 			BMenuItem*			fBackMenuItem;
 			BMenuItem*			fForwardMenuItem;
 
-			IconButton*			fBackButton;
-			IconButton*			fForwardButton;
-			IconButton*			fStopButton;
-			IconButton*			fHomeButton;
+			BIconButton*		fBackButton;
+			BIconButton*		fForwardButton;
+			BIconButton*		fStopButton;
+			BIconButton*		fHomeButton;
 			URLInputGroup*		fURLInputGroup;
 			BStringView*		fStatusText;
 			BStatusBar*			fLoadingProgressBar;
@@ -238,11 +251,14 @@ private:
 
 			bool				fIsFullscreen;
 			bool				fInterfaceVisible;
+			bool				fMenusRunning;
 			BRect				fNonFullscreenWindowFrame;
 			BMessageRunner*		fPulseRunner;
 			uint32				fVisibleInterfaceElements;
 			bigtime_t			fLastMouseMovedTime;
 			BPoint				fLastMousePos;
+
+			BUrlContext*		fContext;
 
 			// cached settings
 			SettingsMessage*	fAppSettings;
@@ -254,6 +270,10 @@ private:
 			uint32				fNewTabPolicy;
 			BString				fStartPageURL;
 			BString				fSearchPageURL;
+
+			BMenuItem*			fBookmarkBarMenuItem;
+			BookmarkBar*		fBookmarkBar;
+			BFilePanel*			fSavePanel;
 };
 
 

@@ -1,8 +1,10 @@
 /*
  * Copyright 2009-2012, Ingo Weinhold, ingo_weinhold@gmx.de.
+ * Copyright 2013, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 
+#include <stdio.h>
 
 #include "ValueLocation.h"
 
@@ -74,6 +76,21 @@ ValueLocation::ValueLocation(const ValueLocation& other)
 
 
 bool
+ValueLocation::SetToByteOffset(const ValueLocation& other, uint64 byteOffset,
+	uint64 byteSize)
+{
+	Clear();
+
+	fBigEndian = other.fBigEndian;
+	ValuePieceLocation piece = other.PieceAt(0);
+	piece.SetToMemory(piece.address + byteOffset);
+	piece.SetSize(byteSize);
+
+	return AddPiece(piece);
+}
+
+
+bool
 ValueLocation::SetTo(const ValueLocation& other, uint64 bitOffset,
 	uint64 bitSize)
 {
@@ -85,7 +102,7 @@ ValueLocation::SetTo(const ValueLocation& other, uint64 bitOffset,
 	int32 count = other.CountPieces();
 	uint64 totalBitSize = 0;
 	for (int32 i = 0; i < count; i++) {
-		ValuePieceLocation piece = other.PieceAt(i);
+		const ValuePieceLocation &piece = other.PieceAt(i);
 		totalBitSize += piece.bitSize;
 	}
 
@@ -106,10 +123,13 @@ ValueLocation::SetTo(const ValueLocation& other, uint64 bitOffset,
 		int32 i;
 		ValuePieceLocation piece;
 		for (i = 0; i < count; i++) {
-			piece = other.PieceAt(i);
-			if (piece.bitSize > bitsToSkip)
+			const ValuePieceLocation& tempPiece = other.PieceAt(i);
+			if (tempPiece.bitSize > bitsToSkip) {
+				if (!piece.Copy(tempPiece))
+					return false;
 				break;
-			bitsToSkip -= piece.bitSize;
+			}
+			bitsToSkip -= tempPiece.bitSize;
 		}
 
 		// handle partial piece
@@ -135,7 +155,8 @@ ValueLocation::SetTo(const ValueLocation& other, uint64 bitOffset,
 			if (++i >= count)
 				break;
 
-			piece = other.PieceAt(i);
+			if (!piece.Copy(other.PieceAt(i)))
+				return false;
 		}
 	} else {
 		// Little endian: Skip the superfluous least significant bits, copy the
@@ -147,9 +168,12 @@ ValueLocation::SetTo(const ValueLocation& other, uint64 bitOffset,
 		int32 i;
 		ValuePieceLocation piece;
 		for (i = 0; i < count; i++) {
-			piece = other.PieceAt(i);
-			if (piece.bitSize > bitsToSkip)
+			const ValuePieceLocation& tempPiece = other.PieceAt(i);
+			if (tempPiece.bitSize > bitsToSkip) {
+				if (!piece.Copy(tempPiece))
+					return false;
 				break;
+			}
 			bitsToSkip -= piece.bitSize;
 		}
 
@@ -176,7 +200,8 @@ ValueLocation::SetTo(const ValueLocation& other, uint64 bitOffset,
 			if (++i >= count)
 				break;
 
-			piece = other.PieceAt(i);
+			if (!piece.Copy(other.PieceAt(i)))
+				return false;
 		}
 	}
 
@@ -187,7 +212,7 @@ ValueLocation::SetTo(const ValueLocation& other, uint64 bitOffset,
 void
 ValueLocation::Clear()
 {
-	fPieces.Clear();
+	fPieces.clear();
 }
 
 
@@ -196,34 +221,40 @@ ValueLocation::AddPiece(const ValuePieceLocation& piece)
 {
 	// Just add, don't normalize. This allows for using the class with different
 	// semantics (e.g. in the DWARF code).
-	return fPieces.Add(piece);
+	try {
+		fPieces.push_back(piece);
+	} catch (...) {
+		return false;
+	}
+
+	return true;
 }
 
 
 int32
 ValueLocation::CountPieces() const
 {
-	return fPieces.Size();
+	return fPieces.size();
 }
 
 
 ValuePieceLocation
 ValueLocation::PieceAt(int32 index) const
 {
-	if (index < 0 || index >= fPieces.Size())
+	if (index < 0 || index >= (int32)fPieces.size())
 		return ValuePieceLocation();
 
-	return fPieces.ElementAt(index);
+	return fPieces[index];
 }
 
 
-void
+bool
 ValueLocation::SetPieceAt(int32 index, const ValuePieceLocation& piece)
 {
-	if (index < 0 || index >= fPieces.Size())
-		return;
+	if (index < 0 || index >= (int32)fPieces.size())
+		return false;
 
-	fPieces.ElementAt(index) = piece;
+	return fPieces[index].Copy(piece);
 }
 
 
@@ -239,7 +270,7 @@ ValueLocation::operator=(const ValueLocation& other)
 void
 ValueLocation::Dump() const
 {
-	int32 count = fPieces.Size();
+	int32 count = fPieces.size();
 	printf("ValueLocation: %s endian, %" B_PRId32 " pieces:\n",
 		fBigEndian ? "big" : "little", count);
 
@@ -257,6 +288,11 @@ ValueLocation::Dump() const
 				break;
 			case VALUE_PIECE_LOCATION_REGISTER:
 				printf("  register %" B_PRIu32, piece.reg);
+				break;
+			case VALUE_PIECE_LOCATION_IMPLICIT:
+				printf("  implicit value: ");
+				for (uint32 j = 0; j < piece.size; j++)
+					printf("%x ", ((char *)piece.value)[j]);
 				break;
 		}
 

@@ -25,6 +25,7 @@
 #include <arch/x86/apic.h>
 #include <arch/x86/descriptors.h>
 #include <arch/x86/msi.h>
+#include <arch/x86/msi_priv.h>
 
 #include <stdio.h>
 
@@ -40,6 +41,8 @@
 #	define TRACE(x) ;
 #endif
 
+
+static irq_source sVectorSources[NUM_IO_VECTORS];
 
 static const char *kInterruptNames[] = {
 	/*  0 */ "Divide Error Exception",
@@ -231,8 +234,8 @@ x86_hardware_interrupt(struct iframe* frame)
 
 	cpu_status state = disable_interrupts();
 	if (thread->cpu->invoke_scheduler) {
-		SpinLocker schedulerLocker(gSchedulerLock);
-		scheduler_reschedule();
+		SpinLocker schedulerLocker(thread->scheduler_lock);
+		scheduler_reschedule(B_THREAD_READY);
 		schedulerLocker.Unlock();
 		restore_interrupts(state);
 	} else if (thread->post_interrupt_callback != NULL) {
@@ -319,14 +322,22 @@ x86_page_fault_exception(struct iframe* frame)
 	enable_interrupts();
 
 	vm_page_fault(cr2, frame->ip,
-		(frame->error_code & 0x2) != 0,	// write access
-		(frame->error_code & 0x4) != 0,	// userland
+		(frame->error_code & 0x2)!= 0,		// write access
+		(frame->error_code & 0x10) != 0,	// instruction fetch
+		(frame->error_code & 0x4) != 0,		// userland
 		&newip);
 	if (newip != 0) {
 		// the page fault handler wants us to modify the iframe to set the
 		// IP the cpu will return to this ip
 		frame->ip = newip;
 	}
+}
+
+
+void
+x86_set_irq_source(int irq, irq_source source)
+{
+	sVectorSources[irq] = source;
 }
 
 
@@ -388,6 +399,25 @@ arch_int_are_interrupts_enabled(void)
 }
 
 
+void
+arch_int_assign_to_cpu(int32 irq, int32 cpu)
+{
+	switch (sVectorSources[irq]) {
+		case IRQ_SOURCE_IOAPIC:
+			if (sCurrentPIC->assign_interrupt_to_cpu != NULL)
+				sCurrentPIC->assign_interrupt_to_cpu(irq, cpu);
+			break;
+
+		case IRQ_SOURCE_MSI:
+			msi_assign_interrupt_to_cpu(irq, cpu);
+			break;
+
+		default:
+			break;
+	}
+}
+
+
 status_t
 arch_int_init(kernel_args* args)
 {
@@ -410,7 +440,7 @@ arch_int_init_post_vm(kernel_args* args)
 status_t
 arch_int_init_io(kernel_args* args)
 {
-	msi_init();
+	msi_init(args);
 	ioapic_init(args);
 	return B_OK;
 }

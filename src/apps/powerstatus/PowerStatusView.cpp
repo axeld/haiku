@@ -5,7 +5,7 @@
  * Authors:
  *		Axel Dörfler, axeld@pinc-software.de
  *		Clemens Zeidler, haiku@Clemens-Zeidler.de
- *		Alexander von Gluck, kallisti5@unixzen.com 
+ *		Alexander von Gluck, kallisti5@unixzen.com
  */
 
 
@@ -77,8 +77,6 @@ PowerStatusView::PowerStatusView(BMessage* archive)
 
 PowerStatusView::~PowerStatusView()
 {
-	if (fAboutWindow != NULL && fAboutWindow->Lock())
-		fAboutWindow->Quit();
 }
 
 
@@ -97,8 +95,6 @@ void
 PowerStatusView::_Init()
 {
 	SetViewColor(B_TRANSPARENT_COLOR);
-
-	fAboutWindow = NULL;
 
 	fShowLabel = true;
 	fShowTime = false;
@@ -325,10 +321,11 @@ PowerStatusView::_SetLabel(char* buffer, size_t bufferLength)
 		close = ")";
 	}
 
-	if (!fShowTime && fPercent >= 0)
-		snprintf(buffer, bufferLength, "%s%ld%%%s", open, fPercent, close);
-	else if (fShowTime && fTimeLeft >= 0) {
-		snprintf(buffer, bufferLength, "%s%ld:%02ld%s",
+	if (!fShowTime && fPercent >= 0) {
+		snprintf(buffer, bufferLength, "%s%" B_PRId32 "%%%s", open, fPercent,
+			close);
+	} else if (fShowTime && fTimeLeft >= 0) {
+		snprintf(buffer, bufferLength, "%s%" B_PRId32 ":%02" B_PRId32 "%s",
 			open, fTimeLeft / 3600, (fTimeLeft / 60) % 60, close);
 	}
 }
@@ -339,7 +336,7 @@ void
 PowerStatusView::Update(bool force)
 {
 	int32 previousPercent = fPercent;
-	bool previousTimeLeft = fTimeLeft;
+	time_t previousTimeLeft = fTimeLeft;
 	bool wasOnline = fOnline;
 
 	_GetBatteryInfo(&fBatteryInfo, fBatteryID);
@@ -353,7 +350,7 @@ PowerStatusView::Update(bool force)
 	} else {
 		fPercent = 0;
 		fOnline = false;
-		fTimeLeft = false;
+		fTimeLeft = -1;
 	}
 
 
@@ -376,11 +373,12 @@ PowerStatusView::Update(bool force)
 				close = ")";
 			}
 			if (fHasBattery) {
-				size_t length = snprintf(text, sizeof(text), "%s%ld%%%s",
-					open, fPercent, close);
-				if (fTimeLeft) {
+				size_t length = snprintf(text, sizeof(text), "%s%" B_PRId32
+					"%%%s", open, fPercent, close);
+				if (fTimeLeft >= 0) {
 					length += snprintf(text + length, sizeof(text) - length,
-						"\n%ld:%02ld", fTimeLeft / 3600, (fTimeLeft / 60) % 60);
+						"\n%" B_PRId32 ":%02" B_PRId32, fTimeLeft / 3600,
+						(fTimeLeft / 60) % 60);
 				}
 
 				const char* state = NULL;
@@ -423,7 +421,7 @@ PowerStatusView::FromMessage(const BMessage* archive)
 		fShowStatusIcon = value;
 	if (archive->FindBool("show time", &value) == B_OK)
 		fShowTime = value;
-	
+
 	//Incase we have a bad saving and none are showed..
 	if (!fShowLabel && !fShowStatusIcon)
 		fShowLabel = true;
@@ -514,9 +512,6 @@ PowerStatusReplicant::~PowerStatusReplicant()
 	fDriverInterface->Disconnect();
 	fDriverInterface->ReleaseReference();
 
-	if (fAboutWindow != NULL)
-		fAboutWindow->Quit();
-
 	_SaveSettings();
 }
 
@@ -553,7 +548,7 @@ PowerStatusReplicant::MessageReceived(BMessage *message)
 				fShowLabel = !fShowLabel;
 			else
 				fShowLabel = true;
-				
+
 			Update(true);
 			break;
 
@@ -615,7 +610,7 @@ PowerStatusReplicant::MouseDown(BPoint point)
 	menu->AddSeparatorItem();
 	menu->AddItem(new BMenuItem(B_TRANSLATE("About" B_UTF8_ELLIPSIS),
 		new BMessage(B_ABOUT_REQUESTED)));
-	menu->AddItem(new BMenuItem(B_TRANSLATE("Quit"), 
+	menu->AddItem(new BMenuItem(B_TRANSLATE("Quit"),
 		new BMessage(B_QUIT_REQUESTED)));
 	menu->SetTargetForItems(this);
 
@@ -627,23 +622,20 @@ PowerStatusReplicant::MouseDown(BPoint point)
 void
 PowerStatusReplicant::_AboutRequested()
 {
-	if (fAboutWindow == NULL) {
-		const char* authors[] = {
-			"Axel Dörfler",
-			"Alexander von Gluck",
-			"Clemens Zeidler",
-			NULL
-		};
+	BAboutWindow* window = new BAboutWindow(
+		B_TRANSLATE_SYSTEM_NAME("PowerStatus"), kSignature);
 
-		fAboutWindow = new BAboutWindow(
-			B_TRANSLATE_SYSTEM_NAME("PowerStatus"), kSignature);
-		fAboutWindow->AddCopyright(2006, "Haiku, Inc.");
-		fAboutWindow->AddAuthors(authors);
-		fAboutWindow->Show();
-	} else if (fAboutWindow->IsHidden())
-		fAboutWindow->Show();
-	else
-		fAboutWindow->Activate();
+	const char* authors[] = {
+		"Axel Dörfler",
+		"Alexander von Gluck",
+		"Clemens Zeidler",
+		NULL
+	};
+
+	window->AddCopyright(2006, "Haiku, Inc.");
+	window->AddAuthors(authors);
+
+	window->Show();
 }
 
 
@@ -759,4 +751,3 @@ instantiate_deskbar_item(void)
 {
 	return new PowerStatusReplicant(BRect(0, 0, 15, 15), B_FOLLOW_NONE, true);
 }
-

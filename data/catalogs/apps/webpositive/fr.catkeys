@@ -1,4 +1,4 @@
-1	french	x-vnd.Haiku-WebPositive	233049275
+1	french	x-vnd.Haiku-WebPositive	951661576
 Show home button	Settings Window		Afficher le bouton de la page d'accueil
 Username:	Authentication Panel		Utilisateur :
 Copy URL to clipboard	Download Window		Copier l'URL dans le presse-papiers
@@ -16,6 +16,8 @@ Start page:	Settings Window		Page de départ :
 History	WebPositive Window		Historique
 Error opening downloads folder	Download Window		Impossible d'ouvrir le dossier de téléchargement
 Paste	WebPositive Window		Coller
+Double-click or middle-click to open new tab.	Tab Manager		Double-cliquez ou cliquez au milieu pour ouvrir un nouvel onglet.
+Proxy username:	Settings Window		Nom d'utilisateur du serveur mandataire :
 Settings	Settings Window		Réglages
 %seconds seconds left	Download Window		%seconds secondes restantes
 Confirmation	WebPositive Window		Confirmation
@@ -23,6 +25,7 @@ Window	WebPositive Window		Fenêtre
 Decrease size	WebPositive Window		Réduire la taille
 Serif font:	Settings Window		Police serif :
 Loading %url	WebPositive Window		Chargement de %url
+Download aborted	Download Window		Téléchargement interrompu
 Page source	WebPositive Window		Source de la page
 Next	WebPositive Window		Suivant
 Find next	WebPositive Window		Rechercher le suivant
@@ -41,6 +44,7 @@ Quit	WebPositive Window		Quitter
 Full screen	WebPositive Window		Plein écran
 Open download error	Download Window		Erreur à l'ouverture du téléchargement
 Standard font:	Settings Window		Police standard :
+Find previous occurrence of search terms	WebPositive Window	find bar previous button tooltip	Rechercher la précédente occurrence de la chaîne
 Restart	Download Window		Recommencer
 Proxy server	Settings Window		Serveur mandataire
 Open containing folder	Download Window		Ouvrir le dossier contenant le fichier
@@ -58,6 +62,7 @@ Cut	WebPositive Window		Couper
 Bookmark this page	WebPositive Window		Poser un signet sur cette page
 There was an error trying to show the Bookmarks folder.\n\nError: %error	WebPositive Window	Don't translate variable %error	Une erreur est survenue essayant d'afficher le dossier des signets.\n\nErreur : %error
 Open downloads folder	Download Window		Ouvrir le dossier des téléchargements
+Proxy password:	Settings Window		Mot de passe du serveur mandataire :
 Number of days to keep links in History menu:	Settings Window		Nombre de jours de conservation de l'historique :
 Hide	Download Window		Cacher
 Reset size	WebPositive Window		Réinitialiser la taille
@@ -67,6 +72,7 @@ There was an error retrieving the bookmark folder.\n\nError: %error	WebPositive 
 Over 1 day left	Download Window		Plus d'un jour restant
 Downloads	WebPositive Window		Téléchargements
 Requesting %url	WebPositive Window		Requête de %url
+Find next occurrence of search terms	WebPositive Window	find bar next button tooltip	Rechercher la prochaine occurrence de la chaîne
 Apply	Settings Window		Appliquer
 Bookmark info	WebPositive Window		Informations sur le signet
 Size:	Font Selection view		Taille :
@@ -80,13 +86,17 @@ Open blank page	Settings Window		Ouvrir une page blanche
 New tabs:	Settings Window		Nouvel onglet :
 Cancel	WebPositive Window		Annuler
 Open all	WebPositive Window		Tout ouvrir
+Hide bookmark bar	WebPositive Window		Cacher la barre de signets
+Proxy server requires authentication	Settings Window		Le serveur mandataire requiert une authentification
 Clear	URL Bar		Vider
 Cut	URL Bar		Couper
 Clear	WebPositive Window		Vider
+Script console	Console Window		Console de script
 Remove	Download Window		Enlever
 Find	WebPositive Window		Rechercher
 Find previous	WebPositive Window		Rechercher le précédent
 Settings	WebPositive Window		Réglages
+Script console	WebPositive Window		Console de script
 Proxy server address:	Settings Window		Adresse du serveur mandataire :
 Proxy server port:	Settings Window		Port du serveur mandataire :
 Bookmarks	WebPositive Window		Signets
@@ -100,6 +110,7 @@ Open start page	Settings Window		Ouvrir la page de départ
 Continue downloads	WebPositive		Continuer les téléchargements
 Cancel	Download Window		Annuler
 Open search page	Settings Window		Ouvrir la page de recherche
+Clear	Console Window		Vider
 Password:	Authentication Panel		Mot de passe :
 Back	WebPositive Window		Précédent
 New browser window	Download Window		Nouvelle fenêtre de navigation
@@ -128,6 +139,8 @@ Clone current page	Settings Window		Cloner la page actuelle
 Do you want to open %addedCount bookmarks all at once?	WebPositive Window	Don't translate variable %addedCount.	Voulez vous ouvrir les %addedCount signets à la fois ?
 OK	Authentication Panel		OK
 Copy	URL Bar		Copier
+Download finished	Download Window		Téléchargement terminé
+Show bookmark bar	WebPositive Window		Afficher la barre de signets
 OK	WebPositive Window		OK
 Manage bookmarks	WebPositive Window		Gérer les signets
 A bookmark for this page (%bookmarkName) already exists.	WebPositive Window	Don't translate variable %bookmarkName	Il existe déjà le signet « %bookmarkName » pour cette page.

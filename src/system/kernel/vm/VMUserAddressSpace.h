@@ -53,6 +53,10 @@ public:
 	virtual	void				Dump() const;
 
 private:
+	inline	bool				_IsRandomized(uint32 addressSpec) const;
+	static	addr_t				_RandomizeAddress(addr_t start, addr_t end,
+									size_t alignment, bool initial = false);
+
 			status_t			_InsertAreaIntoReservedRegion(addr_t start,
 									size_t size, VMUserArea* area,
 									uint32 allocationFlags);
@@ -62,6 +66,9 @@ private:
 									uint32 allocationFlags);
 
 private:
+	static	const addr_t		kMaxRandomize;
+	static	const addr_t		kMaxInitialRandomize;
+
 			VMUserAreaList		fAreas;
 	mutable	VMUserArea*			fAreaHint;
 };

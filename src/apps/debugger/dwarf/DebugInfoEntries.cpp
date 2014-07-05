@@ -1,6 +1,6 @@
 /*
  * Copyright 2009, Ingo Weinhold, ingo_weinhold@gmx.de.
- * Copyright 2011-2013, Rene Gollent, rene@gollent.com.
+ * Copyright 2011-2014, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 
@@ -28,7 +28,8 @@ DIECompileUnitBase::DIECompileUnitBase()
 	fBaseTypesUnit(NULL),
 	fLanguage(0),
 	fIdentifierCase(0),
-	fUseUTF8(true)
+	fUseUTF8(true),
+	fContainsMainSubprogram(false)
 {
 }
 
@@ -114,6 +115,9 @@ DIECompileUnitBase::AddAttribute_high_pc(uint16 attributeName,
 	const AttributeValue& value)
 {
 	fHighPC = value.address;
+	if (fLowPC != 0 && fHighPC < fLowPC)
+		fHighPC += fLowPC;
+
 	return B_OK;
 }
 
@@ -186,6 +190,15 @@ DIECompileUnitBase::AddAttribute_ranges(uint16 attributeName,
 	const AttributeValue& value)
 {
 	fAddressRangesOffset = value.pointer;
+	return B_OK;
+}
+
+
+status_t
+DIECompileUnitBase::AddAttribute_main_subprogram(uint16 attributeName,
+	const AttributeValue& value)
+{
+	fContainsMainSubprogram = true;
 	return B_OK;
 }
 
@@ -301,6 +314,7 @@ DIEDeclaredType::DIEDeclaredType()
 	:
 	fDescription(NULL),
 	fAbstractOrigin(NULL),
+	fSignatureType(NULL),
 	fAccessibility(0),
 	fDeclaration(false)
 {
@@ -318,6 +332,13 @@ DebugInfoEntry*
 DIEDeclaredType::AbstractOrigin() const
 {
 	return fAbstractOrigin;
+}
+
+
+DebugInfoEntry*
+DIEDeclaredType::SignatureType() const
+{
+	return fSignatureType;
 }
 
 
@@ -360,6 +381,15 @@ DIEDeclaredType::AddAttribute_abstract_origin(uint16 attributeName,
 	const AttributeValue& value)
 {
 	fAbstractOrigin = value.reference;
+	return B_OK;
+}
+
+
+status_t
+DIEDeclaredType::AddAttribute_signature(uint16 attributeName,
+	const AttributeValue& value)
+{
+	fSignatureType = value.reference;
 	return B_OK;
 }
 
@@ -989,6 +1019,9 @@ DIELexicalBlock::AddAttribute_high_pc(uint16 attributeName,
 	const AttributeValue& value)
 {
 	fHighPC = value.address;
+	if (fLowPC != 0 && fHighPC < fLowPC)
+		fHighPC += fLowPC;
+
 	return B_OK;
 }
 
@@ -1066,6 +1099,14 @@ DIEMember::AddAttribute_bit_offset(uint16 attributeName,
 	const AttributeValue& value)
 {
 	return SetDynamicAttributeValue(fBitOffset, value);
+}
+
+
+status_t
+DIEMember::AddAttribute_data_bit_offset(uint16 attributeName,
+	const AttributeValue& value)
+{
+	return SetDynamicAttributeValue(fDataBitOffset, value);
 }
 
 
@@ -1431,7 +1472,12 @@ status_t
 DIEPointerToMemberType::AddAttribute_containing_type(uint16 attributeName,
 	const AttributeValue& value)
 {
-	fContainingType = dynamic_cast<DIECompoundType*>(value.reference);
+	DebugInfoEntry* type = value.reference;
+	DIEModifiedType* modifiedType;
+	while ((modifiedType = dynamic_cast<DIEModifiedType*>(type)) != NULL)
+		type = modifiedType->GetType();
+
+	fContainingType = dynamic_cast<DIECompoundType*>(type);
 	return fContainingType != NULL ? B_OK : B_BAD_DATA;
 }
 
@@ -1641,6 +1687,14 @@ DIEBaseType::AddAttribute_bit_offset(uint16 attributeName,
 
 
 status_t
+DIEBaseType::AddAttribute_data_bit_offset(uint16 attributeName,
+	const AttributeValue& value)
+{
+	return SetDynamicAttributeValue(fDataBitOffset, value);
+}
+
+
+status_t
 DIEBaseType::AddAttribute_endianity(uint16 attributeName,
 	const AttributeValue& value)
 {
@@ -1840,6 +1894,7 @@ DIESubprogram::DIESubprogram()
 	fAddressClass(0),
 	fPrototyped(false),
 	fInline(DW_INL_not_inlined),
+	fMain(false),
 	fArtificial(false),
 	fCallingConvention(DW_CC_normal)
 {
@@ -1893,6 +1948,9 @@ DIESubprogram::AddChild(DebugInfoEntry* child)
 		case DW_TAG_template_value_parameter:
 			fTemplateValueParameters.Add(child);
 			return B_OK;
+		case DW_TAG_GNU_call_site:
+			fCallSites.Add(child);
+			return B_OK;
 		default:
 			return DIEDeclaredNamedBase::AddChild(child);
 	}
@@ -1913,6 +1971,9 @@ DIESubprogram::AddAttribute_high_pc(uint16 attributeName,
 	const AttributeValue& value)
 {
 	fHighPC = value.address;
+	if (fLowPC != 0 && fHighPC < fLowPC)
+		fHighPC += fLowPC;
+
 	return B_OK;
 }
 
@@ -2014,6 +2075,15 @@ DIESubprogram::AddAttribute_calling_convention(uint16 attributeName,
 	const AttributeValue& value)
 {
 	fCallingConvention = value.constant;
+	return B_OK;
+}
+
+
+status_t
+DIESubprogram::AddAttribute_main_subprogram(uint16 attributeName,
+	const AttributeValue& value)
+{
+	fMain = true;
 	return B_OK;
 }
 
@@ -2514,6 +2584,69 @@ DIESharedType::AddAttribute_decl_column(uint16 attributeName,
 }
 
 
+// #pragma mark - DIETypeUnit
+
+
+DIETypeUnit::DIETypeUnit()
+{
+}
+
+
+uint16
+DIETypeUnit::Tag() const
+{
+	return DW_TAG_type_unit;
+}
+
+
+// #pragma mark - DIERValueReferenceType
+
+
+DIERValueReferenceType::DIERValueReferenceType()
+{
+}
+
+
+uint16
+DIERValueReferenceType::Tag() const
+{
+	return DW_TAG_rvalue_reference_type;
+}
+
+
+// #pragma mark - DIETemplateTemplateParameter
+
+
+DIETemplateTemplateParameter::DIETemplateTemplateParameter()
+	:
+	fName(NULL)
+{
+}
+
+
+uint16
+DIETemplateTemplateParameter::Tag() const
+{
+	return DW_TAG_GNU_template_template_param;
+}
+
+
+const char*
+DIETemplateTemplateParameter::Name() const
+{
+	return fName;
+}
+
+
+status_t
+DIETemplateTemplateParameter::AddAttribute_name(uint16 attributeName,
+	const AttributeValue& value)
+{
+	fName = value.string;
+	return B_OK;
+}
+
+
 // #pragma mark - DIETemplateTypeParameterPack
 
 
@@ -2600,6 +2733,91 @@ DIETemplateValueParameterPack::AddChild(DebugInfoEntry* child)
 		return B_OK;
 	}
 
+	return DIEDeclaredBase::AddChild(child);
+}
+
+
+// #pragma mark - DIECallSite
+
+
+DIECallSite::DIECallSite()
+	:
+	fName(NULL)
+{
+}
+
+
+uint16
+DIECallSite::Tag() const
+{
+	return DW_TAG_GNU_call_site;
+}
+
+
+const char*
+DIECallSite::Name() const
+{
+	return fName;
+}
+
+
+status_t
+DIECallSite::AddAttribute_name(uint16 attributeName,
+	const AttributeValue& value)
+{
+	fName = value.string;
+	return B_OK;
+}
+
+
+status_t
+DIECallSite::AddChild(DebugInfoEntry* child)
+{
+	if (child->Tag() == DW_TAG_GNU_call_site_parameter) {
+		fChildren.Add(child);
+		return B_OK;
+	}
+
+	return DIEDeclaredBase::AddChild(child);
+}
+
+
+// #pragma mark - DIECallSiteParameter
+
+
+DIECallSiteParameter::DIECallSiteParameter()
+	:
+	fName(NULL)
+{
+}
+
+
+uint16
+DIECallSiteParameter::Tag() const
+{
+	return DW_TAG_GNU_call_site_parameter;
+}
+
+
+const char*
+DIECallSiteParameter::Name() const
+{
+	return fName;
+}
+
+
+status_t
+DIECallSiteParameter::AddAttribute_name(uint16 attributeName,
+	const AttributeValue& value)
+{
+	fName = value.string;
+	return B_OK;
+}
+
+
+status_t
+DIECallSiteParameter::AddChild(DebugInfoEntry* child)
+{
 	return DIEDeclaredBase::AddChild(child);
 }
 
@@ -2789,11 +3007,26 @@ DebugInfoEntryFactory::CreateDebugInfoEntry(uint16 tag, DebugInfoEntry*& _entry)
 		case DW_TAG_shared_type:
 			entry = new(std::nothrow) DIESharedType;
 			break;
+		case DW_TAG_type_unit:
+			entry = new(std::nothrow) DIETypeUnit;
+			break;
+		case DW_TAG_rvalue_reference_type:
+			entry = new(std::nothrow) DIERValueReferenceType;
+			break;
+		case DW_TAG_GNU_template_template_param:
+			entry = new(std::nothrow) DIETemplateTemplateParameter;
+			break;
 		case DW_TAG_GNU_template_parameter_pack:
 			entry = new(std::nothrow) DIETemplateTypeParameterPack;
 			break;
 		case DW_TAG_GNU_formal_parameter_pack:
 			entry = new(std::nothrow) DIETemplateValueParameterPack;
+			break;
+		case DW_TAG_GNU_call_site:
+			entry = new(std::nothrow) DIECallSite;
+			break;
+		case DW_TAG_GNU_call_site_parameter:
+			entry = new(std::nothrow) DIECallSiteParameter;
 			break;
 		default:
 			return B_ENTRY_NOT_FOUND;

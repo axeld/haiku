@@ -127,8 +127,8 @@ private:
 			uint32				fMagic3;
 };
 
-static TracingMetaData sDummyTracingMetaData;
-static TracingMetaData* sTracingMetaData = &sDummyTracingMetaData;
+static TracingMetaData sFallbackTracingMetaData;
+static TracingMetaData* sTracingMetaData = &sFallbackTracingMetaData;
 static bool sTracingDataRecovered = false;
 
 
@@ -525,7 +525,15 @@ TracingMetaData::_CreateMetaDataArea(bool findPrevious, area_id& _area,
 		delete_area(area);
 	}
 
-	return B_ENTRY_NOT_FOUND;
+	if (findPrevious)
+		return B_ENTRY_NOT_FOUND;
+
+	// We could allocate any of the standard locations. Instead of failing
+	// entirely, we use the static meta data. The tracing buffer won't be
+	// reattachable in the next session, but at least we can use it in this
+	// session.
+	_metaData = &sFallbackTracingMetaData;
+	return B_OK;
 }
 
 
@@ -720,25 +728,6 @@ TraceOutput::PrintStackTrace(tracing_stack_trace* stackTrace)
 {
 #if ENABLE_TRACING
 	print_stack_trace(stackTrace, TraceOutputPrint(*this));
-	if (stackTrace == NULL || stackTrace->depth <= 0)
-		return;
-
-	for (int32 i = 0; i < stackTrace->depth; i++) {
-		addr_t address = stackTrace->return_addresses[i];
-
-		const char* symbol;
-		const char* imageName;
-		bool exactMatch;
-		addr_t baseAddress;
-
-		if (elf_debug_lookup_symbol_address(address, &baseAddress, &symbol,
-				&imageName, &exactMatch) == B_OK) {
-			Print("  %p  %s + 0x%lx (%s)%s\n", (void*)address, symbol,
-				address - baseAddress, imageName,
-				exactMatch ? "" : " (nearest)");
-		} else
-			Print("  %p\n", (void*)address);
-	}
 #endif
 }
 
@@ -1786,7 +1775,8 @@ tracing_init(void)
 #if	ENABLE_TRACING
 	status_t result = TracingMetaData::Create(sTracingMetaData);
 	if (result != B_OK) {
-		sTracingMetaData = &sDummyTracingMetaData;
+		memset(&sFallbackTracingMetaData, 0, sizeof(sFallbackTracingMetaData));
+		sTracingMetaData = &sFallbackTracingMetaData;
 		return result;
 	}
 

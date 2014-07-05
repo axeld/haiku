@@ -12,6 +12,7 @@
 #include <AGP.h>
 #include <KernelExport.h>
 #include <PCI.h>
+#include <PCI_x86.h>
 
 #include "intel_extreme.h"
 #include "lock.h"
@@ -25,7 +26,7 @@ struct intel_info {
 	addr_t			aperture_base;
 	aperture_id		aperture;
 
-	uint8*			registers;
+	addr_t			registers;
 
 	area_id			registers_area;
 	struct intel_shared_info* shared_info;
@@ -34,6 +35,8 @@ struct intel_info {
 	struct overlay_registers* overlay_registers;
 
 	bool			fake_interrupts;
+	uint8			irq;
+	bool			use_msi;
 
 	const char*		device_identifier;
 	DeviceType		device_type;
@@ -67,6 +70,7 @@ find_reg(const intel_info& info, uint32 target)
 }
 
 
+extern bool get_lvds_mode_from_bios(display_mode *shared_info);
 extern status_t intel_free_memory(intel_info& info, addr_t offset);
 extern status_t intel_allocate_memory(intel_info& info, size_t size,
 	size_t alignment, uint32 flags, addr_t* _offset,

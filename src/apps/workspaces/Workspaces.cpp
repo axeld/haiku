@@ -119,7 +119,6 @@ class WorkspacesView : public BView {
 
 		BView*	fParentWhichDrawsOnChildren;
 		BRect	fCurrentFrame;
-		BAboutWindow*   fAboutWindow;
 };
 
 class WorkspacesWindow : public BWindow {
@@ -278,7 +277,7 @@ WorkspacesSettings::_Open(BFile& file, int mode)
 	BPath path;
 	status_t status = find_directory(B_USER_SETTINGS_DIRECTORY, &path);
 	 if (status != B_OK)
-		status = find_directory(B_COMMON_SETTINGS_DIRECTORY, &path);
+		status = find_directory(B_SYSTEM_SETTINGS_DIRECTORY, &path);
 	 if (status != B_OK)
 		return status;
 
@@ -286,7 +285,7 @@ WorkspacesSettings::_Open(BFile& file, int mode)
 
 	status = file.SetTo(path.Path(), mode);
 	if (mode == B_READ_ONLY && status == B_ENTRY_NOT_FOUND) {
-		if (find_directory(B_COMMON_SETTINGS_DIRECTORY, &path) == B_OK) {
+		if (find_directory(B_SYSTEM_SETTINGS_DIRECTORY, &path) == B_OK) {
 			path.Append(kSettingsFile);
 			status = file.SetTo(path.Path(), mode);
 		}
@@ -342,8 +341,7 @@ WorkspacesView::WorkspacesView(BRect frame, bool showDragger=true)
 	BView(frame, kDeskbarItemName, B_FOLLOW_ALL,
 		kWorkspacesViewFlag | B_FRAME_EVENTS),
 	fParentWhichDrawsOnChildren(NULL),
-	fCurrentFrame(frame),
-	fAboutWindow(NULL)
+	fCurrentFrame(frame)
 {
 	if(showDragger) {
 		frame.OffsetTo(B_ORIGIN);
@@ -360,8 +358,7 @@ WorkspacesView::WorkspacesView(BMessage* archive)
 	:
 	BView(archive),
 	fParentWhichDrawsOnChildren(NULL),
-	fCurrentFrame(Frame()),
-	fAboutWindow(NULL)
+	fCurrentFrame(Frame())
 {
 	// Just in case we are instantiated from an older archive...
 	SetFlags(Flags() | B_FRAME_EVENTS);
@@ -374,8 +371,6 @@ WorkspacesView::WorkspacesView(BMessage* archive)
 
 WorkspacesView::~WorkspacesView()
 {
-	if (fAboutWindow != NULL && fAboutWindow->Lock())
-		fAboutWindow->Quit();
 }
 
 
@@ -405,34 +400,31 @@ WorkspacesView::Archive(BMessage* archive, bool deep) const
 void
 WorkspacesView::_AboutRequested()
 {
-	if (fAboutWindow == NULL) {
-		const char* authors[] = {
-			"Axel Dörfler",
-			"Oliver \"Madison\" Kohl",
-			"Matt Madia",
-			"François Revol",
-			NULL
-		};
+	BAboutWindow* window = new BAboutWindow(
+		B_TRANSLATE_SYSTEM_NAME("Workspaces"), kSignature);
 
-		const char* extraCopyrights[] = {
-			"2002 François Revol",
-			NULL
-		};
+	const char* authors[] = {
+		"Axel Dörfler",
+		"Oliver \"Madison\" Kohl",
+		"Matt Madia",
+		"François Revol",
+		NULL
+	};
 
-		const char* extraInfo = "Send windows behind using the Option key. "
-			"Move windows to front using the Control key.\n";
+	const char* extraCopyrights[] = {
+		"2002 François Revol",
+		NULL
+	};
 
-		fAboutWindow = new BAboutWindow(
-			B_TRANSLATE_SYSTEM_NAME("Workspaces"), kSignature);
-		fAboutWindow->AddCopyright(2002, "Haiku, Inc.",
+	const char* extraInfo = "Send windows behind using the Option key. "
+		"Move windows to front using the Control key.\n";
+
+	window->AddCopyright(2002, "Haiku, Inc.",
 			extraCopyrights);
-		fAboutWindow->AddAuthors(authors);
-		fAboutWindow->AddExtraInfo(extraInfo);
-		fAboutWindow->Show();
-	} else if (fAboutWindow->IsHidden())
-		fAboutWindow->Show();
-	else
-		fAboutWindow->Activate();
+	window->AddAuthors(authors);
+	window->AddExtraInfo(extraInfo);
+
+	window->Show();
 }
 
 
@@ -512,6 +504,16 @@ WorkspacesView::MessageReceived(BMessage* message)
 		case B_ABOUT_REQUESTED:
 			_AboutRequested();
 			break;
+
+		case B_MOUSE_WHEEL_CHANGED:
+		{
+			float dy = message->FindFloat("be:wheel_delta_y");
+			if (dy > 0.1)
+				activate_workspace(current_workspace() + 1);
+			else if (dy < -0.1)
+				activate_workspace(current_workspace() - 1);
+			break;
+		}
 
 		case kMsgChangeCount:
 			be_roster->Launch(kScreenPrefletSignature);

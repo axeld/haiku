@@ -148,12 +148,9 @@ BMediaNode::~BMediaNode()
 		fTimeSource = NULL;
 	}
 
-	// Attention! We do not unregister TimeSourceObject nodes,
-	// or delete their control ports, since they are only a
+	// Attention! We do not delete their control ports, since they are only a
 	// shadow object, and the real one still exists
 	if (0 == (fKinds & NODE_KIND_SHADOW_TIMESOURCE)) {
-		BMediaRoster::Roster()->UnregisterNode(this);
-
 		if (fControlPort > 0)
 			delete_port(fControlPort);
 	} else {
@@ -364,13 +361,23 @@ BMediaNode::WaitForMessage(bigtime_t waitUntil,
 
 	char data[B_MEDIA_MESSAGE_SIZE]; // about 16 KByte stack used
 	int32 message;
-	ssize_t size = read_port_etc(ControlPort(), &message, data, sizeof(data),
-		B_ABSOLUTE_TIMEOUT, waitUntil);
-	if (size < 0) {
+	ssize_t size;
+	while (true) {
+		size = read_port_etc(ControlPort(), &message, data,
+			sizeof(data), B_ABSOLUTE_TIMEOUT, waitUntil);
+
+		if (size >= 0)
+			break;
+
 		status_t error = (status_t)size;
-		if (error != B_TIMED_OUT && error != B_BAD_PORT_ID)
+		if (error == B_INTERRUPTED)
+			continue;
+
+		if (error != B_TIMED_OUT && error != B_BAD_PORT_ID) {
 			ERROR("BMediaNode::WaitForMessage: read_port_etc error: %s\n",
 				strerror(error));
+		}
+
 		return error;
 	}
 
@@ -819,6 +826,10 @@ BMediaNode::ApplyChangeTag(int32 previously_reserved)
 BMediaNode::DeleteHook(BMediaNode *node)
 {
 	CALLED();
+	// Attention! We do not unregister TimeSourceObject nodes,
+	// since they are only a shadow object, and the real one still exists
+	if ((fKinds & NODE_KIND_SHADOW_TIMESOURCE) == 0)
+		BMediaRoster::Roster()->UnregisterNode(this);
 	delete this; // delete "this" or "node", both are the same
 	return B_OK;
 }
