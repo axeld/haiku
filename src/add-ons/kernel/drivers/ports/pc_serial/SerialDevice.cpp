@@ -12,6 +12,8 @@
 #include "SerialDevice.h"
 #include "UART.h"
 
+#include <sys/ioctl.h>
+
 SerialDevice::SerialDevice(const struct serial_support_descriptor *device,
 	uint32 ioBase, uint32 irq, const SerialDevice *master)
 	:	/*fSupportDescriptor(device->descriptor),
@@ -27,30 +29,32 @@ SerialDevice::SerialDevice(const struct serial_support_descriptor *device,
 		fIOBase(ioBase),
 		fIRQ(irq),
 		fMaster(master),
-		fBufferArea(-1),
-		fReadBuffer(NULL),
-		fReadBufferSize(ROUNDUP(DEF_BUFFER_SIZE, 16)),
-		fWriteBuffer(NULL),
-		fWriteBufferSize(ROUNDUP(DEF_BUFFER_SIZE, 16)),
-		fInterruptBuffer(NULL),
-		fInterruptBufferSize(16),
+		fCachedIER(0x0),
+		fCachedIIR(0x1),
+		fPendingDPC(0),
+		fReadBufferAvail(0),
+		fReadBufferIn(0),
+		fReadBufferOut(0),
+		fReadBufferSem(-1),
+		fWriteBufferAvail(0),
+		fWriteBufferIn(0),
+		fWriteBufferOut(0),
+		fWriteBufferSem(-1),
 		fDoneRead(-1),
 		fDoneWrite(-1),
 		fControlOut(0),
 		fInputStopped(false),
-#ifdef __HAIKU__
 		fMasterTTY(NULL),
 		fSlaveTTY(NULL),
-		fTTYCookie(NULL),
-#endif /* __HAIKU__ */
+		fSystemTTYCookie(NULL),
+		fDeviceTTYCookie(NULL),
 		fDeviceThread(-1),
 		fStopDeviceThread(false)
 {
-#ifdef __BEOS__
-	memset(&fTTYFile, 0, sizeof(ttyfile));
-	memset(&fTTY, 0, sizeof(tty));
-	memset(&fRover, 0, sizeof(ddrover));
-#endif /* __BEOS__ */
+	memset(&fTTYConfig, 0, sizeof(termios));
+	fTTYConfig.c_cflag = B9600 | CS8 | CREAD;
+	memset(fReadBuffer, 'z', DEF_BUFFER_SIZE);
+	memset(fWriteBuffer, 'z', DEF_BUFFER_SIZE);
 }
 
 
@@ -58,51 +62,46 @@ SerialDevice::~SerialDevice()
 {
 	Removed();
 
-	if (fDoneRead >= B_OK)
-		delete_sem(fDoneRead);
 	if (fDoneWrite >= B_OK)
 		delete_sem(fDoneWrite);
+	if (fReadBufferSem >= B_OK)
+		delete_sem(fReadBufferSem);
+	if (fWriteBufferSem >= B_OK)
+		delete_sem(fWriteBufferSem);
+}
 
-	if (fBufferArea >= B_OK)
-		delete_area(fBufferArea);
 
-	mutex_destroy(&fReadLock);
-	mutex_destroy(&fWriteLock);
+bool
+SerialDevice::Probe()
+{
+	uint8 msr;
+	msr = ReadReg8(MSR);
+	// just in case read twice to make sure the "delta" bits are 0
+	msr = ReadReg8(MSR);
+	// this should be enough to probe for the device for now
+	// we might want to check the scratch reg, and try identifying
+	// the model as in:
+	// http://en.wikibooks.org/wiki/Serial_Programming/8250_UART_Programming#Software_Identification_of_the_UART
+	return (msr != 0xff);
 }
 
 
 status_t
 SerialDevice::Init()
 {
-	fDoneRead = create_sem(0, "usb_serial:done_read");
-	fDoneWrite = create_sem(0, "usb_serial:done_write");
-	mutex_init(&fReadLock, "usb_serial:read_lock");
-	mutex_init(&fWriteLock, "usb_serial:write_lock");
+	fDoneWrite = create_sem(0, "pc_serial:done_write");
+	fReadBufferSem = create_sem(0, "pc_serial:done_read");
+	fWriteBufferSem = create_sem(0, "pc_serial:done_write");
 
-	size_t totalBuffers = fReadBufferSize + fWriteBufferSize + fInterruptBufferSize;
-	fBufferArea = create_area("usb_serial:buffers_area", (void **)&fReadBuffer,
-		B_ANY_KERNEL_ADDRESS, ROUNDUP(totalBuffers, B_PAGE_SIZE), B_CONTIGUOUS,
-		B_READ_AREA | B_WRITE_AREA);
-
-	fWriteBuffer = fReadBuffer + fReadBufferSize;
-	fInterruptBuffer = fWriteBuffer + fWriteBufferSize;
+	// disable IRQ
+	fCachedIER = 0;
+	WriteReg8(IER, fCachedIER);
 
 	// disable DLAB
 	WriteReg8(LCR, 0);
 
 	return B_OK;
 }
-
-
-#ifdef __BEOS__
-void
-SerialDevice::SetModes()
-{
-	struct termios tios;
-	memcpy(&tios, &fTTY.t, sizeof(struct termios));
-	SetModes(&tios);
-}
-#endif /* __BEOS__ */
 
 
 void
@@ -113,6 +112,21 @@ SerialDevice::SetModes(struct termios *tios)
 	uint32 baudIndex = tios->c_cflag & CBAUD;
 	if (baudIndex > BLAST)
 		baudIndex = BLAST;
+
+	// update our master config in full
+	memcpy(&fTTYConfig, tios, sizeof(termios));
+	fTTYConfig.c_cflag &= ~CBAUD;
+	fTTYConfig.c_cflag |= baudIndex;
+
+	// only apply the relevant parts to the device side
+	termios config;
+	memset(&config, 0, sizeof(termios));
+	config.c_cflag = tios->c_cflag;
+	config.c_cflag &= ~CBAUD;
+	config.c_cflag |= baudIndex;
+
+	// update the termios of the device side
+	gTTYModule->tty_control(fDeviceTTYCookie, TCSETA, &config, sizeof(termios));
 
 	uint8 lcr = 0;
 	uint16 divisor = SupportDescriptor()->bauds[baudIndex];
@@ -149,13 +163,13 @@ SerialDevice::SetModes(struct termios *tios)
 	} else {
 		// set FCR now, 
 		// 16650 and later chips have another reg at 2 when DLAB=1
-		uint8 fcr = FCR_ENABLE | FCR_RX_RST | FCR_TX_RST | FCR_F_8;
+		uint8 fcr = FCR_ENABLE | FCR_RX_RST | FCR_TX_RST | FCR_F_8 | FCR_F64EN;
 		// enable fifo
 		//fcr = 0;
 		WriteReg8(FCR, fcr);
 
 		// unmask the divisor latch regs
-		WriteReg8(LCR, LCR_DLAB);
+		WriteReg8(LCR, lcr | LCR_DLAB);
 		// set divisor
 		WriteReg8(DLLB, divisor & 0x00ff);
 		WriteReg8(DLHB, divisor >> 8);
@@ -232,15 +246,13 @@ SerialDevice::SetModes(struct termios *tios)
 }
 
 
-#ifdef __HAIKU__
-
-
 bool
 SerialDevice::Service(struct tty *tty, uint32 op, void *buffer, size_t length)
 {
 	uint8 msr;
 	status_t err;
 
+	TRACE("%s(,0x%08lx,,%d)\n", __FUNCTION__, op, length);
 	if (tty != fMasterTTY)
 		return false;
 
@@ -260,7 +272,8 @@ SerialDevice::Service(struct tty *tty, uint32 op, void *buffer, size_t length)
 				// remove the handler
 				remove_io_interrupt_handler(IRQ(), pc_serial_interrupt, this);
 				// disable IRQ
-				WriteReg8(IER, 0);
+				fCachedIER = 0;
+				WriteReg8(IER, fCachedIER);
 				WriteReg8(MCR, 0);
 			}
 
@@ -273,7 +286,8 @@ SerialDevice::Service(struct tty *tty, uint32 op, void *buffer, size_t length)
 				// 
 				WriteReg8(MCR, MCR_DTR | MCR_RTS | MCR_IRQ_EN /*| MCR_LOOP*//*XXXXXXX*/);
 				// enable irqs
-				WriteReg8(IER, IER_RLS | IER_MS | IER_RDA);
+				fCachedIER = IER_RLS | IER_MS | IER_RDA;
+				WriteReg8(IER, fCachedIER);
 				//WriteReg8(IER, IER_RDA);
 			}
 
@@ -314,7 +328,7 @@ SerialDevice::Service(struct tty *tty, uint32 op, void *buffer, size_t length)
 		case TTYSETRTS:
 		{
 			bool set = *(bool *)buffer;
-			uint8 bit = TTYSETDTR ? MCR_DTR : MCR_RTS;
+			uint8 bit = op == TTYSETDTR ? MCR_DTR : MCR_RTS;
 			if (set)
 				OrReg8(MCR, bit);
 			else
@@ -326,7 +340,10 @@ SerialDevice::Service(struct tty *tty, uint32 op, void *buffer, size_t length)
 		case TTYOSTART:
 			TRACE("TTYOSTART\n");
 			// enable irqs
-			WriteReg8(IER, IER_RLS | IER_MS | IER_RDA | IER_THRE);
+			fCachedIER |= IER_THRE;
+			// XXX: toggle the bit to make VirtualBox happy !?
+			WriteReg8(IER, fCachedIER & ~IER_THRE);
+			WriteReg8(IER, fCachedIER);
 			return true;
 		case TTYOSYNC:
 			TRACE("TTYOSYNC\n");
@@ -350,126 +367,50 @@ SerialDevice::Service(struct tty *tty, uint32 op, void *buffer, size_t length)
 }
 
 
-#else /* __HAIKU__ */
-
-
 bool
-SerialDevice::Service(struct tty *ptty, struct ddrover *ddr, uint flags)
+SerialDevice::IsInterruptPending()
 {
-	uint8 msr;
-	status_t err;
+	TRACE(("IsInterruptPending()\n"));
 
-	if (&fTTY != ptty)
-		return false;
+	// because reading the IIR acknowledges some IRQ conditions,
+	// the next time we'll read we'll miss the IRQ condition
+	// so we just cache the value for the real handler
+	fCachedIIR = ReadReg8(IIR);
 
-	TRACE("%s(,,0x%08lx)\n", __FUNCTION__, flags);
+	bool pending = (fCachedIIR & IIR_PENDING) == 0;
 
-	switch (flags) {
-		case TTYENABLE:
-			TRACE("TTYENABLE\n");
+	if (pending) {
+		// temporarily mask the IRQ
+		// else VirtualBox triggers one per every written byte it seems
+		// not sure it's required on real hardware
+		WriteReg8(IER, fCachedIER & ~(IER_RLS | IER_MS | IER_RDA | IER_THRE));
 
-			SetModes();
-			err = install_io_interrupt_handler(IRQ(), pc_serial_interrupt, this, 0);
-			TRACE("installing irq handler for %d: %s\n", IRQ(), strerror(err));
-			msr = ReadReg8(MSR);
-			gTTYModule->ttyhwsignal(ptty, ddr, TTYHWDCD, msr & MSR_DCD);
-			gTTYModule->ttyhwsignal(ptty, ddr, TTYHWCTS, msr & MSR_CTS);
-			// 
-			WriteReg8(MCR, MCR_DTR | MCR_RTS | MCR_IRQ_EN /*| MCR_LOOP*//*XXXXXXX*/);
-			// enable irqs
-			WriteReg8(IER, IER_RLS | IER_MS | IER_RDA);
-			//WriteReg8(IER, IER_RDA);
-			break;
-
-		case TTYDISABLE:
-			TRACE("TTYDISABLE\n");
-			// remove the handler
-			remove_io_interrupt_handler(IRQ(), pc_serial_interrupt, this);
-			// disable IRQ
-			WriteReg8(IER, 0);
-			WriteReg8(MCR, 0);
-			msr = ReadReg8(MSR);
-			gTTYModule->ttyhwsignal(ptty, ddr, TTYHWDCD, msr & MSR_DCD);
-			break;
-
-		case TTYISTOP:
-			TRACE("TTYISTOP\n");
-			MaskReg8(MCR, MCR_RTS);
-			//fInputStopped = true;
-			//gTTYModule->ttyhwsignal(ptty, ddr, TTYHWCTS, false);
-			break;
-
-		case TTYIRESUME:
-			TRACE("TTYIRESUME\n");
-			OrReg8(MCR, MCR_RTS);
-			//gTTYModule->ttyhwsignal(ptty, ddr, TTYHWCTS, true);
-			//fInputStopped = false;
-			break;
-
-		case TTYGETSIGNALS:
-			TRACE("TTYGETSIGNALS\n");
-			msr = ReadReg8(MSR);
-			gTTYModule->ttyhwsignal(ptty, ddr, TTYHWDCD, msr & MSR_DCD);
-			gTTYModule->ttyhwsignal(ptty, ddr, TTYHWCTS, msr & MSR_CTS);
-			gTTYModule->ttyhwsignal(ptty, ddr, TTYHWDSR, msr & MSR_DSR);
-			gTTYModule->ttyhwsignal(ptty, ddr, TTYHWRI, msr & MSR_RI);
-			break;
-
-		case TTYSETMODES:
-			TRACE("TTYSETMODES\n");
-			SetModes();
-//WriteReg8(IER, IER_RLS | IER_MS | IER_RDA);
-			break;
-
-		case TTYOSTART:
-			TRACE("TTYOSTART\n");
-			// enable irqs
-			WriteReg8(IER, IER_RLS | IER_MS | IER_RDA | IER_THRE);
-			break;
-		case TTYOSYNC:
-			TRACE("TTYOSYNC\n");
-			return (ReadReg8(LSR) & (LSR_THRE | LSR_TSRE)) == (LSR_THRE | LSR_TSRE);
-			break;
-		case TTYSETBREAK:
-			TRACE("TTYSETBREAK\n");
-			OrReg8(LCR, LCR_BREAK);
-			break;
-		case TTYCLRBREAK:
-			TRACE("TTYCLRBREAK\n");
-			MaskReg8(LCR, LCR_BREAK);
-			break;
-		case TTYSETDTR:
-			TRACE("TTYSETDTR\n");
-			OrReg8(MCR, MCR_DTR);
-			break;
-		case TTYCLRDTR:
-			TRACE("TTYCLRDTR\n");
-			MaskReg8(MCR, MCR_DTR);
-			break;
-		default:
-			return false;
+		atomic_add(&fPendingDPC, 1);
 	}
 
-	return false;
+	return pending; // 0 means yes
 }
-#endif /* __HAIKU__ */
 
 
 int32
 SerialDevice::InterruptHandler()
 {
 	int32 ret = B_UNHANDLED_INTERRUPT;
-#ifdef __HAIKU__
 	//XXX: what should we do here ? (certainly not use a mutex !)
-#else /* __HAIKU__ */
-	gTTYModule->ddrstart(&fRover);
-	gTTYModule->ttyilock(&fTTY, &fRover, true);
-#endif /* __HAIKU__ */
 
 	uint8 iir, lsr, msr;
+	uint8 buffer[64];
+	int tries = 8; // avoid busy looping
+	TRACE(("InterruptHandler()\n"));
 
-	while (((iir = ReadReg8(IIR)) & IIR_PENDING) == 0) { // 0 means yes
-		int fifoavail = 1;
+	// start with the first (cached) irq condition
+	iir = fCachedIIR;
+	while ((iir & IIR_PENDING) == 0) { // 0 means yes
+		status_t status;
+		size_t bytesLeft;
+		size_t readable = 0;
+		size_t fifoavail = 1;
+		size_t i;
 		
 		//DEBUG
 //		for (int count = 0; ReadReg8(LSR) & LSR_DR; count++)
@@ -484,32 +425,54 @@ SerialDevice::InterruptHandler()
 				fifoavail = 16;
 			if (iir & IIR_F64EN)
 				fifoavail = 64;
-			for (int i = 0; i < fifoavail; i++) {
-				int chr;
-#ifdef __HAIKU__
-				chr = 'H';//XXX: what should we do here ? (certainly not call tty_read() !)
-#else /* __HAIKU__ */
-				chr = gTTYModule->ttyout(&fTTY, &fRover);
-#endif /* __HAIKU__ */
-				if (chr < 0) {
-					//WriteReg8(THB, (uint8)chr);
-					break;
-				}
-				WriteReg8(THB, (uint8)chr);
+			// we're not open... just discard the data
+			if (!IsOpen())
+				break;
+			gTTYModule->tty_control(fDeviceTTYCookie, FIONREAD, &readable,
+				sizeof(readable));
+			TRACE("%s: FIONREAD: %d\n", __FUNCTION__, readable);
+
+			if (readable == 0) {
+				release_sem_etc(fDoneWrite, 1, B_DO_NOT_RESCHEDULE);
+				// mask it until there's data again
+				fCachedIER &= ~IER_THRE;
+				break;
 			}
+
+			bytesLeft = MIN(fifoavail, sizeof(buffer));
+			bytesLeft = MIN(bytesLeft, readable);
+			TRACE("%s: left %d\n", __FUNCTION__, bytesLeft);
+			status = gTTYModule->tty_read(fDeviceTTYCookie, buffer, &bytesLeft);
+			TRACE("%s: tty_read: %d\n", __FUNCTION__, bytesLeft);
+			if (status != B_OK) {
+				dprintf(DRIVER_NAME ": irq: tty_read: %s\n", strerror(status));
+				break;
+			}
+
+			for (i = 0; i < bytesLeft; i++) {
+				WriteReg8(THB, buffer[i]);
+			}
+
 			break;
 		case IIR_TO:
 		case IIR_TO | IIR_RDA:
 			// timeout: FALLTHROUGH
 		case IIR_RDA:
 			TRACE(("IIR_TO/RDA\n"));
-			// while data is ready... get it
-			while (ReadReg8(LSR) & LSR_DR)
-#ifdef __HAIKU__
-				ReadReg8(RBR);//XXX: what should we do here ? (certainly not call tty_write() !)
-#else /* __HAIKU__ */
-				gTTYModule->ttyin(&fTTY, &fRover, ReadReg8(RBR));
-#endif /* __HAIKU__ */
+			// while data is ready... and we have room for it, get it
+			bytesLeft = sizeof(buffer);
+			for (i = 0; i < bytesLeft && (ReadReg8(LSR) & LSR_DR); i++) {
+				buffer[i] = ReadReg8(RBR);
+			}
+			// we're not open... just discard the data
+			if (!IsOpen())
+				break;
+			// we shouldn't block here but it's < 256 bytes anyway
+			status = gTTYModule->tty_write(fDeviceTTYCookie, buffer, &i);
+			if (status != B_OK) {
+				dprintf(DRIVER_NAME ": irq: tty_write: %s\n", strerror(status));
+				break;
+			}
 			break;
 		case IIR_RLS:
 			TRACE(("IIR_RLS\n"));
@@ -521,6 +484,8 @@ SerialDevice::InterruptHandler()
 			TRACE(("IIR_MS\n"));
 			// modem signals changed
 			msr = ReadReg8(MSR);
+			if (!IsOpen())
+				break;
 			if (msr & MSR_DDCD)
 				SignalControlLineState(TTYHWDCD, msr & MSR_DCD);
 			if (msr & MSR_DCTS)
@@ -537,15 +502,20 @@ SerialDevice::InterruptHandler()
 		}
 		ret = B_HANDLED_INTERRUPT;
 		TRACE(("IRQ:h\n"));
+
+		// enough for now
+		if (tries-- == 0)
+			break;
+
+		// check the next IRQ condition
+		iir = ReadReg8(IIR);
 	}
 
+	atomic_add(&fPendingDPC, -1);
 
-#ifdef __HAIKU__
-	//XXX: what should we do here ? (certainly not use a mutex !)
-#else /* __HAIKU__ */
-	gTTYModule->ttyilock(&fTTY, &fRover, false);
-	gTTYModule->ddrdone(&fRover);
-#endif /* __HAIKU__ */
+	// unmask IRQ
+	WriteReg8(IER, fCachedIER);
+
 	TRACE_FUNCRET("< IRQ:%d\n", ret);
 	return ret;
 }
@@ -562,23 +532,33 @@ SerialDevice::Open(uint32 flags)
 	if (fDeviceRemoved)
 		return B_DEV_NOT_READY;
 
-#ifdef __HAIKU__
 	fMasterTTY = gTTYModule->tty_create(pc_serial_service, true);
 	if (fMasterTTY == NULL) {
 		TRACE_ALWAYS("open: failed to init master tty\n");
 		return B_NO_MEMORY;
 	}
 
-	fSlaveTTY = gTTYModule->tty_create(NULL, false);
+	fSlaveTTY = gTTYModule->tty_create(pc_serial_service, false);
 	if (fSlaveTTY == NULL) {
 		TRACE_ALWAYS("open: failed to init slave tty\n");
 		gTTYModule->tty_destroy(fMasterTTY);
 		return B_NO_MEMORY;
 	}
 
-	fTTYCookie = gTTYModule->tty_create_cookie(fMasterTTY, fSlaveTTY, flags);
-	if (fTTYCookie == NULL) {
-		TRACE_ALWAYS("open: failed to init tty cookie\n");
+	fSystemTTYCookie = gTTYModule->tty_create_cookie(fMasterTTY, fSlaveTTY,
+		O_RDWR);
+	if (fSystemTTYCookie == NULL) {
+		TRACE_ALWAYS("open: failed to init system tty cookie\n");
+		gTTYModule->tty_destroy(fMasterTTY);
+		gTTYModule->tty_destroy(fSlaveTTY);
+		return B_NO_MEMORY;
+	}
+
+	fDeviceTTYCookie = gTTYModule->tty_create_cookie(fSlaveTTY, fMasterTTY,
+		O_RDWR);
+	if (fDeviceTTYCookie == NULL) {
+		TRACE_ALWAYS("open: failed to init device tty cookie\n");
+		gTTYModule->tty_destroy_cookie(fSystemTTYCookie);
 		gTTYModule->tty_destroy(fMasterTTY);
 		gTTYModule->tty_destroy(fSlaveTTY);
 		return B_NO_MEMORY;
@@ -586,32 +566,21 @@ SerialDevice::Open(uint32 flags)
 
 	ResetDevice();
 
-#else /* __HAIKU__ */
-
-	gTTYModule->ttyinit(&fTTY, false);
-	fTTYFile.tty = &fTTY;
-	fTTYFile.flags = flags;
-
-
-	ResetDevice();
-
-	struct ddrover *ddr = gTTYModule->ddrstart(NULL);
-	if (!ddr)
-		return B_NO_MEMORY;
-
-	gTTYModule->ddacquire(ddr, &gSerialDomain);
-	status = gTTYModule->ttyopen(&fTTYFile, ddr, pc_serial_service);
-	gTTYModule->ddrdone(ddr);
-
-#endif /* __HAIKU__ */
+	//XXX: we shouldn't have to do this!
+	bool en = true;
+	Service(fMasterTTY, TTYENABLE, &en, sizeof(en));
 
 	if (status < B_OK) {
 		TRACE_ALWAYS("open: failed to open tty\n");
 		return status;
 	}
 
+	// set our config (will propagate to the slave config as well in SetModes()
+	gTTYModule->tty_control(fSystemTTYCookie, TCSETA, &fTTYConfig,
+		sizeof(termios));
+
 #if 0
-	fDeviceThread = spawn_kernel_thread(DeviceThread, "usb_serial device thread",
+	fDeviceThread = spawn_kernel_thread(_DeviceThread, "usb_serial device thread",
 		B_NORMAL_PRIORITY, this);
 
 	if (fDeviceThread < B_OK) {
@@ -645,31 +614,7 @@ SerialDevice::Read(char *buffer, size_t *numBytes)
 
 	status_t status;
 
-#ifdef __HAIKU__
-
-	status = mutex_lock(&fReadLock);
-	if (status != B_OK) {
-		TRACE_ALWAYS("read: failed to get read lock\n");
-		*numBytes = 0;
-		return status;
-	}
-
-	status = gTTYModule->tty_read(fTTYCookie, buffer, numBytes);
-
-	mutex_unlock(&fReadLock);
-
-#else /* __HAIKU__ */
-
-	struct ddrover *ddr = gTTYModule->ddrstart(NULL);
-	if (!ddr) {
-		*numBytes = 0;
-		return B_NO_MEMORY;
-	}
-
-	status = gTTYModule->ttyread(&fTTYFile, ddr, buffer, numBytes);
-	gTTYModule->ddrdone(ddr);
-
-#endif /* __HAIKU__ */
+	status = gTTYModule->tty_read(fSystemTTYCookie, buffer, numBytes);
 
 	return status;
 }
@@ -678,86 +623,51 @@ SerialDevice::Read(char *buffer, size_t *numBytes)
 status_t
 SerialDevice::Write(const char *buffer, size_t *numBytes)
 {
-	//size_t bytesLeft = *numBytes;
-	//*numBytes = 0;
-
-	status_t status = EINVAL;
-
-#ifdef __HAIKU__
-
-	status = mutex_lock(&fWriteLock);
-	if (status != B_OK) {
-		TRACE_ALWAYS("write: failed to get write lock\n");
-		return status;
-	}
-
-	//XXX: WTF tty_write() is not for write() hook ?
-	//status = gTTYModule->tty_write(fTTYCookie, buffer, numBytes);
-	mutex_unlock(&fWriteLock);
-
-#else /* __HAIKU__ */
-
-	struct ddrover *ddr = gTTYModule->ddrstart(NULL);
-	if (!ddr) {
-		*numBytes = 0;
-		return B_ERROR;
-	}
-
-	status = gTTYModule->ttywrite(&fTTYFile, ddr, buffer, numBytes);
-	gTTYModule->ddrdone(ddr);
-
-#endif /* __HAIKU__ */
-
-#if 0
-	status_t status = mutex_lock(&fWriteLock);
-	if (status != B_OK) {
-		TRACE_ALWAYS("write: failed to get write lock\n");
-		return status;
-	}
-
+	TRACE("%s(,&%d)\n", __FUNCTION__, *numBytes);
 	if (fDeviceRemoved) {
-		mutex_unlock(&fWriteLock);
+		*numBytes = 0;
 		return B_DEV_NOT_READY;
 	}
 
+	status_t status;
+	size_t bytesLeft = *numBytes;
+	*numBytes = 0;
+
 	while (bytesLeft > 0) {
-		size_t length = MIN(bytesLeft, fWriteBufferSize);
-		size_t packetLength = length;
-		OnWrite(buffer, &length, &packetLength);
+		size_t length = MIN(bytesLeft, 256);
+			// TODO: This is an ugly hack; We use a small buffer size so that
+			// we don't overrun the tty line buffer and cause it to block. While
+			// that isn't a problem, we shouldn't just hardcode the value here.
 
-		status = gUSBModule->queue_bulk(fWritePipe, fWriteBuffer,
-			packetLength, WriteCallbackFunction, this);
-		if (status < B_OK) {
-			TRACE_ALWAYS("write: queueing failed with status 0x%08x\n", status);
-			break;
-		}
-
-		status = acquire_sem_etc(fDoneWrite, 1, B_CAN_INTERRUPT, 0);
-		if (status < B_OK) {
-			TRACE_ALWAYS("write: failed to get write done sem 0x%08x\n", status);
-			break;
-		}
-
-		if (fStatusWrite != B_OK) {
-			TRACE("write: device status error 0x%08x\n", fStatusWrite);
-			status = gUSBModule->clear_feature(fWritePipe,
-				USB_FEATURE_ENDPOINT_HALT);
-			if (status < B_OK) {
-				TRACE_ALWAYS("write: failed to clear device halt\n");
-				status = B_ERROR;
-				break;
-			}
-			continue;
+		TRACE("%s: tty_write(,&%d)\n", __FUNCTION__, length);
+		status = gTTYModule->tty_write(fSystemTTYCookie, buffer,
+			&length);
+		if (status != B_OK) {
+			TRACE_ALWAYS("failed to write to tty: %s\n", strerror(status));
+			return status;
 		}
 
 		buffer += length;
 		*numBytes += length;
 		bytesLeft -= length;
+
+		// XXX: WTF: this ought to be done by the tty module calling service_func!
+		// enable irqs
+		Service(fMasterTTY, TTYOSTART, NULL, 0);
 	}
 
-	mutex_unlock(&fWriteLock);
-#endif
-	return status;
+	status = acquire_sem_etc(fDoneWrite, 1, B_CAN_INTERRUPT, 0);
+	if (status != B_OK) {
+		TRACE_ALWAYS("write: failed to get write done sem "
+				"0x%08x\n", status);
+		return status;
+	}
+
+
+	if (*numBytes > 0)
+		return B_OK;
+
+	return B_ERROR;
 }
 
 
@@ -769,20 +679,7 @@ SerialDevice::Control(uint32 op, void *arg, size_t length)
 	if (fDeviceRemoved)
 		return B_DEV_NOT_READY;
 
-#ifdef __HAIKU__
-
-	status = gTTYModule->tty_control(fTTYCookie, op, arg, length);
-
-#else /* __HAIKU__ */
-
-	struct ddrover *ddr = gTTYModule->ddrstart(NULL);
-	if (!ddr)
-		return B_NO_MEMORY;
-
-	status = gTTYModule->ttycontrol(&fTTYFile, ddr, op, arg, length);
-	gTTYModule->ddrdone(ddr);
-
-#endif /* __HAIKU__ */
+	status = gTTYModule->tty_control(fSystemTTYCookie, op, arg, length);
 
 	return status;
 }
@@ -794,22 +691,7 @@ SerialDevice::Select(uint8 event, uint32 ref, selectsync *sync)
 	if (fDeviceRemoved)
 		return B_DEV_NOT_READY;
 
-#ifdef __HAIKU__
-
-	return gTTYModule->tty_select(fTTYCookie, event, ref, sync);
-
-#else /* __HAIKU__ */
-
-	struct ddrover *ddr = gTTYModule->ddrstart(NULL);
-	if (!ddr)
-		return B_NO_MEMORY;
-
-	status_t status = gTTYModule->ttyselect(&fTTYFile, ddr, event, ref, sync);
-	gTTYModule->ddrdone(ddr);
-
-	return status;
-
-#endif /* __HAIKU__ */
+	return gTTYModule->tty_select(fSystemTTYCookie, event, ref, sync);
 }
 
 
@@ -819,22 +701,7 @@ SerialDevice::DeSelect(uint8 event, selectsync *sync)
 	if (fDeviceRemoved)
 		return B_DEV_NOT_READY;
 
-#ifdef __HAIKU__
-
-	return gTTYModule->tty_deselect(fTTYCookie, event, sync);
-
-#else /* __HAIKU__ */
-
-	struct ddrover *ddr = gTTYModule->ddrstart(NULL);
-	if (!ddr)
-		return B_NO_MEMORY;
-
-	status_t status = gTTYModule->ttydeselect(&fTTYFile, ddr, event, sync);
-	gTTYModule->ddrdone(ddr);
-
-	return status;
-
-#endif /* __HAIKU__ */
+	return gTTYModule->tty_deselect(fSystemTTYCookie, event, sync);
 }
 
 
@@ -853,19 +720,15 @@ SerialDevice::Close()
 #endif
 	}
 
-#ifdef __HAIKU__
-	gTTYModule->tty_destroy_cookie(fTTYCookie);
-#else /* __HAIKU__ */
-	struct ddrover *ddr = gTTYModule->ddrstart(NULL);
-	if (!ddr)
-		return B_NO_MEMORY;
-
-	status = gTTYModule->ttyclose(&fTTYFile, ddr);
-	gTTYModule->ddrdone(ddr);
-
-#endif /* __HAIKU__ */
-
 	fDeviceOpen = false;
+
+	gTTYModule->tty_close_cookie(fSystemTTYCookie);
+	gTTYModule->tty_close_cookie(fDeviceTTYCookie);
+
+	//XXX: we shouldn't have to do this!
+	bool en = false;
+	Service(fMasterTTY, TTYENABLE, &en, sizeof(en));
+
 	return status;
 }
 
@@ -874,17 +737,20 @@ status_t
 SerialDevice::Free()
 {
 	status_t status = B_OK;
-#ifdef __HAIKU__
+
+	// wait until currently executing DPC is done. In case another one
+	// is run beyond this point it will just bail out on !IsOpen().
+	//while (atomic_get(&fPendingDPC))
+	//	snooze(1000);
+
+	gTTYModule->tty_destroy_cookie(fSystemTTYCookie);
+	gTTYModule->tty_destroy_cookie(fDeviceTTYCookie);
+	fSystemTTYCookie = fDeviceTTYCookie = NULL;
+
 	gTTYModule->tty_destroy(fMasterTTY);
 	gTTYModule->tty_destroy(fSlaveTTY);
-#else /* __HAIKU__ */
-	struct ddrover *ddr = gTTYModule->ddrstart(NULL);
-	if (!ddr)
-		return B_NO_MEMORY;
+	fMasterTTY = fSlaveTTY = NULL;
 
-	status = gTTYModule->ttyfree(&fTTYFile, ddr);
-	gTTYModule->ddrdone(ddr);
-#endif /* __HAIKU__ */
 	return status;
 }
 
@@ -907,12 +773,9 @@ SerialDevice::Removed()
 	gUSBModule->cancel_queued_transfers(fControlPipe);
 #endif
 
-	//int32 result = B_OK;
-	//wait_for_thread(fDeviceThread, &result);
+	int32 result = B_OK;
+	wait_for_thread(fDeviceThread, &result);
 	fDeviceThread = -1;
-
-	mutex_lock(&fWriteLock);
-	mutex_unlock(&fWriteLock);
 }
 
 
@@ -944,12 +807,8 @@ SerialDevice::SetLineCoding(usb_serial_line_coding *coding)
 status_t
 SerialDevice::SignalControlLineState(int line, bool enable)
 {
-#ifdef __HAIKU__
-	gTTYModule->tty_hardware_signal(fTTYCookie, line, enable);
-#else
-	// XXX: only works for interrupt handler, Service func must pass the ddrover
-	gTTYModule->ttyhwsignal(&fTTY, &fRover, line, enable);
-#endif
+	gTTYModule->tty_hardware_signal(fSystemTTYCookie, line, enable);
+
 	return B_OK;
 }
 
@@ -976,7 +835,7 @@ SerialDevice::OnClose()
 
 
 int32
-SerialDevice::DeviceThread(void *data)
+SerialDevice::_DeviceThread(void *data)
 {
 #if 0
 	SerialDevice *device = (SerialDevice *)data;
@@ -1030,6 +889,39 @@ SerialDevice::DeviceThread(void *data)
 	}
 
 #endif
+	return B_OK;
+}
+
+
+status_t
+SerialDevice::_WriteToDevice()
+{
+	char *buffer = &fWriteBuffer[fWriteBufferIn];
+	size_t bytesLeft = DEF_BUFFER_SIZE - atomic_get(&fWriteBufferAvail);
+	bytesLeft = MIN(bytesLeft, DEF_BUFFER_SIZE - fWriteBufferIn);
+	TRACE("%s: in %d left %d\n", __FUNCTION__, fWriteBufferIn, bytesLeft);
+	status_t status = gTTYModule->tty_read(fDeviceTTYCookie, buffer,
+		&bytesLeft);
+	TRACE("%s: tty_read: %d\n", __FUNCTION__, bytesLeft);
+	if (status != B_OK) {
+		TRACE_ALWAYS("write to device: failed to read from TTY: %s\n",
+			strerror(status));
+		return status;
+	}
+	fWriteBufferIn += bytesLeft;
+	fWriteBufferIn %= DEF_BUFFER_SIZE;
+	atomic_add(&fWriteBufferAvail, bytesLeft);
+
+	// XXX: WTF: this ought to be done by the tty module calling service_func!
+	// enable irqs
+	Service(fMasterTTY, TTYOSTART, NULL, 0);
+
+	status = acquire_sem_etc(fWriteBufferSem, 1, B_CAN_INTERRUPT, 0);
+	if (status != B_OK) {
+		TRACE_ALWAYS("write to device: failed to acquire sem: %s\n",
+			strerror(status));
+		return status;
+	}
 	return B_OK;
 }
 

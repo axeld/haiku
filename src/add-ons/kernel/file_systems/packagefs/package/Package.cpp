@@ -20,6 +20,7 @@
 #include <package/hpkg/v1/PackageEntryAttribute.h>
 
 #include <AutoDeleter.h>
+#include <FdIO.h>
 #include <package/hpkg/PackageFileHeapReader.h>
 #include <package/hpkg/PackageReaderImpl.h>
 #include <package/hpkg/v1/PackageReaderImpl.h>
@@ -687,7 +688,7 @@ private:
 
 
 struct Package::HeapReaderV2 : public HeapReader, public CachedDataReader,
-	private BErrorOutput {
+	private BErrorOutput, private BFdIO {
 public:
 	HeapReaderV2()
 		:
@@ -706,8 +707,10 @@ public:
 		if (fHeapReader == NULL)
 			return B_NO_MEMORY;
 
+		BFdIO::SetTo(fd, false);
+
 		fHeapReader->SetErrorOutput(this);
-		fHeapReader->SetFD(fd);
+		fHeapReader->SetFile(this);
 
 		status_t error = CachedDataReader::Init(fHeapReader,
 			fHeapReader->UncompressedHeapSize());
@@ -719,7 +722,7 @@ public:
 
 	virtual void UpdateFD(int fd)
 	{
-		fHeapReader->SetFD(fd);
+		BFdIO::SetTo(fd, false);
 	}
 
 	virtual status_t CreateDataReader(const PackageData& data,
@@ -749,12 +752,19 @@ struct Package::CachingPackageReader : public PackageReaderImpl {
 	CachingPackageReader(BErrorOutput* errorOutput)
 		:
 		PackageReaderImpl(errorOutput),
-		fCachedHeapReader(NULL)
+		fCachedHeapReader(NULL),
+		fFD(-1)
 	{
 	}
 
 	~CachingPackageReader()
 	{
+	}
+
+	status_t Init(int fd, bool keepFD, uint32 flags)
+	{
+		fFD = fd;
+		return PackageReaderImpl::Init(fd, keepFD, flags);
 	}
 
 	virtual status_t CreateCachedHeapReader(
@@ -765,7 +775,7 @@ struct Package::CachingPackageReader : public PackageReaderImpl {
 		if (fCachedHeapReader == NULL)
 			RETURN_ERROR(B_NO_MEMORY);
 
-		status_t error = fCachedHeapReader->Init(rawHeapReader, FD());
+		status_t error = fCachedHeapReader->Init(rawHeapReader, fFD);
 		if (error != B_OK)
 			RETURN_ERROR(error);
 
@@ -775,7 +785,12 @@ struct Package::CachingPackageReader : public PackageReaderImpl {
 
 	HeapReaderV2* DetachCachedHeapReader()
 	{
-		DetachHeapReader();
+		PackageFileHeapReader* rawHeapReader;
+		DetachHeapReader(rawHeapReader);
+
+		// We don't need the raw heap reader anymore, since the cached reader
+		// is not a wrapper around it, but completely independent from it.
+		delete rawHeapReader;
 
 		HeapReaderV2* cachedHeapReader = fCachedHeapReader;
 		fCachedHeapReader = NULL;
@@ -784,6 +799,7 @@ struct Package::CachingPackageReader : public PackageReaderImpl {
 
 private:
 	HeapReaderV2*	fCachedHeapReader;
+	int				fFD;
 };
 
 
@@ -929,14 +945,16 @@ Package::Open()
 	// open the file
 	fFD = openat(fPackagesDirectory->DirectoryFD(), fFileName, O_RDONLY);
 	if (fFD < 0) {
-		ERROR("Failed to open package file \"%s\"\n", fFileName.Data());
+		ERROR("Failed to open package file \"%s\": %s\n", fFileName.Data(),
+			strerror(errno));
 		return errno;
 	}
 
 	// stat it to verify that it's still the same file
 	struct stat st;
 	if (fstat(fFD, &st) < 0) {
-		ERROR("Failed to stat package file \"%s\"\n", fFileName.Data());
+		ERROR("Failed to stat package file \"%s\": %s\n", fFileName.Data(),
+			strerror(errno));
 		close(fFD);
 		fFD = -1;
 		return errno;

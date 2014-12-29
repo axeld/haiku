@@ -1,4 +1,4 @@
-1	swedish	x-vnd.Haiku-PoorMan	1267330937
+1	swedish	x-vnd.Haiku-PoorMan	3296382959
 Website location	PoorMan		Hemsidans mapp
 Error Server	PoorMan		Serverfel
 Settings…	PoorMan		Inställningar...
@@ -6,7 +6,6 @@ Create PoorMan log	PoorMan		Skapa loggfil
 Shutting down.\n	PoorMan		Stänger ner.\n
 Hits: %lu	PoorMan		Träffar: %lu
 Web folder:	PoorMan		Hemsidemapp:
-Default	PoorMan		Använd förvald
 Save log console selection	PoorMan		Spara konsolloggsmarkering
 Run server	PoorMan		Kör server
 PoorMan settings	PoorMan		Fattigmans inställningar
@@ -36,7 +35,6 @@ Please choose the folder to publish on the web.\n\nYou can have PoorMan create a
 Log To Console	PoorMan		Skriv logg till konsol
 Connections	PoorMan		Anslutningar
 Status: Running	PoorMan		Status: Körs
-connections	PoorMan		anslutningar
 Controls	PoorMan		Kontroller
 Send file listing if there's no start page	PoorMan		Visa fillista om startsida saknas
 Error Dir	PoorMan		Katalogfel

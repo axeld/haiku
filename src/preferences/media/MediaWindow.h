@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2012, Haiku, Inc.
+ * Copyright 2003-2014, Haiku, Inc.
  * Distributed under the terms of the MIT license.
  *
  * Authors:
@@ -18,31 +18,31 @@
 
 #include <ObjectList.h>
 
-#include "MediaAlert.h"
 #include "MediaIcons.h"
 #include "MediaListItem.h"
 #include "MediaViews.h"
 
-
+#define MEDIA_SERVICE_NOTIFICATION_ID "MediaServiceNotificationID"
 #define SETTINGS_FILE "MediaPrefs Settings"
 
 
 class BCardLayout;
 class BSeparatorView;
-
+class MidiSettingsView;
 
 class MediaWindow : public BWindow {
 public:
 								MediaWindow(BRect frame);
-   								~MediaWindow();
+								~MediaWindow();
 
-    		status_t			InitCheck();
+			status_t			InitCheck();
 
 	// methods to be called by MediaListItems...
 			void				SelectNode(const dormant_node_info* node);
 			void				SelectAudioSettings(const char* title);
 			void				SelectVideoSettings(const char* title);
 			void				SelectAudioMixer(const char* title);
+			void				SelectMidiSettings(const char* title);
 
 	// methods to be called by SettingsViews...
 			void				UpdateInputListItem(
@@ -52,8 +52,8 @@ public:
 									MediaListItem::media_type type,
 									const dormant_node_info* node);
 
-    virtual	bool 				QuitRequested();
-    virtual	void				MessageReceived(BMessage* message);
+	virtual	bool 				QuitRequested();
+	virtual	void				MessageReceived(BMessage* message);
 
 private:
 	typedef BObjectList<dormant_node_info> NodeList;
@@ -72,8 +72,9 @@ private:
 			NodeListItem*		_FindNodeListItem(dormant_node_info* info);
 
 	static	status_t			_RestartMediaServices(void* data);
-	static	bool				_UpdateProgress(int stage, const char * message,
-									void * cookie);
+	static	bool				_UpdateProgress(int stage, const char* message,
+									void* cookie);
+			void				_Notify(float progress, const char* message);
 
 			void				_ClearParamView();
 			void				_MakeParamView();
@@ -99,6 +100,7 @@ private:
 			BCardLayout*		fContentLayout;
 			AudioSettingsView*	fAudioView;
 			VideoSettingsView*	fVideoView;
+			MidiSettingsView*	fMidiView;
 
 			SmartNode			fCurrentNode;
 			BParameterWeb*		fParamWeb;
@@ -109,7 +111,6 @@ private:
 			NodeList			fVideoInputs;
 			NodeList			fVideoOutputs;
 
-			MediaAlert*			fAlert;
 			status_t			fInitCheck;
 };
 

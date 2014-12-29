@@ -7,6 +7,7 @@
 
 
 #include <Format.h>
+#include <Locale.h>
 #include <String.h>
 #include <TimeUnitFormat.h>
 
@@ -22,20 +23,20 @@ class BDurationFormat : public BFormat {
 	typedef	BFormat				Inherited;
 
 public:
+								BDurationFormat(const BLanguage& language,
+									const BFormattingConventions& conventions,
+									const BString& separator = ", ");
 								BDurationFormat(
 									const BString& separator = ", ");
 								BDurationFormat(const BDurationFormat& other);
 	virtual						~BDurationFormat();
 
-			BDurationFormat&	operator=(const BDurationFormat& other);
-
 			void				SetSeparator(const BString& separator);
-
-	virtual	status_t			SetLocale(const BLocale* locale);
 			status_t			SetTimeZone(const BTimeZone* timeZone);
 
-			status_t			Format(bigtime_t startValue,
-									bigtime_t stopValue, BString* buffer,
+			status_t			Format(BString& buffer,
+									const bigtime_t startValue,
+									const bigtime_t stopValue,
 									time_unit_style style = B_TIME_UNIT_FULL
 									) const;
 

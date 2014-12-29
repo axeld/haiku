@@ -1,9 +1,6 @@
-1	german	x-vnd.Haiku-NewMailNotification	3624191291
-%num new message	filter		%num neue Nachricht
-%num new messages	filter		%num neue Nachrichten
+1	german	x-vnd.Haiku-NewMailNotification	4243490201
+{0, plural, one{# new message} other{# new messages}}	filter		{0, plural, one{# neue Nachricht} other{# neue Nachrichten}}
 Keyboard LEDs	ConfigView		Tastatur-LEDs
-You have %num new messages for %name.	filter		%num neue Nachrichten für %name.
-You have %num new message for %name.	filter		%num neue Nachricht für %name.
 Log window	ConfigView		Statusfenster
 Central beep	ConfigView		Tonsignal (alle Konten)
 Beep	ConfigView		Tonsignal
@@ -11,6 +8,7 @@ Method:	ConfigView		Methode:
 Central alert	ConfigView		Hinweisfenster (alle Konten)
 Alert	ConfigView		Hinweisfenster
 none	ConfigView		keine
+You have {0, plural, one{# new message} other{# new messages}} for %account.	filter		{0, plural, one{# neue Nachricht} other{# neue Nachrichten}} für %account.
 New messages	filter		Neue Nachrichten
 New mails notification	ConfigView		Ankündigung neuer E-Mails
 OK	filter		OK

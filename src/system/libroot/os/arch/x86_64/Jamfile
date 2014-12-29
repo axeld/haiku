@@ -12,15 +12,18 @@ for architectureObject in [ MultiArchSubDirSetup x86_64 ] {
 			# TODO in time.c!
 		UsePrivateSystemHeaders ;
 
+		SEARCH_SOURCE += [ FDirName $(SUBDIR) $(DOTDOT) generic ] ;
+
 		MergeObject <$(architecture)>os_arch_$(TARGET_ARCH).o :
-			atomic.S
 			byteorder.S
 			get_stack_frame.S
 			system_info.cpp
-			system_time_asm.S
+			system_time.cpp
 			thread.cpp
 			time.cpp
 			tls.cpp
+
+			generic_atomic.cpp
 			;
 	}
 }

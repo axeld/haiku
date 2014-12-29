@@ -8,8 +8,11 @@
 
 
 #include <GroupView.h>
+#include <util/OpenHashTable.h>
 
 #include "table/TreeTable.h"
+
+#include "ExpressionInfo.h"
 
 
 class ActionMenuItem;
@@ -20,13 +23,16 @@ class Thread;
 class Type;
 class TypeComponentPath;
 class ValueNode;
+class ValueNodeChild;
 class ValueNodeContainer;
+class Value;
 class Variable;
 class VariablesViewState;
 class VariablesViewStateHistory;
 
 
-class VariablesView : public BGroupView, private TreeTableListener {
+class VariablesView : public BGroupView, private TreeTableListener,
+	private ExpressionInfo::Listener {
 public:
 	class Listener;
 
@@ -59,34 +65,69 @@ private:
 									int32 columnIndex, BPoint screenWhere,
 									uint32 buttons);
 
+	// ExpressionInfo::Listener
+	virtual	void				ExpressionEvaluated(ExpressionInfo* info,
+									status_t result, ExpressionResult* value);
+
 private:
 			class ContainerListener;
+			class ExpressionVariableID;
 			class ModelNode;
 			class VariableValueColumn;
 			class VariableTableModel;
 			class ContextMenu;
 			class TableCellContextMenuTracker;
+			class VariablesExpressionInfo;
 			typedef BObjectList<ActionMenuItem> ContextActionList;
+			typedef BObjectList<ExpressionInfo> ExpressionInfoList;
+			typedef BObjectList<ValueNodeChild> ExpressionChildList;
+
+			struct FunctionKey;
+			struct ExpressionInfoEntry;
+			struct ExpressionInfoEntryHashDefinition;
+
+			typedef BOpenHashTable<ExpressionInfoEntryHashDefinition>
+				ExpressionInfoTable;
 
 private:
 			void				_Init();
 
 			void				_RequestNodeValue(ModelNode* node);
 			status_t			_GetContextActionsForNode(ModelNode* node,
-									ContextActionList* actions);
+									ContextActionList*& _preActions,
+									ContextActionList*& _postActions);
 			status_t			_AddContextAction(const char* action,
 									uint32 what, ContextActionList* actions,
 									BMessage*& _message);
 			void				_FinishContextMenu(bool force);
-			void				_SaveViewState() const;
+			void				_SaveViewState(bool updateValues) const;
 			void				_RestoreViewState();
 			status_t			_AddViewStateDescendentNodeInfos(
-									VariablesViewState* viewState, void* parent,
-									TreeTablePath& path) const;
+									VariablesViewState* viewState,
+									void* parent,
+									TreeTablePath& path,
+									bool updateValues) const;
 			status_t			_ApplyViewStateDescendentNodeInfos(
-									VariablesViewState* viewState, void* parent,
+									VariablesViewState* viewState,
+									void* parent,
 									TreeTablePath& path);
 			void				_CopyVariableValueToClipboard();
+
+			status_t			_AddExpression(const char* expression,
+									bool persistentExpression,
+									ExpressionInfo*& _info);
+			void				_RemoveExpression(ModelNode* node);
+
+			void				_RestoreExpressionNodes();
+
+			void				_AddExpressionNode(ExpressionInfo* info,
+									status_t result, ExpressionResult* value);
+
+			void				_HandleTypecastResult(status_t result,
+									ExpressionResult* value);
+
+			status_t			_GetTypeForTypeCode(int32 typeCode,
+									Type*& _resultType) const;
 
 private:
 			Thread*				fThread;
@@ -96,7 +137,11 @@ private:
 			ContainerListener*	fContainerListener;
 			VariablesViewState*	fPreviousViewState;
 			VariablesViewStateHistory* fViewStateHistory;
+			ExpressionInfoTable* fExpressions;
+			ExpressionChildList	fExpressionChildren;
 			TableCellContextMenuTracker* fTableCellContextMenuTracker;
+			VariablesExpressionInfo* fPendingTypecastInfo;
+			ExpressionInfo*		fTemporaryExpression;
 			bool				fFrameClearPending;
 			Listener*			fListener;
 };
@@ -109,6 +154,11 @@ public:
 	virtual	void				ValueNodeValueRequested(CpuState* cpuState,
 									ValueNodeContainer* container,
 									ValueNode* valueNode) = 0;
+
+	virtual	void				ExpressionEvaluationRequested(
+									ExpressionInfo* info,
+									StackFrame* frame,
+									Thread* thread) = 0;
 };
 
 

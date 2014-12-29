@@ -1,5 +1,5 @@
 /*
- * Copyright 2006, Haiku.
+ * Copyright 2006-2014, Haiku.
  * 
  * Copyright (c) 2004-2005 Matthijs Hollemans
  * Copyright (c) 2003 Jerome Leveque
@@ -9,6 +9,7 @@
  * 		Jérôme Duval
  *		Jérôme Leveque
  *		Matthijs Hollemans
+ *		Pete Goodeve
  */
 
 #ifndef _SOFT_SYNTH_H
@@ -29,10 +30,8 @@ class BSynth;
 
 namespace BPrivate {
 
-class BSoftSynth
-{
+class BSoftSynth {
 public:
-
 	bool InitCheck();
 
 	void Unload();
@@ -93,7 +92,8 @@ private:
 
 	void _Init();
 	void _Done();
-	static void PlayBuffer(void * cookie, void * data, size_t size, const media_raw_audio_format & format);
+	static void PlayBuffer(void* cookie, void* data, size_t size,
+			const media_raw_audio_format& format);
 	
 	bool fInitCheck;
 	char* fInstrumentsFile;
@@ -104,10 +104,14 @@ private:
 	reverb_mode fReverbMode;
 	bool fReverbEnabled;
 
-	fluid_synth_t *fSynth;
+	fluid_synth_t* fSynth;
 	fluid_settings_t* fSettings;
 
-	BSoundPlayer *fSoundPlayer;
+	BSoundPlayer* fSoundPlayer;
+
+	float* fMonitor;
+	size_t fMonitorSize;
+	int16 fMonitorChans;
 };
 
 } // namespace BPrivate

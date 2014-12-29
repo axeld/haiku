@@ -248,7 +248,9 @@ BHttpForm::BHttpForm()
 
 BHttpForm::BHttpForm(const BHttpForm& other)
 	:
-	fType(B_HTTP_FORM_URL_ENCODED)
+	fFields(other.fFields),
+	fType(other.fType),
+	fMultipartBoundary(other.fMultipartBoundary)
 {
 }
 

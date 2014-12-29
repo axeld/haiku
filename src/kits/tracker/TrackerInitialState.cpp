@@ -263,6 +263,7 @@ public:
 		int32 alignment, bool extra);
 
 	status_t InitCheck() const;
+
 public:
 	BMimeType fMimeType;
 	BMessage fExtraAttrs;
@@ -280,15 +281,19 @@ ExtraAttributeLazyInstaller::ExtraAttributeLazyInstaller(const char* type)
 	fMimeType(type),
 	fDirty(false)
 {
-	if (fMimeType.InitCheck() == B_OK)
-		fMimeType.GetAttrInfo(&fExtraAttrs);
+	if (fMimeType.InitCheck() != B_OK
+		|| fMimeType.GetAttrInfo(&fExtraAttrs) != B_OK) {
+		fExtraAttrs = BMessage();
+	}
 }
 
 
 ExtraAttributeLazyInstaller::~ExtraAttributeLazyInstaller()
 {
-	if (fMimeType.InitCheck() == B_OK && fDirty)
-		fMimeType.SetAttrInfo(&fExtraAttrs);
+	if (fMimeType.InitCheck() == B_OK && fDirty
+		&& fMimeType.SetAttrInfo(&fExtraAttrs) != B_OK) {
+		fExtraAttrs = BMessage();
+	}
 }
 
 
@@ -329,10 +334,10 @@ ExtraAttributeLazyInstaller::AddExtraAttribute(const char* publicName,
 static void
 InstallTemporaryBackgroundImages(BNode* node, BMessage* message)
 {
-	int32 size = message->FlattenedSize();
-
+	ssize_t size = message->FlattenedSize();
 	try {
-		char* buffer = new char[size];
+		ThrowIfNotSize(size);
+		char* buffer = new char[(size_t)size];
 		message->Flatten(buffer, size);
 		node->WriteAttr(kBackgroundImageInfo, B_MESSAGE_TYPE, 0, buffer,
 			(size_t)size);

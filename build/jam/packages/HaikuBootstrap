@@ -6,6 +6,7 @@ HaikuPackage $(haikuPackage) ;
 
 
 # wifi firmware
+local driver ;
 for driver in $(SYSTEM_ADD_ONS_DRIVERS_NET) {
 	local package = [ on $(driver) return $(HAIKU_WIFI_FIRMWARE_PACKAGE) ] ;
 	local archive = [ on $(driver) return $(HAIKU_WIFI_FIRMWARE_ARCHIVE) ] ;
@@ -16,6 +17,7 @@ for driver in $(SYSTEM_ADD_ONS_DRIVERS_NET) {
 	}
 	local packages = [ on $(driver) return $(HAIKU_WIFI_FIRMWARE_PACKAGES) ] ;
 	local archives = [ on $(driver) return $(HAIKU_WIFI_FIRMWARE_ARCHIVES) ] ;
+	local archive ;
 	for archive in $(archives) {
 		AddWifiFirmwareToPackage $(driver) : $(packages[1]) : $(archive)
 			: $(extract) ;
@@ -41,7 +43,7 @@ AddFilesToPackage add-ons kernel busses usb : <usb>uhci <usb>ohci <usb>ehci ;
 AddFilesToPackage add-ons kernel busses virtio : virtio_pci ;
 AddFilesToPackage add-ons kernel console : vga_text ;
 AddFilesToPackage add-ons kernel debugger
-	: <kdebug>demangle <kdebug>disasm@x86 <kdebug>hangman
+	: <kdebug>demangle <kdebug>disasm@x86 #<kdebug>hangman
 	  <kdebug>invalidate_on_exit <kdebug>usb_keyboard
 	  <kdebug>run_on_exit ;
 AddFilesToPackage add-ons kernel file_systems : $(SYSTEM_ADD_ONS_FILE_SYSTEMS) ;
@@ -49,7 +51,7 @@ AddFilesToPackage add-ons kernel generic
 	: ata_adapter@ata bios@x86,x86_64 dpc ide_adapter@ide
 		locked_pool mpu401 scsi_periph <module>tty ;
 AddFilesToPackage add-ons kernel partitioning_systems
-	: amiga_rdb apple efi_gpt intel session ;
+	: amiga_rdb@m68k apple@ppc efi_gpt intel session ;
 AddFilesToPackage add-ons kernel interrupt_controllers : openpic@ppc ;
 AddFilesToPackage add-ons kernel power cpufreq : intel_pstates@x86,x86_64 ;
 AddFilesToPackage add-ons kernel power cpuidle : intel_cstates@x86,x86_64 ;
@@ -62,7 +64,7 @@ if $(TARGET_ARCH) = x86 || $(TARGET_ARCH) = x86_64 {
 AddNewDriversToPackage disk scsi	: scsi_cd scsi_disk ;
 AddNewDriversToPackage disk virtual : virtio_block ;
 AddNewDriversToPackage power		: acpi_battery@x86 ;
-#AddNewDriversToPackage display		: display_controls@x86 ;
+#AddNewDriversToPackage display		: display_adapter@x86 ;
 
 # legacy drivers
 AddDriversToPackage					: console dprintf null random <driver>tty
@@ -80,7 +82,7 @@ AddDriversToPackage graphics		: $(SYSTEM_ADD_ONS_DRIVERS_GRAPHICS) ;
 AddDriversToPackage input			: ps2_hid usb_hid wacom ;
 AddDriversToPackage misc			: <driver>poke <driver>mem ;
 AddDriversToPackage net				: $(SYSTEM_ADD_ONS_DRIVERS_NET) ;
-AddDriversToPackage ports			: usb_serial ;
+AddDriversToPackage ports			: pc_serial usb_serial ;
 AddDriversToPackage power			: $(SYSTEM_ADD_ONS_DRIVERS_POWER) ;
 
 # kernel
@@ -115,7 +117,6 @@ AddFilesToPackage demos			: $(SYSTEM_DEMOS) ;
 SEARCH on install-wifi-firmwares.sh = [ FDirName $(HAIKU_TOP) data bin ] ;
 AddFilesToPackage bin : install-wifi-firmwares.sh ;
 
-AddSymlinkToPackage bin : bash : sh ;
 AddSymlinkToPackage bin : trash : untrash ;
 AddSymlinkToPackage bin : less : more ;
 AddSymlinkToPackage bin : gzip : gunzip ;

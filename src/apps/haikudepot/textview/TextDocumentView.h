@@ -61,8 +61,10 @@ public:
 			void				SetInsets(float left, float top, float right,
 									float bottom);
 
+			void				SetSelectionEnabled(bool enabled);
 			void				SetCaret(BPoint where, bool extendSelection);
 
+			void				SelectAll();
 			bool				HasSelection() const;
 			void				GetSelection(int32& start, int32& end) const;
 
@@ -89,6 +91,7 @@ private:
 			float				fInsetBottom;
 
 			BRect				fCaretBounds;
+			bool				fSelectionEnabled;
 			bool				fShowCaret;
 			bool				fMouseDown;
 };

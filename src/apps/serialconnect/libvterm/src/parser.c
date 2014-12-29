@@ -1,6 +1,5 @@
 #include "vterm_internal.h"
 
-#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -23,9 +22,11 @@ static void do_string_csi(VTerm *vt, const char *args, size_t arglen, char comma
 
   int leaderlen = 0;
   char leader[CSI_LEADER_MAX];
+
   int argcount = 1; // Always at least 1 arg
   long csi_args[CSI_ARGS_MAX];
   int argi;
+
   int intermedlen = 0;
   char intermed[CSI_INTERMED_MAX];
 
@@ -71,7 +72,6 @@ static void do_string_csi(VTerm *vt, const char *args, size_t arglen, char comma
     }
   }
 done_leader: ;
-
 
   for( ; i < arglen; i++) {
     if((args[i] & 0xf0) != 0x20)
@@ -299,14 +299,14 @@ void vterm_push_bytes(VTerm *vt, const char *bytes, size_t len)
 
     case OSC:
     case DCS:
-      if(c == 0x07 || (c == 0x9c && !vt->is_utf8)) {
+      if(c == 0x07 || (c == 0x9c && !vt->mode.utf8)) {
         do_string(vt, string_start, bytes + pos - string_start);
         ENTER_NORMAL_STATE();
       }
       break;
 
     case NORMAL:
-      if(c >= 0x80 && c < 0xa0 && !vt->is_utf8) {
+      if(c >= 0x80 && c < 0xa0 && !vt->mode.utf8) {
         switch(c) {
         case 0x90: // DCS
           ENTER_STRING_STATE(DCS);

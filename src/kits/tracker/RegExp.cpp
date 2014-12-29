@@ -208,7 +208,16 @@ int32 regnarrate = 0;
 RegExp::RegExp()
 	:
 	fError(B_OK),
-	fRegExp(NULL)
+	fRegExp(NULL),
+	fInputScanPointer(NULL),
+	fParenthesisCount(0),
+	fDummy('\0'),
+	fCodeEmitPointer(NULL),
+	fCodeSize(0),
+	fStringInputPointer(NULL),
+	fRegBol(NULL),
+	fStartPArrayPointer(NULL),
+	fEndPArrayPointer(NULL)
 {
 }
 
@@ -222,7 +231,7 @@ RegExp::RegExp(const char* pattern)
 }
 
 
-RegExp::RegExp(const BString &pattern)
+RegExp::RegExp(const BString& pattern)
 	:
 	fError(B_OK),
 	fRegExp(NULL)
@@ -255,7 +264,7 @@ RegExp::SetTo(const char* pattern)
 
 
 status_t
-RegExp::SetTo(const BString &pattern)
+RegExp::SetTo(const BString& pattern)
 {
 	fError = B_OK;
 	free(fRegExp);
@@ -275,7 +284,7 @@ RegExp::Matches(const char* string) const
 
 
 bool
-RegExp::Matches(const BString &string) const
+RegExp::Matches(const BString& string) const
 {
 	if (fRegExp == NULL)
 		return false;

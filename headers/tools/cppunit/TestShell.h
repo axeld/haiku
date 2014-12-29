@@ -58,12 +58,10 @@ public:
 	status_t AddSuite(BTestSuite *kit);
 
 	// This function is used to add test suites to the list of available
-	// tests. A SuiteFunction is just a function that takes no parameters
-	// and returns a pointer to a CppUnit::Test object. Return NULL at
-	// your own risk :-). The name given is the name that will be presented
-	// when the program is run with "--list" as an argument. Usually the
-	// given suite would be a test suite for an entire class, but that's
-	// not a requirement.
+	// tests. The test pointer may not be NULL. The name given is the name that
+	// will be presented when the program is run with "--list" as an argument.
+	// Usually the given suite would be a test suite for an entire class, but
+	// that's not a requirement.
 	void AddTest(const std::string &name, CppUnit::Test* test);
 
 	// This function loads all the test addons it finds in the given
@@ -121,13 +119,12 @@ protected:
 	bool fListTestsAndExit;
 	BPath *fTestDir;
 	int32 fTLSDebuggerCall;
-#ifndef NO_ELF_SYMBOL_PATCHING
+
 	BLocker *fPatchGroupLocker;
 	ElfSymbolPatchGroup *fPatchGroup;
 	void (*fOldDebuggerHook)(const char*);
 	image_id (*fOldLoadAddOnHook)(const char*);
 	status_t (*fOldUnloadAddOnHook)(image_id);
-#endif // ! NO_ELF_SYMBOL_PATCHING
 
 	//! Prints a brief description of the program.
 	virtual void PrintDescription(int argc, char *argv[]);
@@ -178,7 +175,6 @@ private:
 	//! Prevents the use of the copy operator.
 	void operator =( const BTestShell &copy );
 
-#ifndef NO_ELF_SYMBOL_PATCHING
 	void _Debugger(const char* message);
 	image_id _LoadAddOn(const char* path);
 	status_t _UnloadAddOn(image_id image);
@@ -186,8 +182,6 @@ private:
 	static void _DebuggerHook(const char* message);
 	static image_id _LoadAddOnHook(const char* path);
 	static status_t _UnloadAddOnHook(image_id image);
-#endif	// ! NO_ELF_SYMBOL_PATCHING
-
 };	// class BTestShell
 
 #endif // _beos_test_shell_h_

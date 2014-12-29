@@ -69,11 +69,12 @@ __cxa_finalize(void* dsoHandle)
 {
 }
 
-
 #endif
 
 // full C++ support in the kernel
-#if (defined(_KERNEL_MODE) || defined(_LOADER_MODE)) && !defined(_BOOT_MODE)
+#if (defined(_KERNEL_MODE) || defined(_LOADER_MODE))
+
+#ifndef _BOOT_MODE
 
 FILE *stderr = NULL;
 
@@ -85,8 +86,6 @@ fprintf(FILE *f, const char *format, ...)
 	dprintf("fprintf(`%s',...)\n", format);
 	return 0;
 }
-
-#if __GNUC__ >= 3
 
 extern "C"
 size_t
@@ -121,7 +120,7 @@ printf(const char *format, ...)
 	dprintf("printf(`%s',...)\n", format);
 	return 0;
 }
-#endif
+#endif // #ifndef _LOADER_MODE
 
 extern "C"
 int
@@ -130,10 +129,9 @@ puts(const char *string)
 	return fputs(string, NULL);
 }
 
+#endif	// #ifndef _BOOT_MODE
 
-#endif	// __GNUC__ >= 3
-
-#if __GNUC__ >= 4 && !defined(USING_LIBGCC)
+#if __GNUC__ >= 4
 
 extern "C"
 void
@@ -169,6 +167,13 @@ void
 _Unwind_GetIP()
 {
 	panic("_Unwind_GetIP");
+}
+
+extern "C"
+void
+_Unwind_GetIPInfo()
+{
+	panic("_Unwind_GetIPInfo");
 }
 
 extern "C"
@@ -241,6 +246,48 @@ __register_frame_info()
 	panic("__register_frame_info");
 }
 
+/* ARM */
+extern "C" void
+__aeabi_unwind_cpp_pr0(void)
+{
+	panic("__aeabi_unwind_cpp_pr0");
+}
+
+extern "C" void
+__aeabi_unwind_cpp_pr1(void)
+{
+	panic("__aeabi_unwind_cpp_pr1");
+}
+
+extern "C" void
+__aeabi_unwind_cpp_pr2(void)
+{
+	panic("__aeabi_unwind_cpp_pr2");
+}
+
+extern "C" void
+_Unwind_Complete(void)
+{
+	panic("_Unwind_Complete");
+}
+
+extern "C" void
+_Unwind_VRS_Set(void)
+{
+	panic("_Unwind_VRS_Set");
+}
+
+extern "C" void
+_Unwind_VRS_Get(void)
+{
+	panic("_Unwind_VRS_Get");
+}
+
+extern "C" void
+__gnu_unwind_frame(void)
+{
+	panic("__gnu_unwind_frame");
+}
 
 #endif	// __GNUC__ >= 4
 
@@ -252,6 +299,8 @@ abort()
 }
 
 
+#ifndef _BOOT_MODE
+
 extern "C"
 void
 debugger(const char *message)
@@ -259,7 +308,9 @@ debugger(const char *message)
 	kernel_debugger(message);
 }
 
-#endif	// _#if KERNEL_MODE
+#endif	// #ifndef _BOOT_MODE
+
+#endif	// #if (defined(_KERNEL_MODE) || defined(_LOADER_MODE))
 
 
 extern "C"

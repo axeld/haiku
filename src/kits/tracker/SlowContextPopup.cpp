@@ -76,8 +76,10 @@ BSlowContextMenu::BSlowContextMenu(const char* title)
 	fMenuBuilt(false),
 	fMessage(B_REFS_RECEIVED),
 	fParentWindow(NULL),
+	fVolsOnly(false),
 	fItemList(NULL),
 	fContainer(NULL),
+	fIteratingDesktop(false),
 	fTypesList(NULL),
 	fIsShowing(false)
 {
@@ -263,8 +265,13 @@ BSlowContextMenu::StartBuildingItemList()
 			AddRootItemsIfNeeded();
 			AddTrashItem();
 		} else {
-			fContainer = new DirectoryEntryList(*dynamic_cast<BDirectory*>
-				(startModel.Node()));
+			BDirectory* directory = dynamic_cast<BDirectory*>(
+				startModel.Node());
+
+			ASSERT(directory != NULL);
+
+			if (directory != NULL)
+				fContainer = new DirectoryEntryList(*directory);
 		}
 
 		if (fContainer->InitCheck() != B_OK)
@@ -355,11 +362,9 @@ void
 BSlowContextMenu::AddOneItem(Model* model)
 {
 	BMenuItem* item = NewModelItem(model, &fMessage, fMessenger, false,
-		dynamic_cast<BContainerWindow*>(fParentWindow) ?
-		dynamic_cast<BContainerWindow*>(fParentWindow) : 0,
-		fTypesList, &fTrackingHook);
-
-	if (item)
+		dynamic_cast<BContainerWindow*>(fParentWindow), fTypesList,
+		&fTrackingHook);
+	if (item != NULL)
 		fItemList->AddItem(item);
 }
 

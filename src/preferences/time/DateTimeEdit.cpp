@@ -16,6 +16,7 @@
 
 #include <stdlib.h>
 
+#include <DateFormat.h>
 #include <List.h>
 #include <Locale.h>
 #include <String.h>
@@ -247,15 +248,14 @@ TTimeEdit::_UpdateFields()
 		free(fFieldPositions);
 		fFieldPositions = NULL;
 	}
-	BLocale::Default()->FormatTime(&fText, fFieldPositions,
-		fFieldPosCount, time, B_MEDIUM_TIME_FORMAT);
+	fTimeFormat.Format(fText, fFieldPositions, fFieldPosCount, time,
+		B_MEDIUM_TIME_FORMAT);
 
 	if (fFields != NULL) {
 		free(fFields);
 		fFields = NULL;
 	}
-	BLocale::Default()->GetTimeFields(fFields, fFieldCount,
-		B_MEDIUM_TIME_FORMAT);
+	fTimeFormat.GetTimeFields(fFields, fFieldCount, B_MEDIUM_TIME_FORMAT);
 }
 
 
@@ -622,15 +622,15 @@ TDateEdit::_UpdateFields()
 		free(fFieldPositions);
 		fFieldPositions = NULL;
 	}
-	BLocale::Default()->FormatDate(&fText, fFieldPositions, fFieldPosCount,
-		time, B_SHORT_DATE_FORMAT);
+
+	fDateFormat.Format(fText, fFieldPositions, fFieldPosCount, time,
+		B_SHORT_DATE_FORMAT);
 
 	if (fFields != NULL) {
 		free(fFields);
 		fFields = NULL;
 	}
-	BLocale::Default()->GetDateFields(fFields, fFieldCount,
-		B_SHORT_DATE_FORMAT);
+	fDateFormat.GetFields(fFields, fFieldCount, B_SHORT_DATE_FORMAT);
 }
 
 

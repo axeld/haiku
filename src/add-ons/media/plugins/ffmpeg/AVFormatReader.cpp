@@ -1,5 +1,6 @@
 /*
  * Copyright 2009-2010, Stephan Aßmus <superstippi@gmx.de>
+ * Copyright 2014, Colin Günther <coling@gmx.de>
  * All rights reserved. Distributed under the terms of the GNU L-GPL license.
  */
 
@@ -25,6 +26,7 @@ extern "C" {
 
 #include "DemuxerTable.h"
 #include "gfx_util.h"
+#include "Utilities.h"
 
 
 //#define TRACE_AVFORMAT_READER
@@ -45,30 +47,11 @@ extern "C" {
 #define ERROR(a...) fprintf(stderr, a)
 
 
-static const int64 kNoPTSValue = 0x8000000000000000LL;
-	// NOTE: For some reasons, I have trouble with the avcodec.h define:
-	// #define AV_NOPTS_VALUE          INT64_C(0x8000000000000000)
-	// INT64_C is not defined here.
+static const int64 kNoPTSValue = AV_NOPTS_VALUE;
 
 
 static uint32
-avformat_to_beos_format(SampleFormat format)
-{
-	switch (format) {
-		case SAMPLE_FMT_U8: return media_raw_audio_format::B_AUDIO_UCHAR;
-		case SAMPLE_FMT_S16: return media_raw_audio_format::B_AUDIO_SHORT;
-		case SAMPLE_FMT_S32: return media_raw_audio_format::B_AUDIO_INT;
-		case SAMPLE_FMT_FLT: return media_raw_audio_format::B_AUDIO_FLOAT;
-		case SAMPLE_FMT_DBL: return media_raw_audio_format::B_AUDIO_DOUBLE;
-		default:
-			break;
-	}
-	return 0;
-}
-
-
-static uint32
-avformat_to_beos_byte_order(SampleFormat format)
+avformat_to_beos_byte_order(AVSampleFormat format)
 {
 	// TODO: Huh?
 	return B_MEDIA_HOST_ENDIAN;
@@ -83,7 +66,7 @@ avdictionary_to_message(AVDictionary* dictionary, BMessage* message)
 
 	AVDictionaryEntry* entry = NULL;
 	while ((entry = av_dict_get(dictionary, "", entry,
-		AV_METADATA_IGNORE_SUFFIX))) {
+		AV_DICT_IGNORE_SUFFIX))) {
 		// convert entry keys into something more meaningful using the names from
 		// id3v2.c
 		if (strcmp(entry->key, "TALB") == 0 || strcmp(entry->key, "TAL") == 0)
@@ -700,18 +683,22 @@ StreamBase::GetNextChunk(const void** chunkBuffer,
 		mediaHeader->destination = -1;
 		mediaHeader->time_source = -1;
 		mediaHeader->size_used = fPacket.size;
-		if (fPacket.pts != kNoPTSValue) {
-//TRACE("  PTS: %lld (time_base.num: %d, .den: %d), stream DTS: %lld\n",
-//fPacket.pts, fStream->time_base.num, fStream->time_base.den,
-//fStream->cur_dts);
-			mediaHeader->start_time = _ConvertFromStreamTimeBase(fPacket.pts);
-		} else {
-//TRACE("  PTS (stream): %lld (time_base.num: %d, .den: %d), stream DTS: %lld\n",
-//lastStreamDTS, fStream->time_base.num, fStream->time_base.den,
-//fStream->cur_dts);
-			mediaHeader->start_time
-				= _ConvertFromStreamTimeBase(lastStreamDTS);
-		}
+
+		// FFmpeg recommends to use the decoding time stamps as primary source
+		// for presentation time stamps, especially for video formats that are
+		// using frame reordering. More over this way it is ensured that the
+		// returned start times are ordered in a monotonically increasing time
+		// series (even for videos that contain B-frames).
+		// \see http://git.videolan.org/?p=ffmpeg.git;a=blob;f=libavformat/avformat.h;h=1e8a6294890d580cd9ebc684eaf4ce57c8413bd8;hb=9153b33a742c4e2a85ff6230aea0e75f5a8b26c2#l1623
+		bigtime_t presentationTimeStamp;
+		if (fPacket.dts != kNoPTSValue)
+			presentationTimeStamp = fPacket.dts;
+		else if (fPacket.pts != kNoPTSValue)
+			presentationTimeStamp = fPacket.pts;
+		else
+			presentationTimeStamp = lastStreamDTS;
+
+		mediaHeader->start_time	= _ConvertFromStreamTimeBase(presentationTimeStamp);
 		mediaHeader->file_pos = fPacket.pos;
 		mediaHeader->data_offset = 0;
 		switch (mediaHeader->type) {
@@ -1083,10 +1070,8 @@ AVFormatReader::Stream::Init(int32 virtualIndex)
 			format->u.raw_audio.frame_rate = (float)codecContext->sample_rate;
 			format->u.raw_audio.channel_count = codecContext->channels;
 			format->u.raw_audio.channel_mask = codecContext->channel_layout;
-			format->u.raw_audio.byte_order
-				= avformat_to_beos_byte_order(codecContext->sample_fmt);
-			format->u.raw_audio.format
-				= avformat_to_beos_format(codecContext->sample_fmt);
+			ConvertAVSampleFormatToRawAudioFormat(codecContext->sample_fmt,
+				format->u.raw_audio.format);
 			format->u.raw_audio.buffer_size = 0;
 
 			// Read one packet and mark it for later re-use. (So our first
@@ -1113,8 +1098,8 @@ AVFormatReader::Stream::Init(int32 virtualIndex)
 				= codecContext->channel_layout;
 			format->u.encoded_audio.output.byte_order
 				= avformat_to_beos_byte_order(codecContext->sample_fmt);
-			format->u.encoded_audio.output.format
-				= avformat_to_beos_format(codecContext->sample_fmt);
+			ConvertAVSampleFormatToRawAudioFormat(codecContext->sample_fmt,
+				format->u.encoded_audio.output.format);
 			if (codecContext->block_align > 0) {
 				format->u.encoded_audio.output.buffer_size
 					= codecContext->block_align;
@@ -1151,30 +1136,9 @@ AVFormatReader::Stream::Init(int32 virtualIndex)
 			format->u.encoded_video.output.orientation
 				= B_VIDEO_TOP_LEFT_RIGHT;
 
-			// Calculate the display aspect ratio
-			AVRational displayAspectRatio;
-		    if (codecContext->sample_aspect_ratio.num != 0) {
-				av_reduce(&displayAspectRatio.num, &displayAspectRatio.den,
-					codecContext->width
-						* codecContext->sample_aspect_ratio.num,
-					codecContext->height
-						* codecContext->sample_aspect_ratio.den,
-					1024 * 1024);
-				TRACE("  pixel aspect ratio: %d/%d, "
-					"display aspect ratio: %d/%d\n",
-					codecContext->sample_aspect_ratio.num,
-					codecContext->sample_aspect_ratio.den,
-					displayAspectRatio.num, displayAspectRatio.den);
-		    } else {
-				av_reduce(&displayAspectRatio.num, &displayAspectRatio.den,
-					codecContext->width, codecContext->height, 1024 * 1024);
-				TRACE("  no display aspect ratio (%d/%d)\n",
-					displayAspectRatio.num, displayAspectRatio.den);
-		    }
-			format->u.encoded_video.output.pixel_width_aspect
-				= displayAspectRatio.num;
-			format->u.encoded_video.output.pixel_height_aspect
-				= displayAspectRatio.den;
+			ConvertAVCodecContextToVideoAspectWidthAndHeight(*codecContext,
+				format->u.encoded_video.output.pixel_width_aspect,
+				format->u.encoded_video.output.pixel_height_aspect);
 
 			format->u.encoded_video.output.display.format
 				= pixfmt_to_colorspace(codecContext->pix_fmt);

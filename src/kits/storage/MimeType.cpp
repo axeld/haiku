@@ -23,7 +23,7 @@
 #include <ctype.h>
 #include <new>
 #include <stdio.h>
-#include <string.h>
+#include <strings.h>
 
 
 using namespace BPrivate;
@@ -556,7 +556,7 @@ BMimeType::SetFileExtensions(const BMessage* extensions)
 	if (err == B_OK)
 		err = message.AddInt32("which", B_REG_MIME_FILE_EXTENSIONS);
 
-	if (err != B_OK && extensions != NULL)
+	if (err == B_OK && extensions != NULL)
 		err = message.AddMessage("extensions", extensions);
 
 	if (err == B_OK)

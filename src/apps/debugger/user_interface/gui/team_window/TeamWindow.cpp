@@ -33,11 +33,15 @@
 #include <AutoDeleter.h>
 #include <AutoLocker.h>
 
+#include "BreakConditionConfigWindow.h"
 #include "Breakpoint.h"
+#include "BreakpointEditWindow.h"
 #include "ConsoleOutputView.h"
+#include "CppLanguage.h"
 #include "CpuState.h"
 #include "DisassembledCode.h"
-#include "BreakConditionConfigWindow.h"
+#include "BreakpointEditWindow.h"
+#include "ExpressionPromptWindow.h"
 #include "FileSourceCode.h"
 #include "GuiSettingsUtils.h"
 #include "GuiTeamUiSettings.h"
@@ -53,6 +57,7 @@
 #include "TypeComponentPath.h"
 #include "UiUtils.h"
 #include "UserInterface.h"
+#include "Value.h"
 #include "Variable.h"
 #include "WatchPromptWindow.h"
 
@@ -134,7 +139,9 @@ TeamWindow::TeamWindow(::Team* team, UserInterfaceListener* listener)
 	fThreadSplitView(NULL),
 	fConsoleSplitView(NULL),
 	fBreakConditionConfigWindow(NULL),
+	fBreakpointEditWindow(NULL),
 	fInspectorWindow(NULL),
+	fExpressionPromptWindow(NULL),
 	fFilePanel(NULL),
 	fActiveSourceWorker(-1)
 {
@@ -158,9 +165,12 @@ TeamWindow::~TeamWindow()
 	if (fSourceView != NULL)
 		fSourceView->UnsetListener();
 	if (fInspectorWindow != NULL) {
-		BMessenger messenger(fInspectorWindow);
-		if (messenger.LockTarget())
+		if (fInspectorWindow->Lock())
 			fInspectorWindow->Quit();
+	}
+	if (fExpressionPromptWindow != NULL) {
+		if (fExpressionPromptWindow->Lock())
+			fExpressionPromptWindow->Quit();
 	}
 
 	fTeam->RemoveListener(this);
@@ -304,13 +314,14 @@ TeamWindow::MessageReceived(BMessage* message)
 		case MSG_SHOW_INSPECTOR_WINDOW:
 		{
 			if (fInspectorWindow) {
-				fInspectorWindow->Activate(true);
+				AutoLocker<BWindow> lock(fInspectorWindow);
+				if (lock.IsLocked())
+					fInspectorWindow->Activate(true);
 			} else {
 				try {
 					fInspectorWindow = InspectorWindow::Create(fTeam,
 						fListener, this);
 					if (fInspectorWindow != NULL) {
-						BMessage settings;
 						fInspectorWindow->LoadSettings(fUiSettings);
 						fInspectorWindow->Show();
 					}
@@ -334,10 +345,64 @@ TeamWindow::MessageReceived(BMessage* message)
 			break;
 
 		}
+		case MSG_SHOW_EXPRESSION_WINDOW:
+		case MSG_SHOW_EXPRESSION_PROMPT_WINDOW:
+		{
+			BHandler* addTarget;
+			if (message->what == MSG_SHOW_EXPRESSION_WINDOW)
+				addTarget = fVariablesView;
+			else if (message->FindPointer("target",
+				reinterpret_cast<void**>(&addTarget)) != B_OK) {
+				break;
+			}
+
+			if (fExpressionPromptWindow != NULL) {
+				AutoLocker<BWindow> lock(fExpressionPromptWindow);
+				if (lock.IsLocked())
+					fExpressionPromptWindow->Activate(true);
+			} else {
+				try {
+					// if the request was initiated via the evaluate
+					// expression top level menu item, then this evaluation
+					// should not be persisted.
+					bool persistentExpression =
+						message->what == MSG_SHOW_EXPRESSION_PROMPT_WINDOW;
+					fExpressionPromptWindow = ExpressionPromptWindow::Create(
+						addTarget, this, persistentExpression);
+					if (fExpressionPromptWindow != NULL)
+						fExpressionPromptWindow->Show();
+	           	} catch (...) {
+	           		// TODO: notify user
+	           	}
+			}
+			break;
+		}
+		case MSG_EXPRESSION_WINDOW_CLOSED:
+		case MSG_EXPRESSION_PROMPT_WINDOW_CLOSED:
+		{
+			fExpressionPromptWindow = NULL;
+
+			const char* expression;
+			BMessenger targetMessenger;
+			if (message->FindString("expression", &expression) == B_OK
+				&& message->FindMessenger("target", &targetMessenger)
+					== B_OK) {
+
+				BMessage addMessage(MSG_ADD_NEW_EXPRESSION);
+				addMessage.AddString("expression", expression);
+				addMessage.AddBool("persistent", message->FindBool(
+					"persistent"));
+
+				targetMessenger.SendMessage(&addMessage);
+			}
+			break;
+		}
 		case MSG_SHOW_BREAK_CONDITION_CONFIG_WINDOW:
 		{
-			if (fBreakConditionConfigWindow) {
-				fBreakConditionConfigWindow->Activate(true);
+			if (fBreakConditionConfigWindow != NULL) {
+				AutoLocker<BWindow> lock(fBreakConditionConfigWindow);
+				if (lock.IsLocked())
+					fBreakConditionConfigWindow->Activate(true);
 			} else {
 				try {
 					fBreakConditionConfigWindow
@@ -354,6 +419,36 @@ TeamWindow::MessageReceived(BMessage* message)
 		case MSG_BREAK_CONDITION_CONFIG_WINDOW_CLOSED:
 		{
 			fBreakConditionConfigWindow = NULL;
+			break;
+		}
+		case MSG_SHOW_BREAKPOINT_EDIT_WINDOW:
+		{
+			if (fBreakpointEditWindow != NULL) {
+				AutoLocker<BWindow> lock(fBreakpointEditWindow);
+				if (lock.IsLocked())
+					fBreakpointEditWindow->Activate(true);
+			} else {
+				UserBreakpoint* breakpoint;
+				if (message->FindPointer("breakpoint",
+					reinterpret_cast<void**>(&breakpoint)) != B_OK) {
+					break;
+				}
+
+				try {
+					fBreakpointEditWindow
+						= BreakpointEditWindow::Create(
+						fTeam, breakpoint, fListener, this);
+					if (fBreakpointEditWindow != NULL)
+						fBreakpointEditWindow->Show();
+	           	} catch (...) {
+	           		// TODO: notify user
+	           	}
+			}
+			break;
+		}
+		case MSG_BREAKPOINT_EDIT_WINDOW_CLOSED:
+		{
+			fBreakpointEditWindow = NULL;
 			break;
 		}
 		case MSG_SHOW_WATCH_VARIABLE_PROMPT:
@@ -385,6 +480,8 @@ TeamWindow::MessageReceived(BMessage* message)
 				break;
 
 			_HandleResolveMissingSourceFile(locatedPath);
+			delete fFilePanel;
+			fFilePanel = NULL;
 			break;
 		}
 		case MSG_LOCATE_SOURCE_IF_NEEDED:
@@ -395,10 +492,10 @@ TeamWindow::MessageReceived(BMessage* message)
 		case MSG_SOURCE_ENTRY_QUERY_COMPLETE:
 		{
 			BStringList* entries;
-			if (message->FindPointer("entries", (void**)&entries) != B_OK)
-				break;
-			ObjectDeleter<BStringList> entryDeleter(entries);
-			_HandleLocateSourceRequest(entries);
+			if (message->FindPointer("entries", (void**)&entries) == B_OK) {
+				ObjectDeleter<BStringList> entryDeleter(entries);
+				_HandleLocateSourceRequest(entries);
+			}
 			fActiveSourceWorker = -1;
 			break;
 		}
@@ -788,6 +885,19 @@ TeamWindow::ValueNodeValueRequested(CpuState* cpuState,
 
 
 void
+TeamWindow::ExpressionEvaluationRequested(ExpressionInfo* info,
+	StackFrame* frame, ::Thread* thread)
+{
+	SourceLanguage* language;
+	if (_GetActiveSourceLanguage(language) != B_OK)
+		return;
+
+	BReference<SourceLanguage> languageReference(language, true);
+	fListener->ExpressionEvaluationRequested(language, info, frame, thread);
+}
+
+
+void
 TeamWindow::ThreadStateChanged(const Team::ThreadEvent& event)
 {
 	BMessage message(MSG_THREAD_STATE_CHANGED);
@@ -996,6 +1106,10 @@ TeamWindow::_Init()
 	item->SetTarget(this);
 	item = new BMenuItem("Inspect memory",
 		new BMessage(MSG_SHOW_INSPECTOR_WINDOW), 'I');
+	menu->AddItem(item);
+	item->SetTarget(this);
+	item = new BMenuItem("Evaluate expression",
+		new BMessage(MSG_SHOW_EXPRESSION_WINDOW), 'E');
 	menu->AddItem(item);
 	item->SetTarget(this);
 
@@ -1356,8 +1470,10 @@ TeamWindow::_UpdateSourcePathState()
 	if (!truncatedText.IsEmpty() && truncatedText != sourceText) {
 		fSourcePathView->SetToolTip(sourceText);
 		fSourcePathView->SetText(truncatedText);
-	} else
+	} else {
 		fSourcePathView->SetText(sourceText);
+		fSourcePathView->SetToolTip((const char*)NULL);
+	}
 }
 
 
@@ -1566,14 +1682,13 @@ TeamWindow::_RetrieveMatchingSourceWorker(void* arg)
 	window->Unlock();
 
 	status_t error = window->_RetrieveMatchingSourceEntries(path, entries);
-	if (error != B_OK)
-		return error;
 
 	entries->Sort();
 	BMessenger messenger(window);
 	if (messenger.IsValid() && messenger.LockTarget()) {
 		if (window->fActiveSourceWorker == find_thread(NULL)) {
 			BMessage message(MSG_SOURCE_ENTRY_QUERY_COMPLETE);
+			message.AddInt32("error", error);
 			message.AddPointer("entries", entries);
 			if (messenger.SendMessage(&message) == B_OK)
 				stringListDeleter.Detach();
@@ -1617,6 +1732,11 @@ TeamWindow::_HandleResolveMissingSourceFile(entry_ref& locatedPath)
 				if (choice <= 0)
 					return;
 			}
+
+			LocatableFile* foundSourceFile = fActiveSourceCode
+				->GetSourceFile();
+			if (foundSourceFile != NULL)
+				fListener->SourceEntryInvalidateRequested(foundSourceFile);
 			fListener->SourceEntryLocateRequested(sourcePath,
 				targetFilePath.Path());
 			fListener->FunctionSourceCodeRequested(fActiveFunction);
@@ -1633,8 +1753,6 @@ TeamWindow::_HandleLocateSourceRequest(BStringList* entries)
 	else if (fActiveFunction->GetFunctionDebugInfo()->SourceFile() == NULL)
 		return;
 	else if (fActiveSourceCode == NULL)
-		return;
-	else if (fActiveSourceCode->GetSourceFile() != NULL)
 		return;
 	else if (fActiveFunction->GetFunction()->SourceCodeState()
 		== FUNCTION_SOURCE_NOT_LOADED) {
@@ -1761,6 +1879,31 @@ status_t
 TeamWindow::_SaveInspectorSettings(const BMessage* settings)
 {
 	if (fUiSettings.AddSettings("inspectorWindow", *settings) != B_OK)
+		return B_NO_MEMORY;
+
+	return B_OK;
+}
+
+
+status_t
+TeamWindow::_GetActiveSourceLanguage(SourceLanguage*& _language)
+{
+	AutoLocker< ::Team> locker(fTeam);
+
+	if (!locker.IsLocked())
+		return B_ERROR;
+
+	if (fActiveSourceCode != NULL) {
+		_language = fActiveSourceCode->GetSourceLanguage();
+		_language->AcquireReference();
+		return B_OK;
+	}
+
+	// if we made it this far, we were unable to acquire a source
+	// language corresponding to the active function. As such,
+	// try to fall back to the C++-style parser.
+	_language = new(std::nothrow) CppLanguage();
+	if (_language == NULL)
 		return B_NO_MEMORY;
 
 	return B_OK;

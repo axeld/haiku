@@ -50,7 +50,7 @@ HWindow::HWindow(BRect rect, const char* name)
 	fFilePanel(NULL),
 	fPlayer(NULL)
 {
-	InitGUI();
+	_InitGUI();
 
 	fFilePanel = new BFilePanel();
 	fFilePanel->SetTarget(this);
@@ -91,68 +91,11 @@ HWindow::~HWindow()
 
 
 void
-HWindow::InitGUI()
+HWindow::DispatchMessage(BMessage* message, BHandler* handler)
 {
-	fEventList = new HEventList();
-	fEventList->SetType(BMediaFiles::B_SOUNDS);
-	fEventList->SetSelectionMode(B_SINGLE_SELECTION_LIST);
-
-	BGroupView* view = new BGroupView();
-	BBox* box = new BBox("", B_WILL_DRAW | B_FRAME_EVENTS
-		| B_NAVIGABLE_JUMP | B_PULSE_NEEDED);
-
-	BMenu* menu = new BMenu("file");
-	menu->SetRadioMode(true);
-	menu->SetLabelFromMarked(true);
-	menu->AddSeparatorItem();
-	menu->AddItem(new BMenuItem(B_TRANSLATE("<none>"),
-		new BMessage(M_NONE_MESSAGE)));
-	menu->AddItem(new BMenuItem(B_TRANSLATE("Other" B_UTF8_ELLIPSIS),
-		new BMessage(M_OTHER_MESSAGE)));
-
-	BString label(B_TRANSLATE("Sound file:"));
-	BMenuField* menuField = new BMenuField("filemenu", label, menu);
-	menuField->SetDivider(menuField->StringWidth(label) + 10);
-
-	BButton* stopbutton = new BButton("stop", B_TRANSLATE("Stop"),
-		new BMessage(M_STOP_MESSAGE));
-	stopbutton->SetEnabled(false);
-
-	BButton* playbutton = new BButton("play", B_TRANSLATE("Play"),
-		new BMessage(M_PLAY_MESSAGE));
-	playbutton->SetEnabled(false);
-
-	const float kInset = be_control_look->DefaultItemSpacing();
-	view->SetLayout(new BGroupLayout(B_HORIZONTAL));
-	view->AddChild(BGroupLayoutBuilder(B_VERTICAL, kInset)
-		.AddGroup(B_HORIZONTAL)
-			.Add(menuField)
-			.AddGlue()
-		.End()
-		.AddGroup(B_HORIZONTAL, kInset)
-			.AddGlue()
-			.Add(playbutton)
-			.Add(stopbutton)
-		.End()
-		.SetInsets(kInset, kInset, kInset, kInset)
-	);
-
-	box->AddChild(view);
-
-	SetLayout(new BGroupLayout(B_HORIZONTAL));
-	AddChild(BGroupLayoutBuilder(B_VERTICAL)
-		.AddGroup(B_VERTICAL, kInset)
-			.Add(fEventList)
-			.Add(box)
-		.End()
-		.SetInsets(kInset, kInset, kInset, kInset)
-	);
-
-	// setup file menu
-	SetupMenuField();
-	BMenuItem* noneItem = menu->FindItem(B_TRANSLATE("<none>"));
-	if (noneItem != NULL)
-		noneItem->SetMarked(true);
+	if (message->what == B_PULSE)
+		_Pulse();
+	BWindow::DispatchMessage(message, handler);
 }
 
 
@@ -281,6 +224,21 @@ HWindow::MessageReceived(BMessage* message)
 					if (item != NULL)
 						item->SetMarked(true);
 				}
+
+				HEventRow* row = (HEventRow*)fEventList->CurrentSelection();
+				BButton* button = dynamic_cast<BButton*>(FindView("play"));
+				if (row != NULL) {
+					menufield->SetEnabled(true);
+
+					const char* path = row->Path();
+					if (path != NULL && strcmp(path, ""))
+						button->SetEnabled(true);
+					else
+						button->SetEnabled(false);
+				} else {
+					menufield->SetEnabled(false);
+					button->SetEnabled(false);
+				}
 			}
 			break;
 		}
@@ -288,8 +246,10 @@ HWindow::MessageReceived(BMessage* message)
 		case M_ITEM_MESSAGE:
 		{
 			entry_ref ref;
-			if (message->FindRef("refs", &ref) == B_OK)
+			if (message->FindRef("refs", &ref) == B_OK) {
 				fEventList->SetPath(BPath(&ref).Path());
+				_UpdateZoomLimits();
+			}
 			break;
 		}
 
@@ -305,8 +265,99 @@ HWindow::MessageReceived(BMessage* message)
 }
 
 
+bool
+HWindow::QuitRequested()
+{
+	fFrame = Frame();
+
+	fEventList->RemoveAll();
+	be_app->PostMessage(B_QUIT_REQUESTED);
+	return true;
+}
+
+
 void
-HWindow::SetupMenuField()
+HWindow::_InitGUI()
+{
+	fEventList = new HEventList();
+	fEventList->SetType(BMediaFiles::B_SOUNDS);
+	fEventList->SetSelectionMode(B_SINGLE_SELECTION_LIST);
+
+	BMenu* menu = new BMenu("file");
+	menu->SetRadioMode(true);
+	menu->SetLabelFromMarked(true);
+	menu->AddSeparatorItem();
+	menu->AddItem(new BMenuItem(B_TRANSLATE("<none>"),
+		new BMessage(M_NONE_MESSAGE)));
+	menu->AddItem(new BMenuItem(B_TRANSLATE("Other" B_UTF8_ELLIPSIS),
+		new BMessage(M_OTHER_MESSAGE)));
+
+	BString label(B_TRANSLATE("Sound file:"));
+	BMenuField* menuField = new BMenuField("filemenu", label, menu);
+	menuField->SetDivider(menuField->StringWidth(label) + 10);
+
+	BSize buttonsSize(be_plain_font->Size() * 2.5, be_plain_font->Size() * 2.5);
+
+	BButton* stopbutton = new BButton("stop", "\xE2\x96\xA0",
+		new BMessage(M_STOP_MESSAGE));
+	stopbutton->SetEnabled(false);
+	stopbutton->SetExplicitSize(buttonsSize);
+
+	// We need at least one view to trigger B_PULSE_NEEDED events which we will
+	// intercept in DispatchMessage to trigger the buttons enabling or disabling.
+	stopbutton->SetFlags(stopbutton->Flags() | B_PULSE_NEEDED);
+
+	BButton* playbutton = new BButton("play", "\xE2\x96\xB6",
+		new BMessage(M_PLAY_MESSAGE));
+	playbutton->SetEnabled(false);
+	playbutton->SetExplicitSize(buttonsSize);
+
+	const float kInset = be_control_look->DefaultItemSpacing();
+
+	SetLayout(new BGroupLayout(B_HORIZONTAL));
+	AddChild(BGroupLayoutBuilder(B_VERTICAL)
+		.SetInsets(kInset, kInset, kInset, kInset)
+		.Add(fEventList)
+		.AddGroup(B_HORIZONTAL)
+			.SetInsets(0, 0, 0, 0)
+			.Add(menuField)
+			.AddGroup(B_HORIZONTAL, 0)
+				.Add(playbutton)
+				.Add(stopbutton)
+			.End()
+		.End()
+	);
+
+	// setup file menu
+	_SetupMenuField();
+	BMenuItem* noneItem = menu->FindItem(B_TRANSLATE("<none>"));
+	if (noneItem != NULL)
+		noneItem->SetMarked(true);
+
+	_UpdateZoomLimits();
+}
+
+
+void
+HWindow::_Pulse()
+{
+	BButton* stop = dynamic_cast<BButton*>(FindView("stop"));
+
+	if (stop == NULL)
+		return;
+
+	if (fPlayer != NULL) {
+		if (fPlayer->IsPlaying())
+			stop->SetEnabled(true);
+		else
+			stop->SetEnabled(false);
+	} else
+		stop->SetEnabled(false);
+}
+
+
+void
+HWindow::_SetupMenuField()
 {
 	BMenuField* menufield = dynamic_cast<BMenuField*>(FindView("filemenu"));
 	if (menufield == NULL)
@@ -369,54 +420,12 @@ HWindow::SetupMenuField()
 
 
 void
-HWindow::Pulse()
+HWindow::_UpdateZoomLimits()
 {
-	HEventRow* row = (HEventRow*)fEventList->CurrentSelection();
-	BMenuField* menufield = dynamic_cast<BMenuField*>(FindView("filemenu"));
-	BButton* button = dynamic_cast<BButton*>(FindView("play"));
-	BButton* stop = dynamic_cast<BButton*>(FindView("stop"));
+	const float kInset = be_control_look->DefaultItemSpacing();
 
-	if (menufield == NULL || button == NULL || stop == NULL)
-		return;
-
-	if (row != NULL) {
-		menufield->SetEnabled(true);
-
-		const char* path = row->Path();
-		if (path != NULL && strcmp(path, ""))
-			button->SetEnabled(true);
-		else
-			button->SetEnabled(false);
-	} else {
-		menufield->SetEnabled(false);
-		button->SetEnabled(false);
-	}
-
-	if (fPlayer != NULL) {
-		if (fPlayer->IsPlaying())
-			stop->SetEnabled(true);
-		else
-			stop->SetEnabled(false);
-	} else
-		stop->SetEnabled(false);
-}
-
-
-void
-HWindow::DispatchMessage(BMessage* message, BHandler* handler)
-{
-	if (message->what == B_PULSE)
-		Pulse();
-	BWindow::DispatchMessage(message, handler);
-}
-
-
-bool
-HWindow::QuitRequested()
-{
-	fFrame = Frame();
-
-	fEventList->RemoveAll();
-	be_app->PostMessage(B_QUIT_REQUESTED);
-	return true;
+	BSize size = fEventList->PreferredSize();
+	SetZoomLimits(size.width + 2 * kInset + B_V_SCROLL_BAR_WIDTH,
+		size.height + 5 * kInset + 2 * B_H_SCROLL_BAR_HEIGHT
+			+ 2 * be_plain_font->Size() * 2.5);
 }

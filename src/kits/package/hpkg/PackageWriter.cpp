@@ -22,6 +22,7 @@ namespace BHPKG {
 BPackageWriterParameters::BPackageWriterParameters()
 	:
 	fFlags(0),
+	fCompression(B_HPKG_COMPRESSION_ZLIB),
 	fCompressionLevel(B_HPKG_COMPRESSION_LEVEL_BEST)
 {
 }
@@ -43,6 +44,20 @@ void
 BPackageWriterParameters::SetFlags(uint32 flags)
 {
 	fFlags = flags;
+}
+
+
+uint32
+BPackageWriterParameters::Compression() const
+{
+	return fCompression;
+}
+
+
+void
+BPackageWriterParameters::SetCompression(uint32 compression)
+{
+	fCompression = compression;
 }
 
 
@@ -91,6 +106,20 @@ BPackageWriter::Init(const char* fileName,
 
 
 status_t
+BPackageWriter::Init(BPositionIO* file, bool keepFile,
+	const BPackageWriterParameters* parameters)
+{
+	if (fImpl == NULL)
+		return B_NO_MEMORY;
+
+	BPackageWriterParameters defaultParameters;
+
+	return fImpl->Init(file, keepFile,
+		parameters != NULL ? *parameters : defaultParameters);
+}
+
+
+status_t
 BPackageWriter::SetInstallPath(const char* installPath)
 {
 	if (fImpl == NULL)
@@ -125,6 +154,16 @@ BPackageWriter::Finish()
 		return B_NO_INIT;
 
 	return fImpl->Finish();
+}
+
+
+status_t
+BPackageWriter::Recompress(BPositionIO* inputFile)
+{
+	if (fImpl == NULL)
+		return B_NO_INIT;
+
+	return fImpl->Recompress(inputFile);
 }
 
 

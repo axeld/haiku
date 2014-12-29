@@ -19,8 +19,6 @@ HAIKU_BOARD_LOADER_FAKE_OS = netbsd ;
 # (must be different than real load address)
 HAIKU_BOARD_LOADER_UIBASE = 0x34000000 ;
 
-HAIKU_BOARD_LOADER_STACK_BASE = 0x34000000 ;
-
 #
 # Flash image
 #
@@ -41,10 +39,6 @@ HAIKU_BOARD_SDIMAGE_SIZE = 256 ;
 
 # in MB
 HAIKU_BOARD_SDIMAGE_FAT_SIZE = 32 ;
-
-# offset in blocks XXX: FIXME
-# (autodetect from sfdisk or use cylinder count for fat size)
-#HAIKU_BOARD_SDIMAGE_BFS_OFFSET = ;
 
 # autoboot script
 HAIKU_BOARD_SDIMAGE_UBOOT_SCRIPT_NAME = uImage.bin ;

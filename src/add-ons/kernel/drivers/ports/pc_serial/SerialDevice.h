@@ -22,6 +22,8 @@ public:
 									*device, uint32 ioBase, uint32 irq, const SerialDevice *master=NULL);
 virtual							~SerialDevice();
 
+		bool					Probe();
+
 static	SerialDevice *			MakeDevice(struct serial_config_descriptor 
 									*device);
 
@@ -38,23 +40,15 @@ static	SerialDevice *			MakeDevice(struct serial_config_descriptor
 		const SerialDevice *	Master() const { return fMaster ? fMaster : this; };
 
 		char *					ReadBuffer() { return fReadBuffer; };
-		size_t					ReadBufferSize() { return fReadBufferSize; };
 
 		char *					WriteBuffer() { return fWriteBuffer; };
-		size_t					WriteBufferSize() { return fWriteBufferSize; };
 
-#ifdef __BEOS__
-		void					SetModes();
-#endif
 		void					SetModes(struct termios *tios);
-#ifdef __HAIKU__
+
 		bool					Service(struct tty *tty, uint32 op,
 									void *buffer, size_t length);
-#else
-		bool					Service(struct tty *ptty, struct ddrover *ddr,
-									uint flags);
-#endif
 
+		bool					IsInterruptPending();
 		int32					InterruptHandler();
 
 		status_t				Open(uint32 flags);
@@ -87,12 +81,9 @@ virtual	void					OnClose();
 		uint32					IOBase() const { return fIOBase; };
 		uint32					IRQ() const { return fIRQ; };
 
-protected:
-		void					SetReadBufferSize(size_t size) { fReadBufferSize = size; };
-		void					SetWriteBufferSize(size_t size) { fWriteBufferSize = size; };
-		void					SetInterruptBufferSize(size_t size) { fInterruptBufferSize = size; };
 private:
-static	int32					DeviceThread(void *data);
+static	int32					_DeviceThread(void *data);
+		status_t				_WriteToDevice();
 
 static	void					ReadCallbackFunction(void *cookie,
 									int32 status, void *data,
@@ -124,14 +115,22 @@ static	void					InterruptCallbackFunction(void *cookie,
 		/* line coding */
 		//usb_serial_line_coding	fLineCoding;
 
+		/* deferred interrupt */
+		uint8					fCachedIER;	// last value written to IER
+		uint8					fCachedIIR;	// cached IRQ condition
+		int32					fPendingDPC; // some IRQ still
+
 		/* data buffers */
-		area_id					fBufferArea;
-		char *					fReadBuffer;
-		size_t					fReadBufferSize;
-		char *					fWriteBuffer;
-		size_t					fWriteBufferSize;
-		char *					fInterruptBuffer;
-		size_t					fInterruptBufferSize;
+		char					fReadBuffer[DEF_BUFFER_SIZE];
+		int32					fReadBufferAvail;
+		uint32					fReadBufferIn;
+		uint32					fReadBufferOut;
+		sem_id					fReadBufferSem;
+		char					fWriteBuffer[DEF_BUFFER_SIZE];
+		int32					fWriteBufferAvail;
+		uint32					fWriteBufferIn;
+		uint32					fWriteBufferOut;
+		sem_id					fWriteBufferSem;
 
 		/* variables used in callback functionality */
 		size_t					fActualLengthRead;
@@ -147,23 +146,16 @@ static	void					InterruptCallbackFunction(void *cookie,
 
 		uint16					fControlOut;
 		bool					fInputStopped;
-#ifdef __HAIKU__
+
 		struct tty *			fMasterTTY;
 		struct tty *			fSlaveTTY;
-		struct tty_cookie *		fTTYCookie;
-#else
-		struct ttyfile			fTTYFile;
-		struct tty				fTTY;
-		struct ddrover			fRover;
-#endif
+		struct tty_cookie *		fSystemTTYCookie;
+		struct tty_cookie *		fDeviceTTYCookie;
+		struct termios			fTTYConfig;
 
 		/* device thread management */
 		thread_id				fDeviceThread;
 		bool					fStopDeviceThread;
-
-		/* device locks to ensure no concurent reads/writes */
-		mutex					fReadLock;
-		mutex					fWriteLock;
 };
 
 #endif // _SERIAL_DEVICE_H_

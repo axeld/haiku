@@ -51,8 +51,19 @@ BSimpleGameSound::BSimpleGameSound(const void *inData, size_t inFrameCount,
 	:
 	BGameSound(device)
 {
-	if (InitCheck() == B_OK)
-		SetInitError(Init(inData, inFrameCount, format));
+	if (InitCheck() != B_OK)
+		return;
+
+	gs_audio_format actual = *format;
+	if (actual.byte_order == 0)
+		actual.byte_order = B_MEDIA_HOST_ENDIAN;
+
+	size_t frameSize
+		= get_sample_size(format->format) * format->channel_count;
+	uchar * data = new uchar[inFrameCount * frameSize];
+	memcpy(data, inData, inFrameCount * frameSize);
+
+	SetInitError(Init(data, inFrameCount, &actual));
 }
 
 
@@ -177,14 +188,13 @@ BSimpleGameSound::Init(const entry_ref* inFile)
 
 			framesTotal += framesRead;
 		}
+		delete [] buffer;
 
 		gsformat.format = gs_audio_format::B_GS_U8;
 
 		error = Init(data, frames, &gsformat);
 
 		// free the buffers we no longer need
-		delete [] buffer;
-		delete [] data;
 	} else {
 		// We need to determine the size, in bytes, of a single sample.
 		// At the same time, we will store the format of the audio buffer
@@ -201,8 +211,6 @@ BSimpleGameSound::Init(const entry_ref* inFile)
 		}
 
 		error = Init(data, frames, &gsformat);
-
-		delete [] data;
 	}
 
 	file.ReleaseTrack(audioStream);

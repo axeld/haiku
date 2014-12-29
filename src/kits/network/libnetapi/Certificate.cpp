@@ -14,6 +14,9 @@
 #ifdef OPENSSL_ENABLED
 
 
+#include <openssl/x509v3.h>
+
+
 static time_t
 parse_ASN1(ASN1_GENERALIZEDTIME *asn1)
 {
@@ -23,9 +26,14 @@ parse_ASN1(ASN1_GENERALIZEDTIME *asn1)
 
 	if (sscanf((char*)asn1->data, "%2d%2d%2d%2d%2d%2d", &time.tm_year,
 			&time.tm_mon, &time.tm_mday, &time.tm_hour, &time.tm_min,
-			&time.tm_sec) == 6)
-		return mktime(&time);
+			&time.tm_sec) == 6) {
 
+		// Month is 0 based, and year is 1900-based for mktime.
+		time.tm_year += 100;
+		time.tm_mon -= 1;
+
+		return mktime(&time);
+	}
 	return B_BAD_DATA;
 }
 
@@ -33,11 +41,11 @@ parse_ASN1(ASN1_GENERALIZEDTIME *asn1)
 static BString
 decode_X509_NAME(X509_NAME* name)
 {
-	int len = X509_NAME_get_text_by_NID(name, 0, NULL, 0);
-	char buffer[len];
-	X509_NAME_get_text_by_NID(name, 0, buffer, len);
+	char* buffer = X509_NAME_oneline(name, NULL, 0);
 
-	return BString(buffer);
+	BString result(buffer);
+	OPENSSL_free(buffer);
+	return result;
 }
 
 
@@ -56,18 +64,10 @@ BCertificate::~BCertificate()
 }
 
 
-BString
-BCertificate::String()
+int
+BCertificate::Version()
 {
-	BIO *buffer = BIO_new(BIO_s_mem());
-	X509_print_ex(buffer, fPrivate->fX509, XN_FLAG_COMPAT, X509_FLAG_COMPAT);
-
-	char* pointer;
-	long length = BIO_get_mem_data(buffer, &pointer);
-	BString result(pointer, length);
-
-	BIO_free(buffer);
-	return result;
+	return X509_get_version(fPrivate->fX509) + 1;
 }
 
 
@@ -82,6 +82,20 @@ time_t
 BCertificate::ExpirationDate()
 {
 	return parse_ASN1(X509_get_notAfter(fPrivate->fX509));
+}
+
+
+bool
+BCertificate::IsValidAuthority()
+{
+	return X509_check_ca(fPrivate->fX509) > 0;
+}
+
+
+bool
+BCertificate::IsSelfSigned()
+{
+	return X509_check_issued(fPrivate->fX509, fPrivate->fX509) == X509_V_OK;
 }
 
 
@@ -101,6 +115,35 @@ BCertificate::Subject()
 }
 
 
+BString
+BCertificate::SignatureAlgorithm()
+{
+	int algorithmIdentifier = OBJ_obj2nid(
+		fPrivate->fX509->cert_info->key->algor->algorithm);
+
+	if (algorithmIdentifier == NID_undef)
+		return BString("undefined");
+
+	const char* buffer = OBJ_nid2ln(algorithmIdentifier);
+	return BString(buffer);
+}
+
+
+BString
+BCertificate::String()
+{
+	BIO *buffer = BIO_new(BIO_s_mem());
+	X509_print_ex(buffer, fPrivate->fX509, XN_FLAG_COMPAT, X509_FLAG_COMPAT);
+
+	char* pointer;
+	long length = BIO_get_mem_data(buffer, &pointer);
+	BString result(pointer, length);
+
+	BIO_free(buffer);
+	return result;
+}
+
+
 // #pragma mark - BCertificate::Private
 
 
@@ -108,6 +151,7 @@ BCertificate::Private::Private(X509* data)
 	: fX509(data)
 {
 }
+
 
 #else
 
@@ -119,13 +163,6 @@ BCertificate::BCertificate(Private* data)
 
 BCertificate::~BCertificate()
 {
-}
-
-
-BString
-BCertificate::String()
-{
-	return BString();
 }
 
 
@@ -143,6 +180,20 @@ BCertificate::ExpirationDate()
 }
 
 
+bool
+BCertificate::IsValidAuthority()
+{
+	return false;
+}
+
+
+int
+BCertificate::Version()
+{
+	return B_NOT_SUPPORTED;
+}
+
+
 BString
 BCertificate::Issuer()
 {
@@ -152,6 +203,20 @@ BCertificate::Issuer()
 
 BString
 BCertificate::Subject()
+{
+	return BString();
+}
+
+
+BString
+BCertificate::SignatureAlgorithm()
+{
+	return BString();
+}
+
+
+BString
+BCertificate::String()
 {
 	return BString();
 }

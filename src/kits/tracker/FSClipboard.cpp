@@ -54,13 +54,13 @@ static inline void MakeModeNameFromRefName(char* modeName, char* refName);
 static inline bool CompareModeAndRefName(const char* modeName,
 	const char* refName);
 
-/*
+#if 0
 static bool
 FSClipboardCheckIntegrity()
 {
 	return true;
 }
-*/
+#endif
 
 static void
 MakeNodeFromName(node_ref* node, char* name)
@@ -149,8 +149,9 @@ FSClipboardHasRefs()
 void
 FSClipboardStartWatch(BMessenger target)
 {
-	if (dynamic_cast<TTracker*>(be_app) != NULL)
-		((TTracker*)be_app)->ClipboardRefsWatcher()->AddToNotifyList(target);
+	TTracker* tracker = dynamic_cast<TTracker*>(be_app);
+	if (tracker != NULL && tracker->ClipboardRefsWatcher() != NULL)
+		tracker->ClipboardRefsWatcher()->AddToNotifyList(target);
 	else {
 		// this code is used by external apps using objects using FSClipboard
 		// functions, i.e. applications using FilePanel
@@ -167,8 +168,9 @@ FSClipboardStartWatch(BMessenger target)
 void
 FSClipboardStopWatch(BMessenger target)
 {
-	if (dynamic_cast<TTracker*>(be_app) != NULL)
-		((TTracker*)be_app)->ClipboardRefsWatcher()->AddToNotifyList(target);
+	TTracker* tracker = dynamic_cast<TTracker*>(be_app);
+	if (tracker != NULL && tracker->ClipboardRefsWatcher() != NULL)
+		tracker->ClipboardRefsWatcher()->AddToNotifyList(target);
 	else {
 		// this code is used by external apps using objects using FSClipboard
 		// functions, i.e. applications using FilePanel

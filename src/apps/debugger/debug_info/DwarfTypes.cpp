@@ -1,6 +1,6 @@
 /*
  * Copyright 2009-2012, Ingo Weinhold, ingo_weinhold@gmx.de.
- * Copryight 2012-2013, Rene Gollent, rene@gollent.com.
+ * Copryight 2012-2014, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 
@@ -152,7 +152,8 @@ DwarfTypeContext::DwarfTypeContext(Architecture* architecture, image_id imageID,
 {
 	fArchitecture->AcquireReference();
 	fFile->AcquireReference();
-	fTargetInterface->AcquireReference();
+	if (fTargetInterface != NULL)
+		fTargetInterface->AcquireReference();
 }
 
 
@@ -160,6 +161,8 @@ DwarfTypeContext::~DwarfTypeContext()
 {
 	fArchitecture->ReleaseReference();
 	fFile->ReleaseReference();
+	if (fTargetInterface != NULL)
+		fTargetInterface->ReleaseReference();
 }
 
 
@@ -239,8 +242,11 @@ status_t
 DwarfType::CreateDerivedAddressType(address_type_kind addressType,
 	AddressType*& _resultType)
 {
+	BString derivedName;
+	derivedName.SetToFormat("%s%c", fName.String(),
+		addressType == DERIVED_TYPE_POINTER ? '*' : '&');
 	DwarfAddressType* resultType = new(std::nothrow)
-		DwarfAddressType(fTypeContext, fName, NULL, addressType, this);
+		DwarfAddressType(fTypeContext, derivedName, NULL, addressType, this);
 
 	if (resultType == NULL)
 		return B_NO_MEMORY;
@@ -262,8 +268,10 @@ DwarfType::CreateDerivedArrayType(int64 lowerBound, int64 elementCount,
 		resultType = dynamic_cast<DwarfArrayType*>(this);
 
 	if (resultType == NULL) {
+		BString derivedName;
+		derivedName.SetToFormat("%s[]", fName.String());
 		resultType = new(std::nothrow)
-			DwarfArrayType(fTypeContext, fName, NULL, this);
+			DwarfArrayType(fTypeContext, derivedName, NULL, this);
 		baseTypeReference.SetTo(resultType, true);
 	}
 

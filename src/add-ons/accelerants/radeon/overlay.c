@@ -349,7 +349,6 @@ typedef struct {
 									// = 0: source pixel increment = 1, 4-tap filter
 } hscale_factor;
 
-#define count_of( a ) (sizeof( a ) / sizeof( a[0] ))
 
 // scaling/filter tables depending on overlay colour space:
 // magnifying pixels is no problem, but minifying can lead to overload,
@@ -432,17 +431,17 @@ static space_params space_params_table[16] = {
 	{ 0, 0, 0, 0, 0, NULL, 0 },	// reserved
 	{ 0, 0, 0, 0, 0, NULL, 0 },	// reserved
 	{ 0, 0, 0, 0, 0, NULL, 0 },	// reserved
-	{ 1, 1, 1, 0, 0, scale_RGB16, count_of( scale_RGB16 ) },	// RGB15
-	{ 1, 1, 1, 0, 0, scale_RGB16, count_of( scale_RGB16 ) },	// RGB16
+	{ 1, 1, 1, 0, 0, scale_RGB16, B_COUNT_OF( scale_RGB16 ) },	// RGB15
+	{ 1, 1, 1, 0, 0, scale_RGB16, B_COUNT_OF( scale_RGB16 ) },	// RGB16
 	{ 0, 0, 0, 0, 0, NULL, 0 },	// reserved
-	{ 2, 2, 1, 0, 0, scale_RGB32, count_of( scale_RGB32 ) },	// RGB32
+	{ 2, 2, 1, 0, 0, scale_RGB32, B_COUNT_OF( scale_RGB32 ) },	// RGB32
 	{ 0, 0, 0, 0, 0, NULL, 0 },	// reserved
 	{ 0, 0, 0, 0, 0, NULL, 0 },	// reserved
-	{ 0, 0, 3, 2, 2, scale_YUV9, count_of( scale_YUV9 ) },		// YUV9
-	{ 0, 0, 3, 1, 1, scale_YUV12, count_of( scale_YUV12 ) },	// YUV12, three-plane
-	{ 1, 1, 1, 1, 0, scale_YUV, count_of( scale_YUV ) },		// VYUY422
-	{ 1, 1, 1, 1, 0, scale_YUV, count_of( scale_YUV ) },		// YVYU422
-	{ 0, 1, 2, 1, 1, scale_YUV12, count_of( scale_YUV12 ) },	// YUV12, two-plane
+	{ 0, 0, 3, 2, 2, scale_YUV9, B_COUNT_OF( scale_YUV9 ) },		// YUV9
+	{ 0, 0, 3, 1, 1, scale_YUV12, B_COUNT_OF( scale_YUV12 ) },	// YUV12, three-plane
+	{ 1, 1, 1, 1, 0, scale_YUV, B_COUNT_OF( scale_YUV ) },		// VYUY422
+	{ 1, 1, 1, 1, 0, scale_YUV, B_COUNT_OF( scale_YUV ) },		// YVYU422
+	{ 0, 1, 2, 1, 1, scale_YUV12, B_COUNT_OF( scale_YUV12 ) },	// YUV12, two-plane
 	{ 0, 1, 2, 1, 1, NULL, 0 },	// ???
 	{ 0, 0, 0, 0, 0, NULL, 0 }	// reserved
 };
@@ -1066,46 +1065,46 @@ status_t Radeon_UpdateOverlay(
 	virtual_card *vc = ai->vc;
 	shared_info *si = ai->si;
 	int crtc_idx;
-	
+
 	float brightness = 0.0f;
 	float contrast = 1.0f;
 	float saturation = 1.0f;
 	float hue = 0.0f;
-    int32 ref = 0;
-    
-    SHOW_FLOW0( 3, "" );
+	int32 ref = 0;
 
-	// don't mess around with overlay of someone else    
-    if( !vc->uses_overlay )
-    	return B_OK;
+	SHOW_FLOW0( 3, "" );
+
+	// don't mess around with overlay of someone else
+	if ( !vc->uses_overlay )
+		return B_OK;
 
 	// make sure there really is an overlay
-	if( si->pending_overlay.on == NULL )
+	if ( si->pending_overlay.on == NULL )
 		return B_OK;
 
 	// verify that the overlay is still valid
-	if( (uint32)si->pending_overlay.ot != si->overlay_mgr.token )
+	if ((uintptr_t)si->pending_overlay.ot != si->overlay_mgr.token )
 		return B_BAD_VALUE;
-		
-	if( vc->different_heads > 1 ) {
+
+	if ( vc->different_heads > 1 ) {
 		int area0, area1;
 
 		// determine on which port most of the overlay is shown
 		area0 = getIntersectArea( ai, &si->pending_overlay.ow, &si->crtc[0] );
 		area1 = getIntersectArea( ai, &si->pending_overlay.ow, &si->crtc[0] );
-		
+
 		SHOW_FLOW( 3, "area0=%d, area1=%d", area0, area1 );
-		
-		if( area0 >= area1 )
+
+		if (area0 >= area1 )
 			crtc_idx = 0;
 		else
 			crtc_idx = 1;
-			
-	} else if( vc->independant_heads > 1 ) {
+
+	} else if ( vc->independant_heads > 1 ) {
 		// both ports show the same, use "swap displays" to decide
 		// where to show the overlay (to be improved as this flag isn't
 		// really designed for that)
-		if( vc->swap_displays )
+		if ( vc->swap_displays )
 			crtc_idx = 1;
 		else
 			crtc_idx = 0;

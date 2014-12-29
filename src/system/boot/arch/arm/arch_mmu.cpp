@@ -23,6 +23,12 @@
 
 #include <string.h>
 
+extern "C" {
+#include <fdt.h>
+#include <libfdt.h>
+#include <libfdt_env.h>
+};
+
 
 //#define TRACE_MMU
 #ifdef TRACE_MMU
@@ -31,11 +37,12 @@
 #	define TRACE(x) ;
 #endif
 
-#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #define TRACE_MEMORY_MAP
 	// Define this to print the memory map to serial debug,
 	// You also need to define ENABLE_SERIAL in serial.cpp
 	// for output to work.
+
+extern void *gFDT;
 
 
 /*
@@ -57,6 +64,12 @@ TODO:
 	the kernel itself (see kMaxKernelSize).
 */
 
+
+// 8 MB for the kernel, kernel args, modules, driver settings, ...
+static const size_t kMaxKernelSize = 0x800000;
+
+// Start and end of ourselfs (from ld script)
+extern int _start, _end;
 
 /*
 *defines a block in memory
@@ -81,33 +94,9 @@ static struct memblock LOADER_MEMORYMAP[] = {
 		ARM_MMU_L2_FLAG_B,
 	},
 	{
-		"RAM_loader", // 1MB loader
-		SDRAM_BASE + 0,
-		SDRAM_BASE + 0x0fffff,
-		ARM_MMU_L2_FLAG_C,
-	},
-	{
-		"RAM_pt", // Page Table 1MB
-		SDRAM_BASE + 0x100000,
-		SDRAM_BASE + 0x1FFFFF,
-		ARM_MMU_L2_FLAG_C,
-	},
-	{
-		"RAM_free", // 16MB free RAM (more but we don't map it automaticaly)
-		SDRAM_BASE + 0x0200000,
-		SDRAM_BASE + 0x11FFFFF,
-		ARM_MMU_L2_FLAG_C,
-	},
-	{
-		"RAM_stack", // stack
-		SDRAM_BASE + 0x1200000,
-		SDRAM_BASE + 0x2000000,
-		ARM_MMU_L2_FLAG_C,
-	},
-	{
-		"RAM_initrd", // stack
-		SDRAM_BASE + 0x2000000,
-		SDRAM_BASE + 0x2500000,
+		"RAM_kernel", // 8MB space for kernel, drivers etc
+		KERNEL_LOAD_BASE,
+		KERNEL_LOAD_BASE + kMaxKernelSize - 1,
 		ARM_MMU_L2_FLAG_C,
 	},
 
@@ -124,14 +113,15 @@ static struct memblock LOADER_MEMORYMAP[] = {
 
 //static const uint32 kDefaultPageTableFlags = MMU_FLAG_READWRITE;
 	// not cached not buffered, R/W
-static const size_t kMaxKernelSize = 0x200000;		// 2 MB for the kernel
 
 static addr_t sNextPhysicalAddress = 0; //will be set by mmu_init
-static addr_t sNextVirtualAddress = KERNEL_LOAD_BASE + kMaxKernelSize;
+static addr_t sNextVirtualAddress = 0;
 
 static addr_t sNextPageTableAddress = 0;
 //the page directory is in front of the pagetable
-static uint32 kPageTableRegionEnd = 0;
+static uint32 sPageTableRegionEnd = 0;
+
+static uint32 sSmallPageType = ARM_MMU_L2_TYPE_SMALLEXT;
 
 // working page directory and page table
 static uint32 *sPageDirectory = 0 ;
@@ -140,30 +130,10 @@ static uint32 *sPageDirectory = 0 ;
 
 
 static addr_t
-get_next_virtual_address(size_t size)
-{
-	addr_t address = sNextVirtualAddress;
-	sNextVirtualAddress += size;
-
-	return address;
-}
-
-
-static addr_t
 get_next_virtual_address_aligned(size_t size, uint32 mask)
 {
 	addr_t address = (sNextVirtualAddress) & mask;
 	sNextVirtualAddress = address + size;
-
-	return address;
-}
-
-
-static addr_t
-get_next_physical_address(size_t size)
-{
-	addr_t address = sNextPhysicalAddress;
-	sNextPhysicalAddress += size;
 
 	return address;
 }
@@ -248,8 +218,8 @@ static uint32 *
 get_next_page_table(uint32 type)
 {
 	TRACE(("get_next_page_table, sNextPageTableAddress 0x%" B_PRIxADDR
-		", kPageTableRegionEnd 0x%" B_PRIxADDR ", type 0x%" B_PRIx32 "\n",
-		sNextPageTableAddress, kPageTableRegionEnd, type));
+		", sPageTableRegionEnd 0x%" B_PRIxADDR ", type 0x%" B_PRIx32 "\n",
+		sNextPageTableAddress, sPageTableRegionEnd, type));
 
 	size_t size = 0;
 	size_t entryCount = 0;
@@ -262,17 +232,13 @@ get_next_page_table(uint32 type)
 			size = ARM_MMU_L2_FINE_TABLE_SIZE;
 			entryCount = ARM_MMU_L2_FINE_ENTRY_COUNT;
 			break;
-		case ARM_MMU_L1_TYPE_SECTION:
-			// TODO: Figure out parameters for section types.
-			size = 16384;
-			break;
 		default:
 			panic("asked for unknown page table type: %#" B_PRIx32 "\n", type);
 			return NULL;
 	}
 
 	addr_t address = sNextPageTableAddress;
-	if (address < kPageTableRegionEnd)
+	if (address < sPageTableRegionEnd)
 		sNextPageTableAddress += size;
 	else {
 		TRACE(("page table allocation outside of pagetable region!\n"));
@@ -314,25 +280,49 @@ get_or_create_page_table(addr_t address, uint32 type)
 }
 
 
+static void
+mmu_map_identity(addr_t start, size_t end, int flags)
+{
+	uint32 *pageTable = NULL;
+	uint32 pageTableIndex = 0;
+
+	start = ROUNDDOWN(start, B_PAGE_SIZE);
+	end = ROUNDUP(end, B_PAGE_SIZE);
+
+	TRACE(("mmu_map_identity: [ %" B_PRIxADDR " - %" B_PRIxADDR "]\n", start, end));
+
+	for (addr_t address = start; address < end; address += B_PAGE_SIZE) {
+		if (pageTable == NULL
+			|| pageTableIndex >= ARM_MMU_L2_COARSE_ENTRY_COUNT) {
+			pageTable = get_or_create_page_table(address,
+				ARM_MMU_L1_TYPE_COARSE);
+			pageTableIndex = VADDR_TO_PTENT(address);
+		}
+
+		pageTable[pageTableIndex++]
+			= address | flags | sSmallPageType;
+	}
+}
+
 void
 init_page_directory()
 {
 	TRACE(("init_page_directory\n"));
-	uint32 smallType;
 
-	// see if subpages are disabled
-	if (mmu_read_C1() & (1 << 23))
-		smallType = ARM_MMU_L2_TYPE_SMALLNEW;
-	else
-		smallType = ARM_MMU_L2_TYPE_SMALLEXT;
-
-	gKernelArgs.arch_args.phys_pgdir = (uint32)sPageDirectory;
+	gKernelArgs.arch_args.phys_pgdir =
+	gKernelArgs.arch_args.vir_pgdir = (uint32)sPageDirectory;
 
 	// clear out the page directory
 	for (uint32 i = 0; i < ARM_MMU_L1_TABLE_ENTRY_COUNT; i++)
 		sPageDirectory[i] = 0;
 
-	for (uint32 i = 0; i < ARRAY_SIZE(LOADER_MEMORYMAP); i++) {
+	// map ourselfs first... just to make sure
+	mmu_map_identity((addr_t)&_start, (addr_t)&_end, ARM_MMU_L2_FLAG_C);
+
+	// map our page directory region (TODO should not be identity mapped)
+	mmu_map_identity((addr_t)sPageDirectory, sPageTableRegionEnd, ARM_MMU_L2_FLAG_C);
+
+	for (uint32 i = 0; i < B_COUNT_OF(LOADER_MEMORYMAP); i++) {
 
 		TRACE(("BLOCK: %s START: %lx END %lx\n", LOADER_MEMORYMAP[i].name,
 			LOADER_MEMORYMAP[i].start, LOADER_MEMORYMAP[i].end));
@@ -340,26 +330,9 @@ init_page_directory()
 		addr_t address = LOADER_MEMORYMAP[i].start;
 		ASSERT((address & ~ARM_PTE_ADDRESS_MASK) == 0);
 
-		uint32 *pageTable = NULL;
-		uint32 pageTableIndex = 0;
-
-		while (address < LOADER_MEMORYMAP[i].end) {
-			if (pageTable == NULL
-				|| pageTableIndex >= ARM_MMU_L2_COARSE_ENTRY_COUNT) {
-				pageTable = get_or_create_page_table(address,
-					ARM_MMU_L1_TYPE_COARSE);
-				pageTableIndex = VADDR_TO_PTENT(address);
-			}
-
-			pageTable[pageTableIndex++]
-				= address | LOADER_MEMORYMAP[i].flags | smallType;
-			address += B_PAGE_SIZE;
-		}
+		mmu_map_identity(LOADER_MEMORYMAP[i].start, LOADER_MEMORYMAP[i].end,
+			LOADER_MEMORYMAP[i].flags);
 	}
-
-	// Map the page directory itself.
-	addr_t virtualPageDirectory = mmu_map_physical_memory(
-		(addr_t)sPageDirectory, ARM_MMU_L1_TABLE_SIZE, kDefaultPageFlags);
 
 	mmu_flush_TLB();
 
@@ -373,10 +346,6 @@ init_page_directory()
 
 	/* turn on the mmu */
 	mmu_write_C1(mmu_read_C1() | 0x1);
-
-	// Use the mapped page directory from now on.
-	sPageDirectory = (uint32 *)virtualPageDirectory;
-	gKernelArgs.arch_args.vir_pgdir = virtualPageDirectory;
 }
 
 
@@ -421,10 +390,13 @@ map_page(addr_t virtualAddress, addr_t physicalAddress, uint32 flags)
 extern "C" addr_t
 mmu_map_physical_memory(addr_t physicalAddress, size_t size, uint32 flags)
 {
+	TRACE(("mmu_map_physical_memory(phAddr=%lx, %lx, %lu)\n", physicalAddress, size, flags));
 	addr_t address = sNextVirtualAddress;
 	addr_t pageOffset = physicalAddress & (B_PAGE_SIZE - 1);
 
 	physicalAddress -= pageOffset;
+	if (pageOffset)
+		size += B_PAGE_SIZE;
 
 	for (addr_t offset = 0; offset < size; offset += B_PAGE_SIZE) {
 		map_page(get_next_virtual_page(B_PAGE_SIZE), physicalAddress + offset,
@@ -453,6 +425,28 @@ unmap_page(addr_t virtualAddress)
 	pageTable[VADDR_TO_PTENT(virtualAddress)] = 0;
 
 	mmu_flush_TLB();
+}
+
+
+// XXX: use phys_addr_t ?
+extern "C" bool
+mmu_get_virtual_mapping(addr_t virtualAddress, /*phys_*/addr_t *_physicalAddress)
+{
+	if (virtualAddress < KERNEL_LOAD_BASE) {
+		panic("mmu_get_virtual_mapping: asked to lookup invalid page %p!\n",
+			(void *)virtualAddress);
+		return false;
+	}
+
+	// map the page to the correct page table
+	uint32 *pageTable = get_or_create_page_table(virtualAddress,
+		ARM_MMU_L1_TYPE_COARSE);
+
+	uint32 pageTableIndex = VADDR_TO_PTENT(virtualAddress);
+
+	*_physicalAddress = pageTable[pageTableIndex] & ~(B_PAGE_SIZE - 1);
+
+	return true;
 }
 
 
@@ -546,16 +540,16 @@ mmu_init_for_kernel(void)
 {
 	TRACE(("mmu_init_for_kernel\n"));
 
+	// store next available pagetable in our pagedir mapping, for
+	// the kernel to use in early vm setup
+	gKernelArgs.arch_args.next_pagetable = sNextPageTableAddress - (addr_t)sPageDirectory;
+
 	// save the memory we've physically allocated
-	gKernelArgs.physical_allocated_range[0].size
-		= sNextPhysicalAddress - gKernelArgs.physical_allocated_range[0].start;
+	insert_physical_allocated_range((addr_t)sPageDirectory, sNextPhysicalAddress - (addr_t)sPageDirectory);
 
 	// Save the memory we've virtually allocated (for the kernel and other
 	// stuff)
-	gKernelArgs.virtual_allocated_range[0].start = KERNEL_LOAD_BASE;
-	gKernelArgs.virtual_allocated_range[0].size
-		= sNextVirtualAddress - KERNEL_LOAD_BASE;
-	gKernelArgs.num_virtual_allocated_ranges = 1;
+	insert_virtual_allocated_range(KERNEL_LOAD_BASE, sNextVirtualAddress - KERNEL_LOAD_BASE);
 
 #ifdef TRACE_MEMORY_MAP
 	{
@@ -586,42 +580,132 @@ mmu_init_for_kernel(void)
 }
 
 
+//TODO:move this to generic/ ?
+static status_t
+find_physical_memory_ranges(uint64 &total)
+{
+	int node;
+	const void *prop;
+	int len;
+
+	dprintf("checking for memory...\n");
+	// let's just skip the OF way (prop memory on /chosen)
+	//node = fdt_path_offset(gFDT, "/chosen");
+	node = fdt_path_offset(gFDT, "/memory");
+	// TODO: check devicetype=="memory" ?
+
+	total = 0;
+
+	// Memory base addresses are provided in 32 or 64 bit flavors
+	// #address-cells and #size-cells matches the number of 32-bit 'cells'
+	// representing the length of the base address and size fields
+	int root = fdt_path_offset(gFDT, "/");
+	int32 regAddressCells = 1;
+	int32 regSizeCells = 1;
+	prop = fdt_getprop(gFDT, root, "#address-cells", &len);
+	if (prop && len == sizeof(uint32))
+		regAddressCells = fdt32_to_cpu(*(uint32_t *)prop);
+	prop = fdt_getprop(gFDT, root, "#size-cells", &len);
+	if (prop && len == sizeof(uint32))
+		regSizeCells = fdt32_to_cpu(*(uint32_t *)prop);
+
+
+	// NOTE : Size Cells of 2 is possible in theory... but I haven't seen it yet.
+	if (regAddressCells > 2 || regSizeCells > 1) {
+		panic("%s: Unsupported FDT cell count detected.\n"
+		"Address Cells: %" B_PRId32 "; Size Cells: %" B_PRId32
+		" (CPU > 64bit?).\n", __func__, regAddressCells, regSizeCells);
+		return B_ERROR;
+	}
+
+	prop = fdt_getprop(gFDT, node, "reg", &len);
+	if (prop == NULL) {
+		panic("FDT /memory reg property not set");
+		return B_ERROR;
+	}
+
+	const uint32 *p = (const uint32 *)prop;
+	for (int32 i = 0; len; i++) {
+		uint64 base;
+		uint64 size;
+		if (regAddressCells == 2)
+			base = fdt64_to_cpu(*(uint64_t *)p);
+		else
+			base = fdt32_to_cpu(*(uint32_t *)p);
+		p += regAddressCells;
+		if (regSizeCells == 2)
+			size = fdt64_to_cpu(*(uint64_t *)p);
+		else
+			size = fdt32_to_cpu(*(uint32_t *)p);
+		p += regAddressCells;
+		len -= sizeof(uint32) * (regAddressCells + regSizeCells);
+
+		if (size <= 0) {
+			dprintf("%ld: empty region\n", i);
+			continue;
+		}
+		dprintf("%" B_PRIu32 ": base = %" B_PRIu64 ","
+			"size = %" B_PRIu64 "\n", i, base, size);
+
+		total += size;
+
+		if (insert_physical_memory_range(base, size) != B_OK) {
+			dprintf("cannot map physical memory range "
+				"(num ranges = %" B_PRIu32 ")!\n",
+				gKernelArgs.num_physical_memory_ranges);
+			return B_ERROR;
+		}
+	}
+
+	return B_OK;
+}
+
+
 extern "C" void
 mmu_init(void)
 {
 	TRACE(("mmu_init\n"));
 
+	// skip RAM check if already done (rPi)
+	if (gKernelArgs.num_physical_memory_ranges == 0) {
+		// get map of physical memory (fill in kernel_args structure)
+
+		uint64 total;
+		if (find_physical_memory_ranges(total) != B_OK) {
+			dprintf("Error: could not find physical memory ranges!\n");
+
+#ifdef SDRAM_BASE
+			dprintf("Defaulting to 32MB at %" B_PRIx64 "\n", (uint64)SDRAM_BASE);
+			// specify available physical memory, using 32MB for now, since our
+			// ARMv5 targets have very little by default.
+			total = 32 * 1024 * 1024;
+			insert_physical_memory_range(SDRAM_BASE, total);
+#else
+			return /*B_ERROR*/;
+#endif
+		}
+		dprintf("total physical memory = %" B_PRId64 "MB\n", total / (1024 * 1024));
+	}
+
+	// see if subpages are disabled
+	if (mmu_read_C1() & (1 << 23))
+		sSmallPageType = ARM_MMU_L2_TYPE_SMALLNEW;
+
 	mmu_write_C1(mmu_read_C1() & ~((1 << 29) | (1 << 28) | (1 << 0)));
 		// access flag disabled, TEX remap disabled, mmu disabled
 
-	uint32 highestRAMAddress = SDRAM_BASE;
+	// allocate page directory in memory after loader
+	sPageDirectory = (uint32 *)ROUNDUP((addr_t)&_end, 0x100000);
+	sNextPageTableAddress = (addr_t)sPageDirectory + ARM_MMU_L1_TABLE_SIZE;
+	sPageTableRegionEnd = (addr_t)sPageDirectory + 0x200000;
 
-	// calculate lowest RAM adress from MEMORYMAP
-	for (uint32 i = 0; i < ARRAY_SIZE(LOADER_MEMORYMAP); i++) {
-		if (strcmp("RAM_free", LOADER_MEMORYMAP[i].name) == 0)
-			sNextPhysicalAddress = LOADER_MEMORYMAP[i].start;
+	// Mark start for dynamic allocation
+	sNextPhysicalAddress =
+	sNextVirtualAddress = sPageTableRegionEnd;
 
-		if (strcmp("RAM_pt", LOADER_MEMORYMAP[i].name) == 0) {
-			sNextPageTableAddress = LOADER_MEMORYMAP[i].start
-				+ ARM_MMU_L1_TABLE_SIZE;
-			kPageTableRegionEnd = LOADER_MEMORYMAP[i].end;
-			sPageDirectory = (uint32 *)LOADER_MEMORYMAP[i].start;
-		}
-
-		if (strncmp("RAM_", LOADER_MEMORYMAP[i].name, 4) == 0) {
-			if (LOADER_MEMORYMAP[i].end > highestRAMAddress)
-				highestRAMAddress = LOADER_MEMORYMAP[i].end;
-		}
-	}
-
-	gKernelArgs.physical_memory_range[0].start = SDRAM_BASE;
-	gKernelArgs.physical_memory_range[0].size = highestRAMAddress - SDRAM_BASE;
-	gKernelArgs.num_physical_memory_ranges = 1;
-
-	gKernelArgs.physical_allocated_range[0].start = SDRAM_BASE;
-	gKernelArgs.physical_allocated_range[0].size = 0;
-	gKernelArgs.num_physical_allocated_ranges = 1;
-		// remember the start of the allocated physical pages
+	// mark allocated ranges, so they don't get overwritten
+	insert_physical_allocated_range((addr_t)&_start, (addr_t)&_end - (addr_t)&_start);
+	insert_physical_allocated_range((addr_t)sPageDirectory, 0x200000);
 
 	init_page_directory();
 
@@ -673,7 +757,7 @@ platform_release_heap(struct stage2_args *args, void *base)
 status_t
 platform_init_heap(struct stage2_args *args, void **_base, void **_top)
 {
-	void *heap = (void *)get_next_physical_address(args->heap_size);
+	void *heap = mmu_allocate(NULL, args->heap_size);
 	if (heap == NULL)
 		return B_NO_MEMORY;
 

@@ -668,8 +668,10 @@ BControlLook::DrawScrollViewFrame(BView* view, BRect& rect,
 	// calculate scroll corner rect before messing with the "rect"
 	BRect scrollCornerFillRect(rect.right, rect.bottom,
 		rect.right, rect.bottom);
+
 	if (horizontalScrollBarFrame.IsValid())
 		scrollCornerFillRect.left = horizontalScrollBarFrame.right + 1;
+
 	if (verticalScrollBarFrame.IsValid())
 		scrollCornerFillRect.top = verticalScrollBarFrame.bottom + 1;
 
@@ -717,7 +719,6 @@ BControlLook::DrawScrollViewFrame(BView* view, BRect& rect,
 		_DrawFrame(view, horizontalScrollBarFrame, scrollbarFrameColor,
 			scrollbarFrameColor, scrollbarFrameColor, scrollbarFrameColor,
 			borders);
-
 
 		verticalScrollBarFrame.InsetBy(-1, -1);
 		// do not overdraw the left edge
@@ -1343,6 +1344,12 @@ BControlLook::DrawActiveTab(BView* view, BRect& rect, const BRect& updateRect,
 	if (!rect.IsValid() || !rect.Intersects(updateRect))
 		return;
 
+	// Snap the rectangle to pixels to avoid rounding errors.
+	rect.left = floorf(rect.left);
+	rect.right = floorf(rect.right);
+	rect.top = floorf(rect.top);
+	rect.bottom = floorf(rect.bottom);
+
 	// save the clipping constraints of the view
 	view->PushState();
 
@@ -1660,6 +1667,7 @@ BControlLook::DrawTextControlBorder(BView* view, BRect& rect,
 	rgb_color dark1BorderColor;
 	rgb_color dark2BorderColor;
 	rgb_color navigationColor = ui_color(B_KEYBOARD_NAVIGATION_COLOR);
+	rgb_color invalidColor = ui_color(B_FAILURE_COLOR);
 
 	if ((flags & B_DISABLED) != 0) {
 		_DrawOuterResessedFrame(view, rect, base, 0.0, 1.0, flags, borders);
@@ -1694,6 +1702,11 @@ BControlLook::DrawTextControlBorder(BView* view, BRect& rect,
 	if ((flags & B_DISABLED) == 0 && (flags & B_FOCUSED) != 0) {
 		dark1BorderColor = navigationColor;
 		dark2BorderColor = navigationColor;
+	}
+
+	if ((flags & B_DISABLED) == 0 && (flags & B_INVALID) != 0) {
+		dark1BorderColor = invalidColor;
+		dark2BorderColor = invalidColor;
 	}
 
 	if ((flags & B_BLEND_FRAME) != 0) {

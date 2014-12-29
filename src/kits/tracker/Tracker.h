@@ -85,9 +85,9 @@ public:
 	virtual void Quit();
 	virtual bool QuitRequested();
 	virtual void ReadyToRun();
-	virtual void MessageReceived(BMessage*);
+	virtual void MessageReceived(BMessage* message);
 	virtual void Pulse();
-	virtual void RefsReceived(BMessage*);
+	virtual void RefsReceived(BMessage* message);
 	virtual void ArgvReceived(int32 argc, char** argv);
 
 	MimeTypeList* MimeTypes() const;
@@ -95,8 +95,8 @@ public:
 		// themselves as a preferred handler (case of applications)
 
 	bool TrashFull() const;
-	bool IsTrashNode(const node_ref*) const;
-	bool InTrashNode(const entry_ref*) const;
+	bool IsTrashNode(const node_ref* node) const;
+	bool InTrashNode(const entry_ref* ref) const;
 
 	void CloseParentWaitingForChildSoon(const entry_ref* child,
 			const node_ref* parent);

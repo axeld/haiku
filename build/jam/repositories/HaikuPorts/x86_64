@@ -4,45 +4,59 @@ RemotePackageRepository HaikuPorts
 	:
 	# architecture "any" packages
 	be_book-2008_10_26-1
-	ca_root_certificates-2012_12_29-1
+	ca_root_certificates-2014_04_08-2
+	dejavu-2.34-1
 	texi2html-1.82-2
-	timgmsoundfont-2004_01_24-4
+	timgmsoundfont-fixed-5
+	vl_gothic-20141206-1
 	wqy_microhei-0.2.0~beta-3
 	:
 	# repository architecture packages
 	# primary architecture (x86_64)
-	apr-1.4.6-7
-	apr_devel-1.4.6-7
-	apr_util-1.4.1-4
-	apr_util_devel-1.4.1-4
+	apr-1.5.0-1
+	apr_devel-1.5.0-1
+	apr_util-1.5.4-1
+	apr_util_devel-1.5.4-1
 	autoconf-2.69-6
 	automake-1.13.1-4
+	bash-4.3.30-1
 #	bepdf-1.1.1~beta5_2013_04_28-1
-	binutils-2.23.2_2013_04_09-2
-	bison-2.5-1
+	binutils-2.24_2014_03_19-7
+	bison-2.6.5-1
 	buildbot_slave-0.8.8-2
 	bzip2-1.0.6-5
 	bzip2_devel-1.0.6-5
 	cdrtools-3.01~a07-3
 	cmake-3.0.0_rc6-1
 	ctags-5.8-3
-	curl-7.37.0-1
-	curl_devel-7.37.0-1
+	curl-7.39.0-1
+	curl_devel-7.39.0-1
 	cvs-1.12.13.1-6
 	doxygen-1.6.3-4
+	dtc-1.4.0-1
 	expat-2.1.0-1
 	expat_devel-2.1.0-1
+	file-5.15-1
+	file_devel-5.15-1
 	findutils-4.4.2-1
-	ffmpeg-0.10.2-5
-	ffmpeg_devel-0.10.2-5
+	ffmpeg-0.11.5-2
+	ffmpeg_devel-0.11.5-2
+	flac-1.3.0-3
+	flac_devel-1.3.0-3
 	flex-2.5.39-1
 	fossil-1.29-1
-	freetype-2.5.2-3
-	freetype_devel-2.5.2-3
+	freetype-2.5.3-4
+	freetype_devel-2.5.3-4
+	fribidi-0.19.6-2
+	fribidi_devel-0.19.6-2
 	gawk-4.1.0-2
-	gcc-4.8.3_2014_05_28-1
-	gettext-0.18.1.1-5
-	gettext_libintl-0.18.1.1-5
+	gcc-4.8.3_2014_07_26-2
+	gcc_syslibs-4.8.3_2014_07_26-2
+	gcc_syslibs_devel-4.8.3_2014_07_26-2
+	gettext-0.18.1.1-6
+	gettext_libintl-0.18.1.1-6
+	giflib-5.1.0-1
+	giflib_devel-5.1.0-1
 	git-1.8.3.4-3
 	git_arch-1.8.3.4-3
 	git_cvs-1.8.3.4-3
@@ -50,43 +64,65 @@ RemotePackageRepository HaikuPorts
 	git_email-1.8.3.4-3
 	git_remote_helpers-1.8.3.4-3
 	git_svn-1.8.3.4-3
-	glu-9.0.0-2
-	glu_devel-9.0.0-2
+	glew-1.11.0-1
+	glew_devel-1.11.0-1
+	glew_util-1.11.0-1
+	glib2-2.38.1-4
+	glib2_devel-2.38.1-4
+	glu-9.0.0-3
+	glu_devel-9.0.0-3
 	gmp-6.0.0-1
 	gmp_devel-6.0.0-1
 	gperf-3.0.4-1
 	grep-2.20-1
 	grep_debuginfo-2.20-1
 	groff-1.20.1-3
-	gutenprint-5.2.9-1
-	gutenprint_devel-5.2.9-1
-	haikuwebkit-1.4.0-1
-	haikuwebkit_devel-1.4.0-1
+	gutenprint-5.2.10-1
+	gutenprint_devel-5.2.10-1
+	haikuwebkit-1.4.6-3
+	haikuwebkit_devel-1.4.6-3
 	help2man-1.44.1-1
 	htmldoc-1.8.27-3
-	icu-4.8.1.1-4
-	icu_devel-4.8.1.1-4
-	jam-2.5_2012_10_12-1
+	icu-54.1-4
+	icu_devel-54.1-4
+	intltool-0.40.6-4
+	jam-2.5_2012_10_12-2
+	jasper-1.900.1-4
+	jasper_devel-1.900.1-4
+	jasper_tools-1.900.1-4
 	jpeg-9-3
 	jpeg_devel-9-3
 	jpeg_tools-9-3
 	keymapswitcher-1.2.7.10-1
 	less-451-4
 	libedit-2012_06_01_3.0-1
+	libedit_devel-2012_06_01_3.0-1
+	libevent-2.0.21-7
+	libevent_devel-2.0.21-7
 	libexecinfo-1.1-2
 	libexecinfo_devel-1.1-2
-	libffi-3.0.13-1
-	libffi_devel-3.0.13-1
+	libffi-3.2.1-2
+	libffi_devel-3.2.1-2
+	libicns-0.8.1-1
+	libicns_devel-0.8.1-1
 	libiconv-1.13.1-6
 	libiconv_devel-1.13.1-6
 	libogg-1.3.0-2
 	libogg_devel-1.3.0-2
 	libpcre-8.21-5
 	libpcre_devel-8.21-5
-	libpng-1.5.12-3
-	libpng_devel-1.5.12-3
-	libsolv-0.3.0_haiku_2013_10_01-1
-	libsolv_devel-0.3.0_haiku_2013_10_01-1
+	libpng-1.5.12-4
+	libpng_devel-1.5.12-4
+	libpng16-1.6.13-1
+	libpng16_devel-1.6.13-1
+	libsndfile-1.0.25-3
+	libsndfile_devel-1.0.25-3
+	libsdl-1.2.15-6
+	libsdl_devel-1.2.15-6
+	libsdl2-2.0.3-1
+	libsdl2_devel-2.0.3-1
+	libsolv-0.3.0_haiku_2013_10_01-3
+	libsolv_devel-0.3.0_haiku_2013_10_01-3
 	libtheora-1.1.1-2
 	libtheora_devel-1.1.1-2
 	libtool-2.4.2-1
@@ -95,6 +131,8 @@ RemotePackageRepository HaikuPorts
 	libvorbis_devel-1.3.4-1
 	libvpx-1.0.0-2
 	libvpx_devel-1.0.0-2
+	libwebp-0.4.1-1
+	libwebp_devel-0.4.1-1
 	libxml2-2.9.1-2
 	libxml2_devel-2.9.1-2
 	libxml2_python-2.9.1-2
@@ -118,43 +156,53 @@ RemotePackageRepository HaikuPorts
 	ncurses_devel-5.9-10
 	neon-0.29.6-7
 	neon_devel-0.29.6-7
-	openssh-6.0p1-7
-	openssl-1.0.0m-1
-	openssl_devel-1.0.0m-1
+	openssh-6.6p1-1
+	openssl-1.0.0o-1
+	openssl_devel-1.0.0o-1
 	p7zip-9.20.1-5
-	pe-2.4.4_2014_05_29-1
+	pe-2.4.5-1
 	perl-5.18.2-2
+	pixman-0.32.6-1
+	pixman_devel-0.32.6-1
 	pkgconfig-0.27.1-2
-	python-2.7.6-2
+	python-2.7.9-1
 	python_twisted-13.2.0-1
 	python_zope.interface-4.1.1-2
-	qrencode-3.3.0-1
-	qrencode_devel-3.3.0-1
+	qemu-2.1.2-2
+	qrencode-3.3.0-2
+	qrencode_devel-3.3.0-2
 	readline-6.3-2
 	readline_devel-6.3-2
 	ruby-1.9.1-2
 	ruby_devel-1.9.1-2
-	scons-2.3.1-3
+	scons-2.3.1-4
 	sed-4.2.1-6
+	serf-1.3.7-1
+	serf_devel-1.3.7-1
 	sharutils-4.14-1
 	speex-1.2~rc1-2
 	speex_devel-1.2~rc1-2
-	sqlite-3.8.4.3-1
-	sqlite_devel-3.8.4.3-1
-	subversion-1.6.18-6
-	subversion_devel-1.6.18-6
+	sqlite-3.8.6-1
+	sqlite_devel-3.8.6-1
+	subversion-1.8.10-1
+	subversion_devel-1.8.10-1
 	tar-1.27.1-2
 	texinfo-4.13a-7
 	tiff-3.9.6-2
 	tiff_devel-3.9.6-2
 	tiff_tools-3.9.6-2
+	tinyxml-2.6.2-1
+	tinyxml_devel-2.6.2-1
+	transmission-2.84-3
 	unrar-5.1.5-1
 	vim-7.4-2
 	vision-0.9.7.r949-2
 	wget-1.15-1
 	which-2.20-2
 	wpa_supplicant-2.0-3
-	xz_utils-5.0.4-2
+	xml_parser-2.36-1
+	xz_utils-5.0.6-1
+	xz_utils_devel-5.0.6-1
 	yasm-1.2.0-3
 	zlib-1.2.8-4
 	zlib_devel-1.2.8-4
@@ -165,6 +213,7 @@ RemotePackageRepository HaikuPorts
 	apr
 	autoconf
 	automake
+	bash
 #	bepdf
 	binutils
 	bison
@@ -175,42 +224,58 @@ RemotePackageRepository HaikuPorts
 	curl
 	cvs
 	doxygen
+	dtc
 	expat
+	file
 	findutils
 	ffmpeg
+	flac
 	flex
 	fossil
 	freetype
+	fribidi
 	gawk
 	gcc
 	gettext
+	giflib
 	git
+	glew
+	glib2
 	glu
 	gmp
 	gperf
 	grep
 	groff
 	gutenprint
-	haikuwebkit
+#	haikuwebkit
 	htmldoc
 	icu
+	intltool
 	jam
+	jasper
 	jpeg
 	help2man
 	keymapswitcher
 	less
 	libedit
+	libevent
 	libexecinfo
 	libffi
+	libicns
 	libiconv
 	libogg
 	libpcre
 	libpng
+	libpng16
+	libsdl
+	libsdl2
+	libsndfile
 	libsolv
 	libtheora
 	libtool
 	libvorbis
 	libvpx
+	libwebp
 	libxml2
 	libxslt
 	llvm
@@ -230,15 +295,18 @@ RemotePackageRepository HaikuPorts
 	p7zip
 	pe
 	perl
+	pixman
 	pkgconfig
 	python
 	python_twisted
 	python_zope.interface
+	qemu
 	qrencode
 	readline
 	ruby
 	scons
 	sed
+	serf
 	sharutils
 	speex
 	sqlite
@@ -247,6 +315,8 @@ RemotePackageRepository HaikuPorts
 	texi2html
 	texinfo
 	tiff
+	tinyxml
+	transmission
 	unrar
 	vim
 	vision
@@ -254,6 +324,7 @@ RemotePackageRepository HaikuPorts
 	which
 	wpa_supplicant
 	yasm
+	xml_parser
 	xz_utils
 	zlib
 	:

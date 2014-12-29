@@ -216,17 +216,20 @@ PeriodicDelayedTaskWithTimeout::RunIfNeeded(bigtime_t currentTime)
 }
 
 
+//	#pragma mark - RunWhenIdleTask
+
+
 RunWhenIdleTask::RunWhenIdleTask(FunctionObjectWithResult<bool>* functor,
 	bigtime_t initialDelay, bigtime_t idleFor, bigtime_t heartBeat)
 	:
 	PeriodicDelayedTask(functor, initialDelay, heartBeat),
 	fIdleFor(idleFor),
-	fState(kInitialDelay)
+	fState(kInitialDelay),
+	fActivityLevelStart(0),
+	fActivityLevel(0),
+	fLastCPUTooBusyTime(0)
 {
 }
-
-
-//	#pragma mark - RunWhenIdleTask
 
 
 RunWhenIdleTask::~RunWhenIdleTask()
@@ -382,22 +385,22 @@ TaskLoop::AccumulatedRunLater(AccumulatingFunctionObject* functor,
 	bigtime_t delay, bigtime_t maxAccumulatingTime, int32 maxAccumulateCount)
 {
 	AutoLock<BLocker> autoLock(&fLock);
-	if (!autoLock.IsLocked()) {
+	if (!autoLock.IsLocked())
 		return;
-	}
+
 	int32 count = fTaskList.CountItems();
 	for (int32 index = 0; index < count; index++) {
 		AccumulatedOneShotDelayedTask* task
 			= dynamic_cast<AccumulatedOneShotDelayedTask*>(
 				fTaskList.ItemAt(index));
-		if (!task)
+		if (task == NULL)
 			continue;
-
-		if (task->CanAccumulate(functor)) {
+		else if (task->CanAccumulate(functor)) {
 			task->Accumulate(functor, delay);
 			return;
 		}
 	}
+
 	RunLater(new AccumulatedOneShotDelayedTask(functor, delay,
 		maxAccumulatingTime, maxAccumulateCount));
 }

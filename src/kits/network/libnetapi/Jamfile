@@ -1,6 +1,7 @@
 SubDir HAIKU_TOP src kits network libnetapi ;
 
 UsePrivateHeaders app net shared support ;
+UsePrivateHeaders locale shared ;
 
 UseHeaders [ FDirName $(HAIKU_TOP) src libs compat freebsd_network compat ]
 	: true ;
@@ -31,6 +32,11 @@ for architectureObject in [ MultiArchSubDirSetup ] {
 			SetupFeatureObjectsDir no-ssl ;
 		}
 
+		# BUrl uses ICU to perform IDNA conversions (unicode domain names)
+		UseBuildFeatureHeaders icu ;
+		Includes [ FGristFiles Url.cpp ]
+			: [ BuildFeatureAttribute icu : headers ] ;
+
 		SharedLibrary [ MultiArchDefaultGristFiles libbnetapi.so ] :
 			init.cpp
 			DynamicBuffer.cpp
@@ -50,11 +56,17 @@ for architectureObject in [ MultiArchSubDirSetup ] {
 			NetworkInterface.cpp
 			NetworkRoster.cpp
 			RouteSupport.cpp
-			
+
 			AbstractSocket.cpp
 			DatagramSocket.cpp
 			Socket.cpp
 			SecureSocket.cpp
+
+			# TODO: another add-on for file:// (a much simpler one)
+			FileRequest.cpp
+
+			# TODO: another add-on for gopher://
+			GopherRequest.cpp
 
 			# TODO: The HTTP stuff should all go into an add-on. It needs
 			# linking against libcrypto.so and only the add-on should link
@@ -67,13 +79,11 @@ for architectureObject in [ MultiArchSubDirSetup ] {
 			HttpResult.cpp
 			HttpTime.cpp
 
-			# TODO: another add-on for file:// (a much simpler one)
-			FileRequest.cpp
-
 			notifications.cpp
 
 			$(md5Sources)
 
+			NetworkRequest.cpp
 			Url.cpp
 			UrlContext.cpp
 			UrlProtocolAsynchronousListener.cpp
@@ -85,8 +95,9 @@ for architectureObject in [ MultiArchSubDirSetup ] {
 			UrlSynchronousRequest.cpp
 
 			:
-			be $(TARGET_NETWORK_LIBS) $(TARGET_LIBSTDC++) $(TARGET_LIBSUPC++)
+			be $(TARGET_NETWORK_LIBS) [ TargetLibstdc++ ] [ TargetLibsupc++ ]
 			[ BuildFeatureAttribute openssl : libraries ]
+			[ BuildFeatureAttribute icu : libraries ]
 			[ MultiArchDefaultGristFiles libshared.a ]
 			;
 	}

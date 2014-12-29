@@ -27,6 +27,8 @@ SEARCH_SOURCE += [ FDirName $(SUBDIR) model ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) settings ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) settings generic ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) source_language ] ;
+SEARCH_SOURCE += [ FDirName $(SUBDIR) source_language c_family ] ;
+SEARCH_SOURCE += [ FDirName $(SUBDIR) source_language x86 ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) types ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) user_interface ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) user_interface cli ] ;
@@ -149,6 +151,7 @@ Application Debugger :
 	ReturnValueID.cpp
 
 	# jobs
+	ExpressionEvaluationJob.cpp
 	GetCPUStateJob.cpp
 	GetStackTraceJob.cpp
 	GetThreadStateJob.cpp
@@ -161,9 +164,12 @@ Application Debugger :
 	AreaInfo.cpp
 	Breakpoint.cpp
 	DisassembledCode.cpp
+	ExpressionInfo.cpp
+	ExpressionValues.cpp
 	FileSourceCode.cpp
 	Image.cpp
 	ImageInfo.cpp
+	LineDataSource.cpp
 	ReturnValueInfo.cpp
 	SemaphoreInfo.cpp
 	SourceCode.cpp
@@ -173,6 +179,7 @@ Application Debugger :
 	StackTrace.cpp
 	Statement.cpp
 	SymbolInfo.cpp
+	SyntheticPrimitiveType.cpp
 	SyscallInfo.cpp
 	SystemInfo.cpp
 	Team.cpp
@@ -204,12 +211,20 @@ Application Debugger :
 	SettingsDescription.cpp
 
 	# source_language
-	CLanguage.cpp
-	CLanguageFamily.cpp
-	CppLanguage.cpp
 	SourceLanguage.cpp
 	SyntaxHighlighter.cpp
 	UnsupportedLanguage.cpp
+
+	# source_language/c_family
+	CLanguage.cpp
+	CLanguageExpressionEvaluator.cpp
+	CLanguageFamily.cpp
+	CLanguageFamilySyntaxHighlighter.cpp
+	CLanguageFamilySyntaxHighlightInfo.cpp
+	CLanguageTokenizer.cpp
+	CppLanguage.cpp
+
+	# source_language/x86
 	X86AssemblyLanguage.cpp
 
 	# types
@@ -256,9 +271,11 @@ Application Debugger :
 
 	# user_interface/gui/team_window
 	BreakConditionConfigWindow.cpp
+	BreakpointEditWindow.cpp
 	BreakpointListView.cpp
 	BreakpointsView.cpp
 	ConsoleOutputView.cpp
+	ExpressionPromptWindow.cpp
 	ImageFunctionsView.cpp
 	ImageListView.cpp
 	RegistersView.cpp
@@ -328,6 +345,7 @@ Application Debugger :
 	CompoundValueNode.cpp
 	CStringValueNode.cpp
 	EnumerationValueNode.cpp
+	ExpressionValueNode.cpp
 	PointerToMemberValueNode.cpp
 	PrimitiveValueNode.cpp
 	VariableValueNodeChild.cpp
@@ -347,16 +365,15 @@ Application Debugger :
 	<nogrist>Debugger_dwarf.o
 	<nogrist>DebugAnalyzer_gui_table.o
 
+	[ BuildFeatureAttribute ncurses : library ]
+
 	libudis86.a
 	<bin>debug_utils.a
 	libcolumnlistview.a
 	libshared.a
-	libexpression_parser.a
-	libmapm.a
 	libedit.a
-	libncurses.a
 
-	$(TARGET_LIBSTDC++)
+	[ TargetLibstdc++ ]
 	be package tracker libbsd.so libdebug.so
 
 	: Debugger.rdef

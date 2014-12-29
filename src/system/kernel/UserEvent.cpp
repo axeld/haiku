@@ -127,6 +127,20 @@ TeamSignalEvent::Create(Team* team, uint32 signalNumber, int32 signalCode,
 }
 
 
+status_t
+TeamSignalEvent::Fire()
+{
+	// We need a reference to the team to guarantee that it is still there when
+	// the DPC actually runs.
+	fTeam->AcquireReference();
+	status_t result = SignalEvent::Fire();
+	if (result != B_OK)
+		fTeam->ReleaseReference();
+
+	return result;
+}
+
+
 void
 TeamSignalEvent::DoDPC(DPCQueue* queue)
 {
@@ -137,6 +151,7 @@ TeamSignalEvent::DoDPC(DPCQueue* queue)
 	status_t error = send_signal_to_team_locked(fTeam, fSignal->Number(),
 		fSignal, B_DO_NOT_RESCHEDULE);
 	locker.Unlock();
+	fTeam->ReleaseReference();
 
 	// There are situations (for certain signals), in which
 	// send_signal_to_team_locked() succeeds without queuing the signal.
@@ -182,6 +197,20 @@ ThreadSignalEvent::Create(Thread* thread, uint32 signalNumber, int32 signalCode,
 }
 
 
+status_t
+ThreadSignalEvent::Fire()
+{
+	// We need a reference to the thread to guarantee that it is still there
+	// when the DPC actually runs.
+	fThread->AcquireReference();
+	status_t result = SignalEvent::Fire();
+	if (result != B_OK)
+		fThread->ReleaseReference();
+
+	return result;
+}
+
+
 void
 ThreadSignalEvent::DoDPC(DPCQueue* queue)
 {
@@ -193,6 +222,7 @@ ThreadSignalEvent::DoDPC(DPCQueue* queue)
 		fSignal, B_DO_NOT_RESCHEDULE);
 	locker.Unlock();
 	teamLocker.Unlock();
+	fThread->ReleaseReference();
 
 	// There are situations (for certain signals), in which
 	// send_signal_to_team_locked() succeeds without queuing the signal.
@@ -218,13 +248,6 @@ CreateThreadEvent::CreateThreadEvent(const ThreadCreationAttributes& attributes)
 	// our own buffer and replace the name pointer.
 	strlcpy(fThreadName, attributes.name, sizeof(fThreadName));
 	fCreationAttributes.name = fThreadName;
-}
-
-
-CreateThreadEvent::~CreateThreadEvent()
-{
-	// cancel the DPC to be on the safe side
-	DPCQueue::DefaultQueue(B_NORMAL_PRIORITY)->Cancel(this);
 }
 
 
@@ -259,4 +282,6 @@ CreateThreadEvent::DoDPC(DPCQueue* queue)
 	thread_id threadID = thread_create_thread(fCreationAttributes, false);
 	if (threadID >= 0)
 		resume_thread(threadID);
+
+	ReleaseReference();
 }

@@ -116,7 +116,7 @@ FileTypeWindow::FileTypeWindow(BPoint position, const BMessage& refs)
 
 	BLayoutBuilder::Grid<>(preferredBox, padding, padding / 2)
 		.SetInsets(padding, padding * 2, padding, padding)
-		.Add(fPreferredField, 0, 0, 3, 1)
+		.Add(fPreferredField, 0, 0, 2, 1)
 		.Add(fSelectAppButton, 0, 1)
 		.Add(fSameAppAsButton, 1, 1);
 
@@ -360,6 +360,7 @@ FileTypeWindow::MessageReceived(BMessage* message)
 			panel.AddString("title", B_TRANSLATE("Select same type as"));
 			panel.AddInt32("message", kMsgSameTypeAsOpened);
 			panel.AddMessenger("target", this);
+			panel.AddBool("allowDirs", true);
 
 			be_app_messenger.SendMessage(&panel);
 			break;
@@ -404,6 +405,7 @@ FileTypeWindow::MessageReceived(BMessage* message)
 				B_TRANSLATE("Select same preferred application as"));
 			panel.AddInt32("message", kMsgSamePreferredAppAsOpened);
 			panel.AddMessenger("target", this);
+			panel.AddBool("allowDirs", true);
 
 			be_app_messenger.SendMessage(&panel);
 			break;

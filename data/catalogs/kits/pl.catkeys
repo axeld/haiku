@@ -1,4 +1,4 @@
-1	polish	x-vnd.Haiku-libbe	3504008668
+1	polish	x-vnd.Haiku-libbe	1743278280
 gamma	AboutWindow		gamma
 beta	AboutWindow		beta
 %3.2f GiB	StringForSize		%3.2f GiB
@@ -6,26 +6,26 @@ Written by:	AboutWindow		Napisany przez:
 About %app%	AboutMenuItem		O %app%
 Cut	TextView		Wytnij
 Version	AboutWindow		Wersja
-Cannot create the replicant for \"%description\".\n%error	ZombieReplicantView		Nie można stworzyć replikanta dla \"%description\".\n%error
+Cannot create the replicant for \"%description\".\n%error	ZombieReplicantView		Nie można stworzyć replikanta dla „%description”.\n%error
 Copy	TextView		Kopiuj
 %3.2f KiB	StringForSize		%3.2f KiB
-%d bytes	StringForSize		%d bajtów
 alpha	AboutWindow		alfa
 Error	PrintJob		Błąd
-No Pages to print!	PrintJob		Brak Stron do wydrukowania!
-All Rights Reserved.	AboutWindow		Wszelkie Prawa Zastrzeżone.
+All Rights Reserved.	AboutWindow		Wszelkie prawa zastrzeżone.
 About %app%	AboutWindow		O %app%
+No pages to print!	PrintJob		Brak stron do wydrukowania!
 OK	Dragger		OK
 OK	PrintJob		OK
 Green:	ColorControl		Zielony:
-Ok	AboutWindow		Ok
 Version history:	AboutWindow		Historia zmian:
 Remove replicant	Dragger		Usuń replikant
+OK	AboutWindow		OK
 OK	ZombieReplicantView		OK
-Print Server is not responding.	PrintJob		Serwer Wydruku nie odpowiada.
+Print Server is not responding.	PrintJob		Serwer wydruku nie odpowiada.
 Paste	TextView		Wklej
-Special Thanks:	AboutWindow		Specjalne Podziękowania dla:
+Special Thanks:	AboutWindow		Specjalne podziękowania dla:
 %.2f TiB	StringForSize		%.2f TiB
+{0, plural, one{# byte} other{# bytes}	StringForSize		{0, plural, one{# bajt} few{# bajty} many{# bajtów} other{# bajta}}
 Cannot locate the application for the replicant. No application signature supplied.\n%error	ZombieReplicantView		Nie można zlokalizować aplikacji dla replikanta. Nie dostarczono podpisu aplikacji.\n%error
 Redo	TextView		Ponów
 <empty>	Menu		<puste>

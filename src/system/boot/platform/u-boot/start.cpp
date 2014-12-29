@@ -19,6 +19,7 @@
 #include <arch/cpu.h>
 #include <platform_arch.h>
 #include <platform/openfirmware/openfirmware.h>
+#include <board_config.h>
 
 #include <string.h>
 
@@ -50,21 +51,23 @@ typedef struct uboot_gd {
 // GCC defined globals
 extern void (*__ctor_list)(void);
 extern void (*__ctor_end)(void);
-extern uint8 __bss_start;
+extern uint8 __bss_start, __bss_end;
 extern uint8 _end;
 
 extern "C" int main(stage2_args *args);
 extern "C" void _start(void);
-extern "C" int start_raw(int argc, const char **argv);
+extern "C" int start_gen(int argc, const char **argv,
+	struct image_header *uimage=NULL, void *fdt=NULL);
 extern "C" void dump_uimage(struct image_header *image);
 extern "C" void dump_fdt(const void *fdt);
 
 // declared in shell.S
 // those are initialized to NULL but not in the BSS
-extern struct image_header *gUImage;
 extern uboot_gd *gUBootGlobalData;
 extern uint32 gUBootOS;
-extern void *gFDT;
+
+struct image_header *gUImage;
+void *gFDT;
 
 static uint32 sBootOptions;
 
@@ -72,7 +75,7 @@ static uint32 sBootOptions;
 static void
 clear_bss(void)
 {
-	memset(&__bss_start, 0, &_end - &__bss_start);
+	memset(&__bss_start, 0, &__bss_end - &__bss_start);
 }
 
 
@@ -87,14 +90,6 @@ call_ctors(void)
 }
 
 
-/* needed for libgcc unwind XXX */
-extern "C" void
-abort(void)
-{
-	panic("abort");
-}
-
-
 extern "C" void
 platform_start_kernel(void)
 {
@@ -105,10 +100,11 @@ platform_start_kernel(void)
 	addr_t stackTop
 		= gKernelArgs.cpu_kstack[0].start + gKernelArgs.cpu_kstack[0].size;
 
+	// clone the Flattened Device Tree blob into the kernel args if we've got it
 	if (gFDT) {
-		// clone the Flattened Device Tree blob
-		gKernelArgs.platform_args.fdt = kernel_args_malloc(fdt_totalsize(gFDT));
-		memcpy(gKernelArgs.platform_args.fdt, gFDT, fdt_totalsize(gFDT));
+		size_t fdtSize = fdt_totalsize(gFDT);
+		gKernelArgs.platform_args.fdt = kernel_args_malloc(fdtSize);
+		memcpy(gKernelArgs.platform_args.fdt, gFDT, fdtSize);
 	}
 
 //	smp_init_other_cpus();
@@ -137,18 +133,17 @@ start_netbsd(struct board_info *bd, struct image_header *image,
 {
 	const char *argv[] = { "haiku", cmdline };
 	int argc = 1;
-	// TODO: Ensure cmdline is mapped into memory by MMU before usage.
 	if (cmdline && *cmdline)
 		argc++;
-	gUImage = image;
-	return start_raw(argc, argv);
+	return start_gen(argc, argv, image);
 }
 
 
 extern "C" int
 start_linux(int argc, int archnum, void *atags)
 {
-	return 1;
+	// newer U-Boot pass the FDT in atags
+	return start_gen(0, NULL, NULL, atags);
 }
 
 
@@ -165,13 +160,19 @@ extern "C" int
 start_linux_ppc_fdt(void *fdt, long/*UNUSED*/, long/*UNUSED*/,
 	uint32 epapr_magic, uint32 initial_mem_size)
 {
-	gFDT = fdt;	//XXX: make a copy?
-	return start_raw(0, NULL);
+	return start_gen(0, NULL, NULL, fdt);
 }
 
 
 extern "C" int
 start_raw(int argc, const char **argv)
+{
+	return start_gen(argc, argv);
+}
+
+
+extern "C" int
+start_gen(int argc, const char **argv, struct image_header *uimage, void *fdt)
 {
 	stage2_args args;
 
@@ -180,16 +181,22 @@ start_raw(int argc, const char **argv)
 	call_ctors();
 	args.heap_size = HEAP_SIZE;
 	args.arguments = NULL;
+	args.arguments_count = 0;
 	args.platform.boot_tgz_data = NULL;
 	args.platform.boot_tgz_size = 0;
 	args.platform.fdt_data = NULL;
 	args.platform.fdt_size = 0;
 
+	gUImage = uimage;
+	gFDT = fdt;	//XXX: make a copy?
+		// TODO: check for atags instead and convert them
+
 	if (argv) {
 		// skip the kernel name
-		args.arguments = ++argv;
-		args.arguments_count = --argc;
+		++argv;
+		--argc;
 	}
+	// TODO: Ensure cmdline is mapped into memory by MMU before usage.
 
 	// if we get passed a uimage, try to find the third blob
 	// only if we do not have FDT data yet
@@ -209,15 +216,6 @@ start_raw(int argc, const char **argv)
 	of_init(NULL);
 
 	cpu_init();
-
-	if (args.platform.fdt_data) {
-		dprintf("Found FDT from uimage @ %p, %" B_PRIu32 " bytes\n",
-			args.platform.fdt_data, args.platform.fdt_size);
-	} else if (gFDT) {
-		/* Fixup args so we can pass the gFDT on to the kernel */
-		args.platform.fdt_data = gFDT;
-		args.platform.fdt_size = fdt_totalsize(gFDT);
-	}
 
 	// if we get passed an FDT, check /chosen for initrd and bootargs
 	if (gFDT != NULL) {
@@ -239,14 +237,7 @@ start_raw(int argc, const char **argv)
 				dprintf("Found boot tgz from FDT @ %p, %" B_PRIu32 " bytes\n",
 					args.platform.boot_tgz_data, args.platform.boot_tgz_size);
 			}
-			prop = fdt_getprop(gFDT, node, "bootargs", &len);
-			if (prop) {
-				dprintf("Found bootargs: %s\n", (const char *)prop);
-				static const char *sArgs[] = { NULL, NULL };
-				sArgs[0] = (const char *)prop;
-				args.arguments = sArgs;
-				args.arguments_count = 1;
-			}
+			// we check for bootargs after remapping the FDT
 		}
 	}
 
@@ -275,7 +266,49 @@ start_raw(int argc, const char **argv)
 			dump_fdt(gFDT);
 	}
 	
+	if (args.platform.boot_tgz_size > 0) {
+		insert_physical_allocated_range((addr_t)args.platform.boot_tgz_data,
+			args.platform.boot_tgz_size);
+	}
+
+	// save the size of the FDT so we can map it easily after mmu_init
+	size_t fdtSize = gFDT ? fdt_totalsize(gFDT) : 0;
+
 	mmu_init();
+
+	// Handle our tarFS post-mmu
+	if (args.platform.boot_tgz_size > 0) {
+		args.platform.boot_tgz_data = (void*)mmu_map_physical_memory((addr_t)
+			args.platform.boot_tgz_data, args.platform.boot_tgz_size,
+			kDefaultPageFlags);
+	}
+	// .. and our FDT
+	if (gFDT != NULL)
+		gFDT = (void*)mmu_map_physical_memory((addr_t)gFDT, fdtSize, kDefaultPageFlags);
+
+	// if we get passed an FDT, check /chosen for bootargs now
+	// to avoid having to copy them.
+	if (gFDT != NULL) {
+		int node = fdt_path_offset(gFDT, "/chosen");
+		const void *prop;
+		int len;
+
+		if (node >= 0) {
+			prop = fdt_getprop(gFDT, node, "bootargs", &len);
+			if (prop) {
+				dprintf("Found bootargs: %s\n", (const char *)prop);
+				static const char *sArgs[] = { NULL, NULL };
+				sArgs[0] = (const char *)prop;
+				// override main() args
+				args.arguments = sArgs;
+				args.arguments_count = 1;
+			}
+		}
+		dprintf("args.arguments_count = %d\n", args.arguments_count);
+		for (int i = 0; i < args.arguments_count; i++)
+			dprintf("args.arguments[%d] @%lx = '%s'\n", i,
+				(uint32)args.arguments[i], args.arguments[i]);
+	}
 
 	// wait a bit to give the user the opportunity to press a key
 //	spin(750000);

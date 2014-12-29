@@ -18,6 +18,7 @@
 
 class BreakpointManager;
 class DebuggerInterface;
+class ExpressionResult;
 class ImageDebugInfoJobListener;
 class StackFrame;
 class Statement;
@@ -65,6 +66,9 @@ public:
 			void				HandleStackTraceChanged();
 
 private:
+			friend class ExpressionEvaluationListener;
+
+private:
 	// ImageDebugInfoProvider
 	virtual	status_t			GetImageDebugInfo(Image* image,
 									ImageDebugInfo*& _info);
@@ -95,6 +99,11 @@ private:
 			void				_SingleStepThread(
 									target_addr_t instructionPointer);
 
+			bool				_HandleBreakpointConditionIfNeeded(
+									CpuState* cpuState);
+			void				_HandleBreakpointConditionEvaluated(
+									ExpressionResult* value);
+			bool				_CheckStopCondition();
 
 			bool				_HandleBreakpointHitStep(CpuState* cpuState);
 			bool				_HandleSingleStepStep(CpuState* cpuState);
@@ -115,6 +124,8 @@ private:
 			target_addr_t		fPreviousInstructionPointer;
 			target_addr_t		fPreviousFrameAddress;
 			bool				fSingleStepping;
+			sem_id				fConditionWaitSem;
+			ExpressionResult*	fConditionResult;
 
 public:
 			ThreadHandler*		fNext;

@@ -20,6 +20,8 @@
 
 #include <ByteOrder.h>
 
+#include <FdIO.h>
+
 #include <package/hpkg/HPKGDefsPrivate.h>
 
 #include <package/hpkg/PackageData.h>
@@ -332,9 +334,24 @@ PackageReaderImpl::Init(const char* fileName, uint32 flags)
 status_t
 PackageReaderImpl::Init(int fd, bool keepFD, uint32 flags)
 {
+	BFdIO* file = new(std::nothrow) BFdIO(fd, keepFD);
+	if (file == NULL) {
+		if (keepFD && fd >= 0)
+			close(fd);
+		return B_NO_MEMORY;
+	}
+
+	return Init(file, true, flags);
+}
+
+
+status_t
+PackageReaderImpl::Init(BPositionIO* file, bool keepFile, uint32 flags,
+	hpkg_header* _header)
+{
 	hpkg_header header;
 	status_t error = inherited::Init<hpkg_header, B_HPKG_MAGIC, B_HPKG_VERSION,
-		B_HPKG_MINOR_VERSION>(fd, keepFD, header, flags);
+		B_HPKG_MINOR_VERSION>(file, keepFile, header, flags);
 	if (error != B_OK)
 		return error;
 	fHeapSize = UncompressedHeapSize();
@@ -356,14 +373,8 @@ PackageReaderImpl::Init(int fd, bool keepFD, uint32 flags)
 	if (error != B_OK)
 		return error;
 
-	// prepare the sections for use
-	error = PrepareSection(fTOCSection);
-	if (error != B_OK)
-		return error;
-
-	error = PrepareSection(fPackageAttributesSection);
-	if (error != B_OK)
-		return error;
+	if (_header != NULL)
+		*_header = header;
 
 	return B_OK;
 }
@@ -372,13 +383,16 @@ PackageReaderImpl::Init(int fd, bool keepFD, uint32 flags)
 status_t
 PackageReaderImpl::ParseContent(BPackageContentHandler* contentHandler)
 {
+	status_t error = _PrepareSections();
+	if (error != B_OK)
+		return error;
+
 	AttributeHandlerContext context(ErrorOutput(), contentHandler,
 		B_HPKG_SECTION_PACKAGE_ATTRIBUTES,
 		MinorFormatVersion() > B_HPKG_MINOR_VERSION);
 	RootAttributeHandler rootAttributeHandler;
 
-	status_t error
-		= ParsePackageAttributesSection(&context, &rootAttributeHandler);
+	error = ParsePackageAttributesSection(&context, &rootAttributeHandler);
 
 	if (error == B_OK) {
 		context.section = B_HPKG_SECTION_PACKAGE_TOC;
@@ -392,13 +406,16 @@ PackageReaderImpl::ParseContent(BPackageContentHandler* contentHandler)
 status_t
 PackageReaderImpl::ParseContent(BLowLevelPackageContentHandler* contentHandler)
 {
+	status_t error = _PrepareSections();
+	if (error != B_OK)
+		return error;
+
 	AttributeHandlerContext context(ErrorOutput(), contentHandler,
 		B_HPKG_SECTION_PACKAGE_ATTRIBUTES,
 		MinorFormatVersion() > B_HPKG_MINOR_VERSION);
 	LowLevelAttributeHandler rootAttributeHandler;
 
-	status_t error
-		= ParsePackageAttributesSection(&context, &rootAttributeHandler);
+	error = ParsePackageAttributesSection(&context, &rootAttributeHandler);
 
 	if (error == B_OK) {
 		context.section = B_HPKG_SECTION_PACKAGE_TOC;
@@ -406,6 +423,21 @@ PackageReaderImpl::ParseContent(BLowLevelPackageContentHandler* contentHandler)
 	}
 
 	return error;
+}
+
+
+status_t
+PackageReaderImpl::_PrepareSections()
+{
+	status_t error = PrepareSection(fTOCSection);
+	if (error != B_OK)
+		return error;
+
+	error = PrepareSection(fPackageAttributesSection);
+	if (error != B_OK)
+		return error;
+
+	return B_OK;
 }
 
 

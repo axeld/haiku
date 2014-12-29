@@ -9,9 +9,9 @@ SEARCH_SOURCE += [ FDirName $(librootSources) os arch $(TARGET_ARCH) ] ;
 SEARCH_SOURCE += [ FDirName $(librootSources) os arch generic ] ;
 
 KernelMergeObject kernel_os_arch_$(TARGET_ARCH).o :
-	atomic.S
 	byteorder.S
 
+	generic_atomic.cpp
 	generic_system_time_nsecs.cpp
 
 	: $(TARGET_KERNEL_PIC_CCFLAGS)

@@ -19,7 +19,7 @@ flags			system_package
 
 provides {
 	haiku_%HAIKU_SECONDARY_PACKAGING_ARCH% = %HAIKU_VERSION% compat>=R1~alpha1
-	lib:libtiff_%HAIKU_SECONDARY_PACKAGING_ARCH% = 3.9.4 compat >= 3
+	lib:libstdc++_%HAIKU_SECONDARY_PACKAGING_ARCH%
 }
 
 requires {
@@ -33,8 +33,12 @@ requires {
 	lib:libicutu_%HAIKU_SECONDARY_PACKAGING_ARCH%
 	lib:libicuuc_%HAIKU_SECONDARY_PACKAGING_ARCH%
 #ifdef HAIKU_REGULAR_BUILD
+	lib:libicns_%HAIKU_SECONDARY_PACKAGING_ARCH%
+	lib:libjasper_%HAIKU_SECONDARY_PACKAGING_ARCH%
 	lib:libjpeg_%HAIKU_SECONDARY_PACKAGING_ARCH%
 	lib:libpng_%HAIKU_SECONDARY_PACKAGING_ARCH%
+	lib:libtiff_%HAIKU_SECONDARY_PACKAGING_ARCH%
+	lib:libwebp_%HAIKU_SECONDARY_PACKAGING_ARCH%
 #endif
 	lib:libsolv_%HAIKU_SECONDARY_PACKAGING_ARCH%
 	lib:libsolvext_%HAIKU_SECONDARY_PACKAGING_ARCH%

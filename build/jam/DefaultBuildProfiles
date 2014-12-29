@@ -4,6 +4,10 @@ switch $(HAIKU_BUILD_PROFILE) {
 		HAIKU_BUILD_TYPE = bootstrap ;
 		EnableBuildFeatures bootstrap_image ;
 
+		# Add a third pseudo target for the platform used when building anything
+		# for stage0 of the bootstrap process.
+		NotFile bootstrap_stage0 ;
+
 		HAIKU_DEFINES += HAIKU_BOOTSTRAP_BUILD ;
 		TARGET_DEFINES += HAIKU_BOOTSTRAP_BUILD ;
 	}
@@ -45,12 +49,13 @@ rule DefineDefaultBuildProfiles
 
 	# bootstrap profiles
 	DefineBuildProfile bootstrap-raw : image : "haiku-bootstrap.image" ;
-	DefineBuildProfile bootstrap-mmc : haiku-mmc-image : "haiku-mmc.image" ;
+	DefineBuildProfile bootstrap-mmc : haiku-mmc-image : "haiku-bootstrap.mmc" ;
 	DefineBuildProfile bootstrap-vmware : vmware-image
 		: "haiku-bootstrap.vmdk" ;
 
 	# minimum profiles
 	DefineBuildProfile minimum-raw : image : "haiku-minimum.image" ;
+	DefineBuildProfile minimum-mmc : haiku-mmc-image : "haiku-minimum.mmc" ;
 	DefineBuildProfile minimum-vmware : vmware-image : "haiku-minimum.vmdk" ;
 	DefineBuildProfile minimum-anyboot : anyboot-image
 		: "haiku-minimum-anyboot.image" ;
@@ -68,6 +73,7 @@ rule DefineDefaultBuildProfiles
 			AddHaikuImagePackages
 				bepdf
 				cvs
+				dejavu
 				keymapswitcher
 				llvm
 				man
@@ -80,6 +86,7 @@ rule DefineDefaultBuildProfiles
 				subversion
 				timgmsoundfont
 				vision
+				vl_gothic
 				wpa_supplicant
 				wqy_microhei
 				# xz_utils can't be built with gcc2, so we install it for
@@ -118,6 +125,7 @@ rule DefineDefaultBuildProfiles
 			HAIKU_IMAGE_SIZE ?= 600 ;
 
 			AddHaikuImagePackages
+				dejavu
 				man
 				nano
 				openssh
@@ -148,19 +156,17 @@ rule DefineDefaultBuildProfiles
 			HAIKU_IMAGE_SIZE ?= 20000 ;
 
 			AddHaikuImagePackages
-				autoconf
-				automake
 				binutils
 				bison
 				curl_devel
+				dejavu
 				flex
 				freetype_devel
 				gawk
 				gcc
 				grep
 				haikuporter
-				libtool
-				libtool_libltdl
+				less
 				m4
 				make
 				ncurses

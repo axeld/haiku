@@ -38,6 +38,8 @@ All rights reserved.
 #include <Debug.h>
 #include <Node.h>
 
+#include "Utilities.h"
+
 
 // ToDo:
 // lazy Rewind from Drive, only if data is available
@@ -48,10 +50,19 @@ All rights reserved.
 //	#pragma mark - AttributeInfo
 
 
-AttributeInfo::AttributeInfo(const AttributeInfo &cloneThis)
+AttributeInfo::AttributeInfo()
 	:
-	fName(cloneThis.fName),
-	fInfo(cloneThis.fInfo)
+	fName("")
+{
+	fInfo.type = B_RAW_TYPE;
+	fInfo.size = 0;
+}
+
+
+AttributeInfo::AttributeInfo(const AttributeInfo& other)
+	:
+	fName(other.fName),
+	fInfo(other.fInfo)
 
 {
 }
@@ -69,8 +80,8 @@ AttributeInfo::AttributeInfo(const char* name, uint32 type, off_t size)
 	:
 	fName(name)
 {
-	fInfo.size = size;
 	fInfo.type = type;
+	fInfo.size = size;
 }
 
 
@@ -96,10 +107,10 @@ AttributeInfo::Size() const
 
 
 void
-AttributeInfo::SetTo(const AttributeInfo &attr)
+AttributeInfo::SetTo(const AttributeInfo& other)
 {
-	fName = attr.fName;
-	fInfo = attr.fInfo;
+	fName = other.fName;
+	fInfo = other.fInfo;
 }
 
 
@@ -278,7 +289,7 @@ AttributeStreamFileNode::AttributeStreamFileNode(BNode* node)
 	:
 	fNode(node)
 {
-	ASSERT(fNode);
+	ASSERT(fNode != NULL);
 }
 
 
@@ -300,7 +311,8 @@ AttributeStreamFileNode::SetTo(BNode* node)
 off_t
 AttributeStreamFileNode::Contains(const char* name, uint32 type)
 {
-	ASSERT(fNode);
+	ThrowOnAssert(fNode != NULL);
+
 	attr_info info;
 	if (fNode->GetAttrInfo(name, &info) != B_OK)
 		return 0;
@@ -339,8 +351,7 @@ off_t
 AttributeStreamFileNode::Write(const char* name, const char* foreignName,
 	uint32 type, off_t size, const void* buffer)
 {
-	ASSERT(fNode != NULL);
-	ASSERT(dynamic_cast<BNode*>(fNode) != NULL);
+	ThrowOnAssert(fNode != NULL);
 
 	off_t result = fNode->WriteAttr(name, type, 0, buffer, (size_t)size);
 	if (result == size && foreignName != NULL) {
@@ -356,9 +367,10 @@ AttributeStreamFileNode::Write(const char* name, const char* foreignName,
 bool
 AttributeStreamFileNode::Drive()
 {
-	ASSERT(fNode != NULL);
 	if (!_inherited::Drive())
 		return false;
+
+	ThrowOnAssert(fNode != NULL);
 
 	const AttributeInfo* attr;
 	while ((attr = fReadFrom->Next()) != 0) {
@@ -386,7 +398,7 @@ AttributeStreamFileNode::Get()
 bool
 AttributeStreamFileNode::Fill(char* buffer) const
 {
-	ASSERT(fNode != NULL);
+	ThrowOnAssert(fNode != NULL);
 
 	return fNode->ReadAttr(fCurrentAttr.Name(), fCurrentAttr.Type(), 0,
 		buffer, (size_t)fCurrentAttr.Size()) == (ssize_t)fCurrentAttr.Size();
@@ -396,8 +408,8 @@ AttributeStreamFileNode::Fill(char* buffer) const
 const AttributeInfo*
 AttributeStreamFileNode::Next()
 {
-	ASSERT(fNode != NULL);
 	ASSERT(fReadFrom == NULL);
+	ThrowOnAssert(fNode != NULL);
 
 	char attrName[256];
 	if (fNode->GetNextAttrName(attrName) != B_OK)
@@ -468,8 +480,8 @@ AttributeStreamMemoryNode::Read(const char* name,
 	const char* DEBUG_ONLY(foreignName), uint32 type, off_t bufferSize,
 	void* buffer, void (*DEBUG_ONLY(swapFunc))(void*))
 {
-	ASSERT(!foreignName);
-	ASSERT(!swapFunc);
+	ASSERT(foreignName == NULL);
+	ASSERT(swapFunc == NULL);
 
 	AttrNode* attrNode = NULL;
 

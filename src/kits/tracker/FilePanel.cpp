@@ -121,17 +121,18 @@ BFilePanel::Show()
 	// just pull it to us
 	uint32 workspace = 1UL << (uint32)current_workspace();
 	uint32 windowWorkspaces = fWindow->Workspaces();
-	if (!(windowWorkspaces & workspace))
+	if (!(windowWorkspaces & workspace)) {
 		// window in a different workspace, reopen in current
 		fWindow->SetWorkspaces(workspace);
+	}
 
 	// Position the file panel like an alert
-	BWindow* parent =
-		dynamic_cast<BWindow*>(BLooper::LooperForThread(find_thread(NULL)));
+	BWindow* parent = dynamic_cast<BWindow*>(
+		BLooper::LooperForThread(find_thread(NULL)));
 	const BRect frame = parent != NULL ? parent->Frame()
 		: BScreen(fWindow).Frame();
-	fWindow->MoveTo(dynamic_cast<BWindow*>(fWindow)->AlertPosition(frame));
 
+	fWindow->MoveTo(fWindow->AlertPosition(frame));
 	if (!IsShowing())
 		fWindow->Show();
 
@@ -259,6 +260,17 @@ BFilePanel::SetButtonLabel(file_panel_button button, const char* text)
 		return;
 
 	static_cast<TFilePanel*>(fWindow)->SetButtonLabel(button, text);
+}
+
+
+void
+BFilePanel::SetNodeFlavors(uint32 flavors)
+{
+	AutoLock<BWindow> lock(fWindow);
+	if (!lock)
+		return;
+
+	static_cast<TFilePanel*>(fWindow)->SetNodeFlavors(flavors);
 }
 
 

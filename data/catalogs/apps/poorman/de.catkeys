@@ -1,4 +1,4 @@
-1	german	x-vnd.Haiku-PoorMan	1267330937
+1	german	x-vnd.Haiku-PoorMan	1829050509
 Website location	PoorMan		Website-Adresse
 Error Server	PoorMan		Serverfehler
 Settings…	PoorMan		Einstellungen…
@@ -6,13 +6,13 @@ Create PoorMan log	PoorMan		Logdatei erstellen
 Shutting down.\n	PoorMan		Herunterfahren.\n
 Hits: %lu	PoorMan		Zugriffe: %lu
 Web folder:	PoorMan		Web-Ordner:
-Default	PoorMan		Standard
 Save log console selection	PoorMan		Auswahl der Logkonsole speichern
 Run server	PoorMan		Server starten
 PoorMan settings	PoorMan		Webserver-Einstellungen
 Clear hit counter	PoorMan		Zugriffszähler löschen
 Copy	PoorMan		Kopieren
 Max. simultaneous connections:	PoorMan		Max. gleichzeitige Verbindungen:
+Create public_html	PoorMan		public_html erzeugen
 Start page:	PoorMan		Startseite:
 done.\n	PoorMan		fertig.\n
 Create	PoorMan		Erstelle
@@ -34,9 +34,9 @@ Log to console	PoorMan		In Konsole loggen
 Directory: (none)	PoorMan		Ordner: (keiner)
 Please choose the folder to publish on the web.\n\nYou can have PoorMan create a default \"public_html\" in your home folder.\nOr you select one of your own folders instead.	PoorMan		Bitte den Ordner auswählen, der im Web veröffentlicht werden soll.\n\nDer Webserver kann den standardmäßigen \"public_html\" Ordner im home-Ordner erstellen oder einen frei zu wählenden Ordner benutzen.
 Log To Console	PoorMan		In Konsole loggen
+{0, plural, one{# connection} other{# connections}}	PoorMan		{0, plural, one{# Verbindung} other{# Verbindungen}}
 Connections	PoorMan		Verbindungen
 Status: Running	PoorMan		Status: Läuft
-connections	PoorMan		Verbindungen
 Controls	PoorMan		Aktionen
 Send file listing if there's no start page	PoorMan		Dateiaufzählung senden, wenn keine Startseite vorhanden ist
 Error Dir	PoorMan		Fehlerverzeichnis

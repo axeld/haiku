@@ -39,8 +39,16 @@ BDataRequest::_ProtocolLoop()
 	ssize_t length;
 	bool isBase64 = false;
 
+	// The RFC has examples where some characters are URL-Encoded.
 	fUrl.UrlDecode(true);
-	BString data = fUrl.Path();
+
+	// The RFC says this uses a nonstandard scheme, so the path, query and
+	// fragment are a bit nonsensical. It would be nice to handle them, but
+	// some software (eg. WebKit) relies on data URIs with embedded "#" char
+	// in the data...
+	BString data = fUrl.UrlString();
+	data.Remove(0, 5); // remove "data:"
+
 	int separatorPosition = data.FindFirst(',');
 
 	if (fListener != NULL)
@@ -81,6 +89,12 @@ BDataRequest::_ProtocolLoop()
 	}
 
 	if (isBase64) {
+		// Check that the base64 data is properly padded (we process characters
+		// by groups of 4 and there must not be stray chars at the end as
+		// Base64 specifies padding.
+		if (data.Length() & 3)
+			return B_BAD_DATA;
+
 		char* buffer = new char[data.Length() * 3 / 4];
 		payload = buffer;
 			// payload must be a const char* so we can assign data.String() to

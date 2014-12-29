@@ -163,6 +163,8 @@ public:
 									const BMessage* message);
 			status_t			AddFlat(const char* name, BFlattenable* object,
 									int32 count = 1);
+			status_t			AddFlat(const char* name,
+									const BFlattenable* object, int32 count = 1);
 			status_t			AddData(const char* name, type_code type,
 									const void* data, ssize_t numBytes,
 									bool isFixedSize = true, int32 count = 1);
@@ -444,10 +446,6 @@ public:
 									double defaultValue) const;
 			double				GetDouble(const char* name, int32 index,
 									double defaultValue) const;
-			void*				GetPointer(const char* name,
-									const void* defaultValue) const;
-			void*				GetPointer(const char* name, int32 index,
-									const void* defaultValue) const;
 			const char*			GetString(const char* name,
 									const char* defaultValue) const;
 			const char*			GetString(const char* name, int32 index,

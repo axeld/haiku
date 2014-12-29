@@ -4,9 +4,21 @@ BootstrapPackageRepository HaikuPortsCross
 	# architecture "any" packages
 	haikuporter-0-1
 	:
+	# repository architecture packages (stage 0)
+	gcc_bootstrap-4.8.3_2014_08_03-1
+	gcc_bootstrap_syslibs-4.8.3_2014_08_03-1
+	gcc_bootstrap_syslibs_devel-4.8.3_2014_08_03-1
+
+	secondary_x86_gcc2 @{
+		gcc_bootstrap_x86_gcc2-2.95.3_2014_08_03-1
+		gcc_bootstrap_x86_gcc2_syslibs_devel-2.95.3_2014_08_03-1
+	}@ # secondary_x86_gcc2
+	:
 	# repository architecture packages (stage 1)
 	autoconf_bootstrap-2.69-2
 	automake_bootstrap-1.13.1-1
+	libtool_cross_generic-2.4
+	bash_bootstrap-4.3.27-2
 	binutils_bootstrap-2.24_2014_03_19-1
 	bison_bootstrap-2.4.3-1
 	findutils_bootstrap-4.4.2-1
@@ -14,17 +26,16 @@ BootstrapPackageRepository HaikuPortsCross
 	freetype_bootstrap-2.4.9-1
 	freetype_bootstrap_devel-2.4.9-1
 	gawk_bootstrap-3.1.8-2
-	gcc_bootstrap-4.8.3_2014_05_28-2
 	grep_bootstrap-2.14-1
-	icu_bootstrap-4.8.1.1-1
-	icu_bootstrap_devel-4.8.1.1-1
+	icu_bootstrap-54.1-1
+	icu_bootstrap_devel-54.1-1
 	libtool_bootstrap-2.4-8
 	libtool_bootstrap_libltdl-2.4-8
 	m4_bootstrap-1.4.16-1
 	make_bootstrap-3.82-1
 	ncurses_bootstrap-5.9-1
 	ncurses_bootstrap_devel-5.9-1
-	python_bootstrap-2.6.8-1
+	python_bootstrap-2.7.6-1
 	sed_bootstrap-4.2.1-1
 	texinfo_bootstrap-4.13a-1
 	zlib_bootstrap-1.2.8-2
@@ -34,7 +45,6 @@ BootstrapPackageRepository HaikuPortsCross
 		binutils_bootstrap_x86_gcc2-2.17_2013_04_21-3
 		freetype_bootstrap_x86_gcc2-2.4.9-1
 		freetype_bootstrap_x86_gcc2_devel-2.4.9-1
-		gcc_bootstrap_x86_gcc2-2.95.3_2013_08_15-1
 		icu_bootstrap_x86_gcc2-4.8.1.1-1
 		icu_bootstrap_x86_gcc2_devel-4.8.1.1-1
 		ncurses_bootstrap_x86_gcc2-5.9-1
@@ -44,17 +54,18 @@ BootstrapPackageRepository HaikuPortsCross
 	}@ # secondary_x86_gcc2
 	:
 	# repository architecture packages (stage 2)
-	libsolv_bootstrap-0.3.0_haiku_2013_10_01-1
-	libsolv_bootstrap_devel-0.3.0_haiku_2013_10_01-1
+	libsolv_bootstrap-0.3.0_haiku_2013_10_01-3
+	libsolv_bootstrap_devel-0.3.0_haiku_2013_10_01-3
 
 	secondary_x86_gcc2 @{
-		libsolv_bootstrap_x86_gcc2-0.3.0_haiku_2013_10_01-1
-		libsolv_bootstrap_x86_gcc2_devel-0.3.0_haiku_2013_10_01-1
+		libsolv_bootstrap_x86_gcc2-0.3.0_haiku_2013_10_01-3
+		libsolv_bootstrap_x86_gcc2_devel-0.3.0_haiku_2013_10_01-3
 	}@ # secondary_x86_gcc2
 	:
 	# source packages
 	autoconf_bootstrap
 	automake_bootstrap
+	bash_bootstrap
 	binutils_bootstrap
 	bison_bootstrap
 	findutils_bootstrap

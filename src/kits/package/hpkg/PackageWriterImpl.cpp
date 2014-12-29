@@ -38,6 +38,7 @@
 #include <package/hpkg/HPKGDefsPrivate.h>
 
 #include <package/hpkg/DataReader.h>
+#include <package/hpkg/PackageFileHeapReader.h>
 #include <package/hpkg/PackageFileHeapWriter.h>
 #include <package/hpkg/PackageReaderImpl.h>
 #include <package/hpkg/Stacker.h>
@@ -463,7 +464,22 @@ PackageWriterImpl::Init(const char* fileName,
 	const BPackageWriterParameters& parameters)
 {
 	try {
-		return _Init(fileName, parameters);
+		return _Init(NULL, false, fileName, parameters);
+	} catch (status_t error) {
+		return error;
+	} catch (std::bad_alloc) {
+		fListener->PrintError("Out of memory!\n");
+		return B_NO_MEMORY;
+	}
+}
+
+
+status_t
+PackageWriterImpl::Init(BPositionIO* file, bool keepFile,
+	const BPackageWriterParameters& parameters)
+{
+	try {
+		return _Init(file, keepFile, NULL, parameters);
 	} catch (status_t error) {
 		return error;
 	} catch (std::bad_alloc) {
@@ -606,11 +622,27 @@ PackageWriterImpl::Finish()
 
 
 status_t
-PackageWriterImpl::_Init(const char* fileName,
+PackageWriterImpl::Recompress(BPositionIO* inputFile)
+{
+	if (inputFile == NULL)
+		return B_BAD_VALUE;
+
+	try {
+		return _Recompress(inputFile);
+	} catch (status_t error) {
+		return error;
+	} catch (std::bad_alloc) {
+		fListener->PrintError("Out of memory!\n");
+		return B_NO_MEMORY;
+	}
+}
+
+
+status_t
+PackageWriterImpl::_Init(BPositionIO* file, bool keepFile, const char* fileName,
 	const BPackageWriterParameters& parameters)
 {
-	status_t result = inherited::Init(fileName, sizeof(hpkg_header),
-		parameters);
+	status_t result = inherited::Init(file, keepFile, fileName, parameters);
 	if (result != B_OK)
 		return result;
 
@@ -630,7 +662,8 @@ PackageWriterImpl::_Init(const char* fileName,
 	// in update mode, parse the TOC
 	if ((Flags() & B_HPKG_WRITER_UPDATE_PACKAGE) != 0) {
 		PackageReaderImpl packageReader(fListener);
-		result = packageReader.Init(FD(), false, 0);
+		hpkg_header header;
+		result = packageReader.Init(File(), false, 0, &header);
 		if (result != B_OK)
 			return result;
 
@@ -639,6 +672,14 @@ PackageWriterImpl::_Init(const char* fileName,
 		PackageContentHandler handler(fRootAttribute, fListener, fStringCache);
 
 		result = packageReader.ParseContent(&handler);
+		if (result != B_OK)
+			return result;
+
+		// While the compression level can change, we have to reuse the
+		// compression algorithm at least.
+		SetCompression(B_BENDIAN_TO_HOST_INT16(header.heap_compression));
+
+		result = InitHeapReader(fHeapOffset);
 		if (result != B_OK)
 			return result;
 
@@ -655,8 +696,145 @@ PackageWriterImpl::_Init(const char* fileName,
 				tocSection.uncompressedLength)) {
 			throw std::bad_alloc();
 		}
+	} else {
+		result = InitHeapReader(fHeapOffset);
+		if (result != B_OK)
+			return result;
 	}
 
+	return B_OK;
+}
+
+
+status_t
+PackageWriterImpl::_Finish()
+{
+	// write entries
+	for (EntryList::ConstIterator it = fRootEntry->ChildIterator();
+			Entry* entry = it.Next();) {
+		char pathBuffer[B_PATH_NAME_LENGTH];
+		pathBuffer[0] = '\0';
+		_AddEntry(AT_FDCWD, entry, entry->Name(), pathBuffer);
+	}
+
+	hpkg_header header;
+
+	// write the TOC and package attributes
+	uint64 tocLength;
+	_WriteTOC(header, tocLength);
+
+	uint64 attributesLength;
+	_WritePackageAttributes(header, attributesLength);
+
+	// flush the heap
+	status_t error = fHeapWriter->Finish();
+	if (error != B_OK)
+		return error;
+
+	uint64 compressedHeapSize = fHeapWriter->CompressedHeapSize();
+
+	header.heap_compression = B_HOST_TO_BENDIAN_INT16(
+		Parameters().Compression());
+	header.heap_chunk_size = B_HOST_TO_BENDIAN_INT32(fHeapWriter->ChunkSize());
+	header.heap_size_compressed = B_HOST_TO_BENDIAN_INT64(compressedHeapSize);
+	header.heap_size_uncompressed = B_HOST_TO_BENDIAN_INT64(
+		fHeapWriter->UncompressedHeapSize());
+
+	// Truncate the file to the size it is supposed to have. In update mode, it
+	// can be greater when one or more files are shrunk. In creation mode it
+	// should already have the correct size.
+	off_t totalSize = fHeapWriter->HeapOffset() + (off_t)compressedHeapSize;
+	error = File()->SetSize(totalSize);
+	if (error != B_OK) {
+		fListener->PrintError("Failed to truncate package file to new "
+			"size: %s\n", strerror(errno));
+		return errno;
+	}
+
+	fListener->OnPackageSizeInfo(fHeaderSize, compressedHeapSize, tocLength,
+		attributesLength, totalSize);
+
+	// prepare the header
+
+	// general
+	header.magic = B_HOST_TO_BENDIAN_INT32(B_HPKG_MAGIC);
+	header.header_size = B_HOST_TO_BENDIAN_INT16(fHeaderSize);
+	header.version = B_HOST_TO_BENDIAN_INT16(B_HPKG_VERSION);
+	header.total_size = B_HOST_TO_BENDIAN_INT64(totalSize);
+	header.minor_version = B_HOST_TO_BENDIAN_INT16(B_HPKG_MINOR_VERSION);
+
+	// write the header
+	RawWriteBuffer(&header, sizeof(hpkg_header), 0);
+
+	SetFinished(true);
+	return B_OK;
+}
+
+
+status_t
+PackageWriterImpl::_Recompress(BPositionIO* inputFile)
+{
+	if (inputFile == NULL)
+		return B_BAD_VALUE;
+
+	// create a package reader for the input file
+	PackageReaderImpl reader(fListener);
+	hpkg_header header;
+	status_t error = reader.Init(inputFile, false, 0, &header);
+	if (error != B_OK) {
+		fListener->PrintError("Failed to open hpkg file: %s\n",
+			strerror(error));
+		return error;
+	}
+
+	// Update some header fields, assuming no compression. We'll rewrite the
+	// header later, should compression have been used. Doing it this way allows
+	// for streaming an uncompressed package.
+	uint64 uncompressedHeapSize
+		= reader.RawHeapReader()->UncompressedHeapSize();
+	uint64 compressedHeapSize = uncompressedHeapSize;
+
+	off_t totalSize = fHeapWriter->HeapOffset() + (off_t)compressedHeapSize;
+
+	header.heap_compression = B_HOST_TO_BENDIAN_INT16(
+		Parameters().Compression());
+	header.heap_chunk_size = B_HOST_TO_BENDIAN_INT32(fHeapWriter->ChunkSize());
+	header.heap_size_uncompressed
+		= B_HOST_TO_BENDIAN_INT64(uncompressedHeapSize);
+
+	if (Parameters().Compression() == B_HPKG_COMPRESSION_NONE) {
+		header.heap_size_compressed
+			= B_HOST_TO_BENDIAN_INT64(compressedHeapSize);
+		header.total_size = B_HOST_TO_BENDIAN_INT64(totalSize);
+
+		// write the header
+		RawWriteBuffer(&header, sizeof(hpkg_header), 0);
+	}
+
+	// copy the heap data
+	uint64 bytesCompressed;
+	error = fHeapWriter->AddData(*reader.RawHeapReader(), uncompressedHeapSize,
+		bytesCompressed);
+	if (error != B_OK)
+		return error;
+
+	// flush the heap
+	error = fHeapWriter->Finish();
+	if (error != B_OK)
+		return error;
+
+	// If compression is enabled, update and write the header.
+	if (Parameters().Compression() != B_HPKG_COMPRESSION_NONE) {
+		compressedHeapSize = fHeapWriter->CompressedHeapSize();
+		totalSize = fHeapWriter->HeapOffset() + (off_t)compressedHeapSize;
+		header.heap_size_compressed = B_HOST_TO_BENDIAN_INT64(compressedHeapSize);
+		header.total_size = B_HOST_TO_BENDIAN_INT64(totalSize);
+
+		// write the header
+		RawWriteBuffer(&header, sizeof(hpkg_header), 0);
+	}
+
+	SetFinished(true);
 	return B_OK;
 }
 
@@ -1067,70 +1245,6 @@ PackageWriterImpl::_AttributeRemoved(Attribute* attribute)
 			Attribute* child = it.Next();) {
 		_AttributeRemoved(child);
 	}
-}
-
-
-status_t
-PackageWriterImpl::_Finish()
-{
-	// write entries
-	for (EntryList::ConstIterator it = fRootEntry->ChildIterator();
-			Entry* entry = it.Next();) {
-		char pathBuffer[B_PATH_NAME_LENGTH];
-		pathBuffer[0] = '\0';
-		_AddEntry(AT_FDCWD, entry, entry->Name(), pathBuffer);
-	}
-
-	hpkg_header header;
-
-	// write the TOC and package attributes
-	uint64 tocLength;
-	_WriteTOC(header, tocLength);
-
-	uint64 attributesLength;
-	_WritePackageAttributes(header, attributesLength);
-
-	// flush the heap
-	status_t error = fHeapWriter->Finish();
-	if (error != B_OK)
-		return error;
-
-	uint64 compressedHeapSize = fHeapWriter->CompressedHeapSize();
-
-	header.heap_compression = B_HOST_TO_BENDIAN_INT16(B_HPKG_COMPRESSION_ZLIB);
-	header.heap_chunk_size = B_HOST_TO_BENDIAN_INT32(fHeapWriter->ChunkSize());
-	header.heap_size_compressed = B_HOST_TO_BENDIAN_INT64(
-		fHeapWriter->CompressedHeapSize());
-	header.heap_size_uncompressed = B_HOST_TO_BENDIAN_INT64(
-		fHeapWriter->UncompressedHeapSize());
-
-	// Truncate the file to the size it is supposed to have. In update mode, it
-	// can be greater when one or more files are shrunk. In creation mode it
-	// should already have the correct size.
-	off_t totalSize = fHeapWriter->HeapOffset() + (off_t)compressedHeapSize;
-	if (ftruncate(FD(), totalSize) != 0) {
-		fListener->PrintError("Failed to truncate package file to new "
-			"size: %s\n", strerror(errno));
-		return errno;
-	}
-
-	fListener->OnPackageSizeInfo(fHeaderSize, compressedHeapSize, tocLength,
-		attributesLength, totalSize);
-
-	// prepare the header
-
-	// general
-	header.magic = B_HOST_TO_BENDIAN_INT32(B_HPKG_MAGIC);
-	header.header_size = B_HOST_TO_BENDIAN_INT16(fHeaderSize);
-	header.version = B_HOST_TO_BENDIAN_INT16(B_HPKG_VERSION);
-	header.total_size = B_HOST_TO_BENDIAN_INT64(totalSize);
-	header.minor_version = B_HOST_TO_BENDIAN_INT16(B_HPKG_MINOR_VERSION);
-
-	// write the header
-	RawWriteBuffer(&header, sizeof(hpkg_header), 0);
-
-	SetFinished(true);
-	return B_OK;
 }
 
 

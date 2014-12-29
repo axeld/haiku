@@ -1,4 +1,4 @@
-1	french	x-vnd.Haiku-PoorMan	1267330937
+1	french	x-vnd.Haiku-PoorMan	1347438411
 Website location	PoorMan		Emplacement du site Web
 Error Server	PoorMan		Erreur du serveur
 Settings…	PoorMan		Réglages…
@@ -6,7 +6,6 @@ Create PoorMan log	PoorMan		Créer un journal pour PoorMan
 Shutting down.\n	PoorMan		Éteindre.\n
 Hits: %lu	PoorMan		Sollicitations : %lu
 Web folder:	PoorMan		Dossier Web :
-Default	PoorMan		Par défaut
 Save log console selection	PoorMan		Sauvegarder la sélection de la console de journalisation
 Run server	PoorMan		Mettre le serveur en fonction
 PoorMan settings	PoorMan		Réglages de PoorMan
@@ -34,9 +33,9 @@ Log to console	PoorMan		Consigner vers la console
 Directory: (none)	PoorMan		Répertoire : (aucun)
 Please choose the folder to publish on the web.\n\nYou can have PoorMan create a default \"public_html\" in your home folder.\nOr you select one of your own folders instead.	PoorMan		Veuillez choisir le dossier à publier sur le Web.\n\nVous pouvez sélectionnez le dossier de votre choix, ou laisser PoorMan\ncréer le dossier par défaut « public_html » dans votre dossier personnel.
 Log To Console	PoorMan		Consigner vers la console
+{0, plural, one{# connection} other{# connections}}	PoorMan		{0, plural, one{# connexion} other{# connexions}}
 Connections	PoorMan		Connexions
 Status: Running	PoorMan		État : En fonction
-connections	PoorMan		connexions
 Controls	PoorMan		Contrôles
 Send file listing if there's no start page	PoorMan		Envoyer la liste des fichiers s'il n'y a pas de page d'accueil.
 Error Dir	PoorMan		Répertoire d'erreurs

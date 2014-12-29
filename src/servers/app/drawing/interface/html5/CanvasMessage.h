@@ -7,7 +7,7 @@
  *		François Revol <revol@free.fr>
  */
 #ifndef CANVAS_MESSAGE_H
-#define CANCAS_MESSAGE_H
+#define CANVAS_MESSAGE_H
 
 #include "PatternHandler.h"
 #include <ViewPrivate.h>
@@ -201,7 +201,8 @@ CanvasMessage::CanvasMessage(StreamingRingBuffer* source,
 	fBuffer(NULL),
 	fAvailable(0),
 	fWriteIndex(0),
-	fDataLeft(0)
+	fDataLeft(0),
+	fCode(0)
 {
 }
 

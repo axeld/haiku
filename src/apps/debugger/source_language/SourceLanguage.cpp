@@ -1,5 +1,6 @@
 /*
  * Copyright 2009, Ingo Weinhold, ingo_weinhold@gmx.de.
+ * Copyright 2014, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 
@@ -20,8 +21,9 @@ SourceLanguage::GetSyntaxHighlighter() const
 
 
 status_t
-SourceLanguage::ParseTypeExpression(const BString &expression,
-	TeamTypeInformation* info, Type*& _resultType) const
+SourceLanguage::EvaluateExpression(const BString& expression,
+	ValueNodeManager* manager, TeamTypeInformation* info,
+	ExpressionResult*& _resultValue, ValueNode*& _neededNode)
 {
 	return B_NOT_SUPPORTED;
 }

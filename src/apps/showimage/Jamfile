@@ -20,9 +20,8 @@ Application ShowImage :
 	ShowImageView.cpp
 	ShowImageWindow.cpp
 	ToolBarIcons.cpp
-	ToolBarView.cpp
 	: libshared.a be tracker translation localestub
-		$(TARGET_LIBSTDC++) $(TARGET_LIBSUPC++)
+		[ TargetLibstdc++ ] [ TargetLibsupc++ ]
 	: ShowImage.rdef
 ;
 

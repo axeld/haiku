@@ -33,17 +33,17 @@ All rights reserved.
 */
 
 
-#include "Bitmaps.h"
-#include "Commands.h"
-#include "ContainerWindow.h"
-#include "FSUtils.h"
-#include "Model.h"
 #include "Navigator.h"
-#include "Tracker.h"
 
 #include <Picture.h>
 #include <TextControl.h>
 #include <Window.h>
+
+#include "Bitmaps.h"
+#include "Commands.h"
+#include "FSUtils.h"
+#include "Model.h"
+#include "Tracker.h"
 
 
 namespace BPrivate {
@@ -56,6 +56,11 @@ static const int32 kMaxHistory = 32;
 // although we really want and have to set up the
 // pictures when we can, e.g. on a AttachedToWindow.
 static BPicture sPicture;
+
+static const float kButtonWidth = 19.0f;
+static const float kButtonSpacing = 31.0f;
+	// button width and spacing forms a golden rectangle
+static const float kLeftMargin = 9.0f;
 
 
 //	#pragma mark - BNavigatorButton
@@ -147,25 +152,35 @@ BNavigator::BNavigator(const Model* model, BRect rect, uint32 resizeMask)
 	float top = 2 + (be_plain_font->Size() - 8) / 2;
 
 	// Set up widgets
-	fBack = new BNavigatorButton(BRect(3, top, 21, top + 17), "Back",
-		new BMessage(kNavigatorCommandBackward), R_ResBackNavActiveSel,
-		R_ResBackNavActive, R_ResBackNavInactive);
+	fBack = new BNavigatorButton(
+		BRect(kLeftMargin, top, kLeftMargin + kButtonWidth - 1,
+			top + kButtonWidth - 2),
+		"Back", new BMessage(kNavigatorCommandBackward),
+		R_ResBackNavActiveSel, R_ResBackNavActive, R_ResBackNavInactive);
 	fBack->SetEnabled(false);
 	AddChild(fBack);
 
-	fForw = new BNavigatorButton(BRect(35, top, 53, top + 17), "Forw",
-		new BMessage(kNavigatorCommandForward), R_ResForwNavActiveSel,
-		R_ResForwNavActive, R_ResForwNavInactive);
+	fForw = new BNavigatorButton(
+		BRect(kLeftMargin + kButtonSpacing, top,
+			kLeftMargin + kButtonSpacing + kButtonWidth - 1,
+			top + kButtonWidth - 2),
+		"Forw", new BMessage(kNavigatorCommandForward),
+		R_ResForwNavActiveSel, R_ResForwNavActive, R_ResForwNavInactive);
 	fForw->SetEnabled(false);
 	AddChild(fForw);
 
-	fUp = new BNavigatorButton(BRect(67, top, 84, top + 17), "Up",
-		new BMessage(kNavigatorCommandUp), R_ResUpNavActiveSel,
+	fUp = new BNavigatorButton(
+		BRect(kLeftMargin + kButtonSpacing * 2, top,
+			kLeftMargin + kButtonSpacing * 2 + kButtonWidth - 1,
+			top + kButtonWidth - 2),
+		"Up", new BMessage(kNavigatorCommandUp), R_ResUpNavActiveSel,
 		R_ResUpNavActive, R_ResUpNavInactive);
 	fUp->SetEnabled(false);
 	AddChild(fUp);
 
-	fLocation = new BTextControl(BRect(97, 2, rect.Width() - 2, 21),
+	fLocation = new BTextControl(
+		BRect(kLeftMargin + kButtonSpacing * 3, 2,
+			rect.Width() - 2, 2 + kButtonWidth),
 		"Location", "", "", new BMessage(kNavigatorCommandLocation),
 		B_FOLLOW_LEFT_RIGHT);
 	fLocation->SetDivider(0);

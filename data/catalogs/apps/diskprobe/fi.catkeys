@@ -1,4 +1,4 @@
-1	finnish	x-vnd.Haiku-DiskProbe	2306672993
+1	finnish	x-vnd.Haiku-DiskProbe	2944605311
 File offset: 	ProbeView		Tiedostosiirros: 
 %ld (native)	ProbeView		%ld (alkuperäinen)
 64 bit unsigned value:	TypeEditors		64-bittinen etumerkitön arvo:
@@ -59,15 +59,14 @@ Boolean value:	TypeEditors		Boolean-arvo:
 8 bit palette	TypeEditors		8-bittinen paletti
 Fit	ProbeView	Size of fonts, fits to available room	Sopii
 Probe device	OpenWindow		Koesta laite
- (native)	ProbeView		(alkuperäinen)
+ (native)	ProbeView		 (alkuperäinen)
 Unknown format	TypeEditors		Tuntematon muoto
 Hexadecimal	FindWindow	A menu item, as short as possible, noun is recommended if it is shorter than adjective.	Heksadesimaali
 MIME type:	TypeEditors		MIME-tyyppi:
 Page setup…	ProbeView		Sivuasetukset…
 New…	FileWindow		Uusi…
 DiskProbe request	AttributeWindow		Levykoestajapyyntö
-Could not read image	TypeEditors	Image means here a picture file, not a disk image.	Ei voitu lukea kuvatiedostoa
-BlockSize	ProbeView	A menu item, a shortened form from 'block size'. This is in the same menu windowthan 'Base' and 'Font size'	Lohkokoko
+Could not read image	TypeEditors	Image means here a picture file, not a disk image.	Kuvatiedoston lukeminen epäonnistui
 Save changes before closing?	ProbeView		Tallennatko muutokset ennen sulkemista?
 Type editor	AttributeWindow		Tyyppimuokkain
 Native: 0x%0*Lx	ProbeView		Kotoperäinen: 0x%0*Lx
@@ -99,6 +98,7 @@ Base	ProbeView	A menu item, the number that is basis for a system of calculation
 Image view	TypeEditors	Image means here a picture file, not a disk image.	Kuvanäkymä
 Cancel	AttributeWindow		Peru
 Type editor not supported	ProbeView		Tyyppimuokkainta ei tueta
+Block size	ProbeView	Menu item. This is in the same menu window than 'Base' and 'Font size'	Lohkokoko
 MIME type editor	TypeEditors		MIME-tyyppimuokkain
 Swapped: %Ld (0x%0*Lx)	ProbeView		Siiretty näennäismuistiin: %Ld (0x%0*Lx)
 Find	FindWindow		Haku

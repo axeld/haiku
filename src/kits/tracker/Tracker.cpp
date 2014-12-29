@@ -32,38 +32,35 @@ names are registered trademarks or trademarks of their respective holders.
 All rights reserved.
 */
 
+#include "Tracker.h"
 
 #include <errno.h>
+#include <fs_attr.h>
+#include <fs_info.h>
+#include <image.h>
 #include <stdlib.h>
-#include <string.h>
+#include <strings.h>
 #include <sys/resource.h>
 #include <unistd.h>
-
-#include "Tracker.h"
 
 #include <Alert.h>
 #include <Autolock.h>
 #include <Catalog.h>
 #include <Debug.h>
 #include <FindDirectory.h>
-#include <fs_attr.h>
-#include <fs_info.h>
-#include <image.h>
 #include <Locale.h>
 #include <MenuItem.h>
 #include <NodeInfo.h>
 #include <NodeMonitor.h>
 #include <Path.h>
+#include <PathMonitor.h>
 #include <Roster.h>
 #include <StopWatch.h>
 #include <Volume.h>
 #include <VolumeRoster.h>
 
-#include <PathMonitor.h>
-
 #include "Attributes.h"
 #include "AutoLock.h"
-#include "AutoMounterSettings.h"
 #include "BackgroundImage.h"
 #include "Bitmaps.h"
 #include "Commands.h"
@@ -88,7 +85,6 @@ All rights reserved.
 #include "Thread.h"
 #include "Utilities.h"
 #include "VirtualDirectoryWindow.h"
-#include "VolumeWindow.h"
 
 
 #undef B_TRANSLATION_CONTEXT
@@ -245,6 +241,11 @@ public:
 TTracker::TTracker()
 	:
 	BApplication(kTrackerSignature),
+	fMimeTypeList(NULL),
+	fClipboardRefsWatcher(NULL),
+	fTrashWatcher(NULL),
+	fTaskLoop(NULL),
+	fNodeMonitorCount(-1),
 	fWatchingInterface(new WatchingInterface),
 	fSettingsWindow(NULL)
 {
@@ -285,6 +286,42 @@ TTracker::TTracker()
 
 	gLaunchLooper = new LaunchLooper();
 	gLaunchLooper->Run();
+
+	// open desktop window
+	BContainerWindow* deskWindow = NULL;
+	BDirectory deskDir;
+	if (FSGetDeskDir(&deskDir) == B_OK) {
+		// create desktop
+		BEntry entry;
+		deskDir.GetEntry(&entry);
+		Model* model = new Model(&entry, true);
+		if (model->InitCheck() == B_OK) {
+			AutoLock<WindowList> lock(&fWindowList);
+			deskWindow = new BDeskWindow(&fWindowList);
+			AutoLock<BWindow> windowLock(deskWindow);
+			deskWindow->CreatePoseView(model);
+			deskWindow->Init();
+
+			if (TrackerSettings().ShowDisksIcon()) {
+				// create model for root of everything
+				BEntry entry("/");
+				Model model(&entry);
+				if (model.InitCheck() == B_OK) {
+					// add the root icon to desktop window
+					BMessage message;
+					message.what = B_NODE_MONITOR;
+					message.AddInt32("opcode", B_ENTRY_CREATED);
+					message.AddInt32("device", model.NodeRef()->device);
+					message.AddInt64("node", model.NodeRef()->node);
+					message.AddInt64("directory",
+						model.EntryRef()->directory);
+					message.AddString("name", model.EntryRef()->name);
+					deskWindow->PostMessage(&message, deskWindow->PoseView());
+				}
+			}
+		} else
+			delete model;
+	}
 }
 
 
@@ -450,14 +487,15 @@ TTracker::MessageReceived(BMessage* message)
 			break;
 
 		case kCloseWindowAndChildren:
-			{
-				const node_ref* itemNode;
-				ssize_t bytes;
-				message->FindData("node_ref", B_RAW_TYPE,
-					(const void**)&itemNode, &bytes);
+		{
+			const node_ref* itemNode;
+			ssize_t bytes;
+			if (message->FindData("node_ref", B_RAW_TYPE,
+					(const void**)&itemNode, &bytes) == B_OK) {
 				CloseWindowAndChildren(itemNode);
-				break;
 			}
+			break;
+		}
 
 		case kCloseAllWindows:
 			CloseAllWindows();
@@ -513,9 +551,6 @@ TTracker::MessageReceived(BMessage* message)
 			MountServer().SendMessage(message);
 			break;
 
-		case kRunAutomounterSettings:
-			AutomountSettingsDialog::RunAutomountSettings(MountServer());
-			break;
 
 		case kRestoreBackgroundImage:
 		{
@@ -525,9 +560,15 @@ TTracker::MessageReceived(BMessage* message)
 			break;
 		}
 
- 		case kShowSettingsWindow:
- 			ShowSettingsWindow();
- 			break;
+		case kRunAutomounterSettings:
+			ShowSettingsWindow();
+			fSettingsWindow->ShowPage(
+				TrackerSettingsWindow::kAutomountSettings);
+			break;
+
+		case kShowSettingsWindow:
+			ShowSettingsWindow();
+			break;
 
 		case kFavoriteCountChangedExternally:
 			SendNotices(kFavoriteCountChangedExternally, message);
@@ -545,9 +586,10 @@ TTracker::MessageReceived(BMessage* message)
 		case kStopWatchClipboardRefs:
 		{
 			BMessenger messenger;
-			message->FindMessenger("target", &messenger);
-			if (messenger.IsValid())
+			if (message->FindMessenger("target", &messenger) == B_OK
+				&& messenger.IsValid()) {
 				fClipboardRefsWatcher->RemoveFromNotifyList(messenger);
+			}
 			break;
 		}
 
@@ -698,7 +740,7 @@ TTracker::LaunchAndCloseParentIfOK(const entry_ref* launchThis,
 	const node_ref* closeThis, const BMessage* messageToBundle)
 {
 	BMessage refsReceived(B_REFS_RECEIVED);
-	if (messageToBundle) {
+	if (messageToBundle != NULL) {
 		refsReceived = *messageToBundle;
 		refsReceived.what = B_REFS_RECEIVED;
 	}
@@ -709,6 +751,7 @@ TTracker::LaunchAndCloseParentIfOK(const entry_ref* launchThis,
 		fTaskLoop->RunLater(NewMemberFunctionObject(&TTracker::CloseParent,
 			this, *closeThis), 1000000);
 	}
+
 	return false;
 }
 
@@ -788,8 +831,7 @@ TTracker::OpenRef(const entry_ref* ref, const node_ref* nodeToClose,
 			CloseParentWaitingForChildSoon(ref, nodeToClose);
 	} else {
 		delete model;
-		// run Launch in a separate thread
-		// and close parent if successfull
+		// run Launch in a separate thread and close parent if successful
 		if (nodeToClose) {
 			Thread::Launch(new EntryAndNodeDoSoonWithMessageFunctor<TTracker,
 				bool (TTracker::*)(const entry_ref*, const node_ref*,
@@ -960,9 +1002,10 @@ TTracker::OpenContainerWindow(Model* model, BMessage* originalRefsList,
 {
 	AutoLock<WindowList> lock(&fWindowList);
 	BContainerWindow* window = NULL;
+	const node_ref* modelNodeRef = model->NodeRef();
 	if (checkAlreadyOpen && openSelector != kRunOpenWithWindow) {
 		// find out if window already open
-		window = FindContainerWindow(model->NodeRef());
+		window = FindContainerWindow(modelNodeRef);
 	}
 
 	bool someWindowActivated = false;
@@ -995,7 +1038,7 @@ TTracker::OpenContainerWindow(Model* model, BMessage* originalRefsList,
 		if (originalRefsList == NULL) {
 			// when passing just a single model, stuff it's entry in a single
 			// element list anyway
-			ASSERT(model);
+			ASSERT(model != NULL);
 			refList = new BMessage;
 			refList->AddRef("refs", model->EntryRef());
 			delete model;
@@ -1005,9 +1048,6 @@ TTracker::OpenContainerWindow(Model* model, BMessage* originalRefsList,
 			refList = new BMessage(*originalRefsList);
 		}
 		window = new OpenWithContainerWindow(refList, &fWindowList);
-	} else if (model->IsRoot()) {
-		// window will adopt the model
-		window = new BVolumeWindow(&fWindowList, openFlags);
 	} else if (model->IsQuery()) {
 		// window will adopt the model
 		window = new BQueryContainerWindow(&fWindowList, openFlags);
@@ -1108,8 +1148,8 @@ TTracker::FindContainerWindow(const node_ref* node, int32 number) const
 	int32 count = fWindowList.CountItems();
 	int32 windowsFound = 0;
 	for (int32 index = 0; index < count; index++) {
-		BContainerWindow* window = dynamic_cast<BContainerWindow*>
-			(fWindowList.ItemAt(index));
+		BContainerWindow* window = dynamic_cast<BContainerWindow*>(
+			fWindowList.ItemAt(index));
 
 		if (window != NULL && window->IsShowing(node)
 			&& number == windowsFound++) {
@@ -1166,8 +1206,8 @@ TTracker::FindParentContainerWindow(const entry_ref* ref) const
 
 	int32 count = fWindowList.CountItems();
 	for (int32 index = 0; index < count; index++) {
-		BContainerWindow* window = dynamic_cast<BContainerWindow*>
-			(fWindowList.ItemAt(index));
+		BContainerWindow* window = dynamic_cast<BContainerWindow*>(
+			fWindowList.ItemAt(index));
 		if (window != NULL && window->IsShowing(&parentRef))
 			return window;
 	}
@@ -1183,8 +1223,8 @@ TTracker::FindInfoWindow(const node_ref* node) const
 
 	int32 count = fWindowList.CountItems();
 	for (int32 index = 0; index < count; index++) {
-		BInfoWindow* window = dynamic_cast<BInfoWindow*>
-			(fWindowList.ItemAt(index));
+		BInfoWindow* window = dynamic_cast<BInfoWindow*>(
+			fWindowList.ItemAt(index));
 		if (window != NULL && window->IsShowing(node))
 			return window;
 	}
@@ -1199,8 +1239,8 @@ TTracker::QueryActiveForDevice(dev_t device)
 	AutoLock<WindowList> lock(&fWindowList);
 	int32 count = fWindowList.CountItems();
 	for (int32 index = 0; index < count; index++) {
-		BQueryContainerWindow* window
-			= dynamic_cast<BQueryContainerWindow*>(fWindowList.ItemAt(index));
+		BQueryContainerWindow* window = dynamic_cast<BQueryContainerWindow*>(
+			fWindowList.ItemAt(index));
 		if (window != NULL) {
 			AutoLock<BWindow> lock(window);
 			if (window->ActiveOnDevice(device))
@@ -1252,11 +1292,9 @@ TTracker::SaveAllPoseLocations()
 	for (int32 windowIndex = 0; windowIndex < numWindows; windowIndex++) {
 		BContainerWindow* window = dynamic_cast<BContainerWindow*>(
 			fWindowList.ItemAt(windowIndex));
-
 		if (window != NULL) {
 			AutoLock<BWindow> lock(window);
 			BDeskWindow* deskWindow = dynamic_cast<BDeskWindow*>(window);
-
 			if (deskWindow != NULL)
 				deskWindow->SaveDesktopPoseLocations();
 			else
@@ -1279,8 +1317,8 @@ TTracker::CloseWindowAndChildren(const node_ref* node)
 	// make a list of all windows to be closed
 	// count from end to beginning so we can remove items safely
 	for (int32 index = fWindowList.CountItems() - 1; index >= 0; index--) {
-		BContainerWindow* window = dynamic_cast<BContainerWindow*>
-			(fWindowList.ItemAt(index));
+		BContainerWindow* window = dynamic_cast<BContainerWindow*>(
+			fWindowList.ItemAt(index));
 		if (window && window->TargetModel()) {
 			BEntry wind_entry;
 			wind_entry.SetTo(window->TargetModel()->EntryRef());
@@ -1314,7 +1352,7 @@ TTracker::CloseAllInWorkspace()
 	// count from end to beginning so we can remove items safely
 	for (int32 index = fWindowList.CountItems() - 1; index >= 0; index--) {
 		BWindow* window = fWindowList.ItemAt(index);
-		if ((window->Workspaces() & currentWorkspace) != 0) {
+		if (window != NULL && (window->Workspaces() & currentWorkspace) != 0) {
 			// avoid the desktop
 			if (dynamic_cast<BDeskWindow*>(window) == NULL
 				&& dynamic_cast<BStatusWindow*>(window) == NULL) {
@@ -1451,42 +1489,6 @@ TTracker::ReadyToRun()
 	fClipboardRefsWatcher->Run();
 
 	fTaskLoop = new StandAloneTaskLoop(true);
-
-	// open desktop window
-	BContainerWindow* deskWindow = NULL;
-	BDirectory deskDir;
-	if (FSGetDeskDir(&deskDir) == B_OK) {
-		// create desktop
-		BEntry entry;
-		deskDir.GetEntry(&entry);
-		Model* model = new Model(&entry, true);
-		if (model->InitCheck() == B_OK) {
-			AutoLock<WindowList> lock(&fWindowList);
-			deskWindow = new BDeskWindow(&fWindowList);
-			AutoLock<BWindow> windowLock(deskWindow);
-			deskWindow->CreatePoseView(model);
-			deskWindow->Init();
-
-			if (TrackerSettings().ShowDisksIcon()) {
-				// create model for root of everything
-				BEntry entry("/");
-				Model model(&entry);
-				if (model.InitCheck() == B_OK) {
-					// add the root icon to desktop window
-					BMessage message;
-					message.what = B_NODE_MONITOR;
-					message.AddInt32("opcode", B_ENTRY_CREATED);
-					message.AddInt32("device", model.NodeRef()->device);
-					message.AddInt64("node", model.NodeRef()->node);
-					message.AddInt64("directory",
-						model.EntryRef()->directory);
-					message.AddString("name", model.EntryRef()->name);
-					deskWindow->PostMessage(&message, deskWindow->PoseView());
-				}
-			}
-		} else
-			delete model;
-	}
 
 	// kick off building the mime type list for find panels, etc.
 	fMimeTypeList = new MimeTypeList();
@@ -1707,13 +1709,6 @@ TTracker::MountServer() const
 
 
 bool
-TTracker::InTrashNode(const entry_ref* node) const
-{
-	return FSInTrashDir(node);
-}
-
-
-bool
 TTracker::TrashFull() const
 {
 	return fTrashWatcher->CheckTrashDirs();
@@ -1724,4 +1719,10 @@ bool
 TTracker::IsTrashNode(const node_ref* node) const
 {
 	return fTrashWatcher->IsTrashNode(node);
+}
+
+bool
+TTracker::InTrashNode(const entry_ref* ref) const
+{
+	return FSInTrashDir(ref);
 }

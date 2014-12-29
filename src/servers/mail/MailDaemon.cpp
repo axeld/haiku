@@ -20,6 +20,7 @@
 #include <FindDirectory.h>
 #include <fs_index.h>
 #include <IconUtils.h>
+#include <MessageFormat.h>
 #include <NodeMonitor.h>
 #include <Notification.h>
 #include <Path.h>
@@ -175,17 +176,13 @@ MailDaemonApp::ReadyToRun()
 		fQueries.AddItem(query);
 	}
 
-	BString string, numString;
+	BString string;
 	if (fNewMessages > 0) {
-		if (fNewMessages != 1)
-			string << B_TRANSLATE("%num new messages.");
-		else
-			string << B_TRANSLATE("%num new message.");
+		static BMessageFormat format(B_TRANSLATE(
+			"{0, plural, one{# new message} other{# new messages}}"));
 
-		numString << fNewMessages;
-		string.ReplaceFirst("%num", numString);
-	}
-	else
+		format.Format(string, fNewMessages);
+	} else
 		string = B_TRANSLATE("No new messages");
 
 	fCentralBeep = false;
@@ -348,16 +345,12 @@ MailDaemonApp::MessageReceived(BMessage* msg)
 
 		case 'numg':
 		{
+			static BMessageFormat format(B_TRANSLATE("{0, plural, "
+				"one{# new message} other{# new messages}} for %name\n"));
+
 			int32 numMessages = msg->FindInt32("num_messages");
-			BString numString;
-
-			if (numMessages > 1)
-				fAlertString << B_TRANSLATE("%num new messages for %name\n");
-			else
-				fAlertString << B_TRANSLATE("%num new message for %name\n");
-
-			numString << numMessages;
-			fAlertString.ReplaceFirst("%num", numString);
+			fAlertString.Truncate(0);
+			format.Format(fAlertString, numMessages);
 			fAlertString.ReplaceFirst("%name", msg->FindString("name"));
 			break;
 		}
@@ -375,18 +368,13 @@ MailDaemonApp::MessageReceived(BMessage* msg)
 					break;
 			}
 
-			BString string, numString;
+			BString string;
 
 			if (fNewMessages > 0) {
-				if (fNewMessages != 1)
-					string << B_TRANSLATE("%num new messages.");
-				else
-					string << B_TRANSLATE("%num new message.");
-
-			numString << fNewMessages;
-			string.ReplaceFirst("%num", numString);
-			}
-			else
+				static BMessageFormat format(B_TRANSLATE(
+					"{0, plural, one{# new message.} other{# new messages.}}"));
+				format.Format(string, fNewMessages);
+			} else
 				string << B_TRANSLATE("No new messages.");
 
 			fNotification->SetTitle(string.String());

@@ -19,6 +19,7 @@
 #include <new>
 
 #include <AutoDeleter.h>
+#include <Certificate.h>
 #include <Debug.h>
 #include <DynamicBuffer.h>
 #include <File.h>
@@ -30,11 +31,40 @@
 
 static const int32 kHttpBufferSize = 4096;
 
+
+class CheckedSecureSocket: public BSecureSocket
+{
+public:
+					CheckedSecureSocket(BHttpRequest* request);
+
+	bool			CertificateVerificationFailed(BCertificate& certificate,
+						const char* message);
+
+private:
+	BHttpRequest*	fRequest;
+};
+
+
+CheckedSecureSocket::CheckedSecureSocket(BHttpRequest* request)
+	:
+	BSecureSocket(),
+	fRequest(request)
+{
+}
+
+
+bool
+CheckedSecureSocket::CertificateVerificationFailed(BCertificate& certificate,
+	const char* message)
+{
+	return fRequest->_CertificateVerificationFailed(certificate, message);
+}
+
+
 BHttpRequest::BHttpRequest(const BUrl& url, bool ssl, const char* protocolName,
 	BUrlProtocolListener* listener, BUrlContext* context)
 	:
-	BUrlRequest(url, listener, context, "BUrlProtocol.HTTP", protocolName),
-	fSocket(NULL),
+	BNetworkRequest(url, listener, context, "BUrlProtocol.HTTP", protocolName),
 	fSSL(ssl),
 	fRequestMethod(B_HTTP_GET),
 	fHttpVersion(B_HTTP_11),
@@ -50,7 +80,7 @@ BHttpRequest::BHttpRequest(const BUrl& url, bool ssl, const char* protocolName,
 {
 	_ResetOptions();
 	if (fSSL)
-		fSocket = new(std::nothrow) BSecureSocket();
+		fSocket = new(std::nothrow) CheckedSecureSocket(this);
 	else
 		fSocket = new(std::nothrow) BSocket();
 }
@@ -58,9 +88,8 @@ BHttpRequest::BHttpRequest(const BUrl& url, bool ssl, const char* protocolName,
 
 BHttpRequest::BHttpRequest(const BHttpRequest& other)
 	:
-	BUrlRequest(other.Url(), other.fListener, other.fContext,
+	BNetworkRequest(other.Url(), other.fListener, other.fContext,
 		"BUrlProtocol.HTTP", other.fSSL ? "HTTPS" : "HTTP"),
-	fSocket(NULL),
 	fSSL(other.fSSL),
 	fRequestMethod(other.fRequestMethod),
 	fHttpVersion(other.fHttpVersion),
@@ -77,7 +106,7 @@ BHttpRequest::BHttpRequest(const BHttpRequest& other)
 	_ResetOptions();
 		// FIXME some options may be copied from other instead.
 	if (fSSL)
-		fSocket = new(std::nothrow) BSecureSocket();
+		fSocket = new(std::nothrow) CheckedSecureSocket(this);
 	else
 		fSocket = new(std::nothrow) BSocket();
 }
@@ -279,7 +308,7 @@ BHttpRequest::Stop()
 		fSocket->Disconnect();
 			// Unlock any pending connect, read or write operation.
 	}
-	return BUrlRequest::Stop();
+	return BNetworkRequest::Stop();
 }
 
 
@@ -317,11 +346,25 @@ BHttpRequest::_ProtocolLoop()
 		newRequest = false;
 
 		// Result reset
-		fOutputHeaders.Clear();
 		fHeaders.Clear();
 		_ResultHeaders().Clear();
 
-		if (!_ResolveHostName()) {
+		BString host = fUrl.Host();
+		int port = fSSL ? 443 : 80;
+
+		if (fUrl.HasPort())
+			port = fUrl.Port();
+
+		if (fContext->UseProxy()) {
+			host = fContext->GetProxyHost();
+			port = fContext->GetProxyPort();
+		}
+
+		status_t result = fInputBuffer.InitCheck();
+		if (result != B_OK)
+			return result;
+
+		if (!_ResolveHostName(host, port)) {
 			_EmitDebug(B_URL_PROTOCOL_DEBUG_ERROR,
 				"Unable to resolve hostname (%s), aborting.",
 					fUrl.Host().String());
@@ -426,36 +469,6 @@ BHttpRequest::_ProtocolLoop()
 }
 
 
-bool
-BHttpRequest::_ResolveHostName()
-{
-	_EmitDebug(B_URL_PROTOCOL_DEBUG_TEXT, "Resolving %s",
-		fUrl.UrlString().String());
-
-	uint16_t port;
-	if (fUrl.HasPort())
-		port = fUrl.Port();
-	else
-		port = fSSL ? 443 : 80;
-
-	// FIXME stop forcing AF_INET, when BNetworkAddress stops giving IPv6
-	// addresses when there isn't an IPv6 link available.
-	fRemoteAddr = BNetworkAddress(AF_INET, fUrl.Host(), port);
-
-	if (fRemoteAddr.InitCheck() != B_OK)
-		return false;
-
-	//! ProtocolHook:HostnameResolved
-	if (fListener != NULL)
-		fListener->HostnameResolved(this, fRemoteAddr.ToString().String());
-
-	_EmitDebug(B_URL_PROTOCOL_DEBUG_TEXT, "Hostname resolved to: %s",
-		fRemoteAddr.ToString().String());
-
-	return true;
-}
-
-
 status_t
 BHttpRequest::_MakeRequest()
 {
@@ -484,6 +497,451 @@ BHttpRequest::_MakeRequest()
 	fSocket->Write("\r\n", 2);
 	_EmitDebug(B_URL_PROTOCOL_DEBUG_TEXT, "Request sent.");
 
+	_SendPostData();
+	fRequestStatus = kRequestInitialState;
+
+
+
+	// Receive loop
+	bool receiveEnd = false;
+	bool parseEnd = false;
+	bool readByChunks = false;
+	bool decompress = false;
+	status_t readError = B_OK;
+	ssize_t bytesRead = 0;
+	ssize_t bytesReceived = 0;
+	ssize_t bytesTotal = 0;
+	off_t bytesUnpacked = 0;
+	char* inputTempBuffer = new(std::nothrow) char[kHttpBufferSize];
+	ssize_t inputTempSize = kHttpBufferSize;
+	ssize_t chunkSize = -1;
+	DynamicBuffer decompressorStorage;
+	BDataIO* decompressingStream;
+	ObjectDeleter<BDataIO> decompressingStreamDeleter;
+
+	while (!fQuit && !(receiveEnd && parseEnd)) {
+		if (!receiveEnd) {
+			fSocket->WaitForReadable();
+			BStackOrHeapArray<char, 4096> chunk(kHttpBufferSize);
+			bytesRead = fSocket->Read(chunk, kHttpBufferSize);
+
+			if (bytesRead < 0) {
+				readError = bytesRead;
+				break;
+			} else if (bytesRead == 0)
+				receiveEnd = true;
+
+			fInputBuffer.AppendData(chunk, bytesRead);
+		} else
+			bytesRead = 0;
+
+		if (fRequestStatus < kRequestStatusReceived) {
+			_ParseStatus();
+
+			//! ProtocolHook:ResponseStarted
+			if (fRequestStatus >= kRequestStatusReceived && fListener != NULL)
+				fListener->ResponseStarted(this);
+		}
+
+		if (fRequestStatus < kRequestHeadersReceived) {
+			_ParseHeaders();
+
+			if (fRequestStatus >= kRequestHeadersReceived) {
+				_ResultHeaders() = fHeaders;
+
+				//! ProtocolHook:HeadersReceived
+				if (fListener != NULL)
+					fListener->HeadersReceived(this);
+
+				// Parse received cookies
+				if (fContext != NULL) {
+					for (int32 i = 0;  i < fHeaders.CountHeaders(); i++) {
+						if (fHeaders.HeaderAt(i).NameIs("Set-Cookie")) {
+							fContext->GetCookieJar().AddCookie(
+								fHeaders.HeaderAt(i).Value(), fUrl);
+						}
+					}
+				}
+
+				if (BString(fHeaders["Transfer-Encoding"]) == "chunked")
+					readByChunks = true;
+
+				BString contentEncoding(fHeaders["Content-Encoding"]);
+				// We don't advertise "deflate" support (see above), but we
+				// still try to decompress it, if a server ever sends a deflate
+				// stream despite it not being in our Accept-Encoding list.
+				if (contentEncoding == "gzip"
+						|| contentEncoding == "deflate") {
+					decompress = true;
+					readError = BZlibCompressionAlgorithm()
+						.CreateDecompressingOutputStream(&decompressorStorage,
+							NULL, decompressingStream);
+					if (readError != B_OK)
+						break;
+
+					decompressingStreamDeleter.SetTo(decompressingStream);
+				}
+
+				int32 index = fHeaders.HasHeader("Content-Length");
+				if (index != B_ERROR)
+					bytesTotal = atoi(fHeaders.HeaderAt(index).Value());
+				else
+					bytesTotal = -1;
+			}
+		}
+
+		if (fRequestStatus >= kRequestHeadersReceived) {
+			// If Transfer-Encoding is chunked, we should read a complete
+			// chunk in buffer before handling it
+			if (readByChunks) {
+				if (chunkSize >= 0) {
+					if ((ssize_t)fInputBuffer.Size() >= chunkSize + 2) {
+							// 2 more bytes to handle the closing CR+LF
+						bytesRead = chunkSize;
+						if (inputTempSize < chunkSize + 2) {
+							delete[] inputTempBuffer;
+							inputTempSize = chunkSize + 2;
+							inputTempBuffer
+								= new(std::nothrow) char[inputTempSize];
+						}
+
+						if (inputTempBuffer == NULL) {
+							readError = B_NO_MEMORY;
+							break;
+						}
+
+						fInputBuffer.RemoveData(inputTempBuffer,
+							chunkSize + 2);
+						chunkSize = -1;
+					} else {
+						// Not enough data, try again later
+						bytesRead = -1;
+					}
+				} else {
+					BString chunkHeader;
+					if (_GetLine(chunkHeader) == B_ERROR) {
+						chunkSize = -1;
+						bytesRead = -1;
+					} else {
+						// Format of a chunk header:
+						// <chunk size in hex>[; optional data]
+						int32 semiColonIndex = chunkHeader.FindFirst(';', 0);
+
+						// Cut-off optional data if present
+						if (semiColonIndex != -1) {
+							chunkHeader.Remove(semiColonIndex,
+								chunkHeader.Length() - semiColonIndex);
+						}
+
+						chunkSize = strtol(chunkHeader.String(), NULL, 16);
+						PRINT(("BHP[%p] Chunk %s=%ld\n", this,
+							chunkHeader.String(), chunkSize));
+						if (chunkSize == 0)
+							fRequestStatus = kRequestContentReceived;
+
+						bytesRead = -1;
+					}
+				}
+
+				// A chunk of 0 bytes indicates the end of the chunked transfer
+				if (bytesRead == 0)
+					receiveEnd = true;
+			} else {
+				bytesRead = fInputBuffer.Size();
+
+				if (bytesRead > 0) {
+					if (inputTempSize < bytesRead) {
+						inputTempSize = bytesRead;
+						delete[] inputTempBuffer;
+						inputTempBuffer = new(std::nothrow) char[bytesRead];
+					}
+
+					if (inputTempBuffer == NULL) {
+						readError = B_NO_MEMORY;
+						break;
+					}
+					fInputBuffer.RemoveData(inputTempBuffer, bytesRead);
+				}
+			}
+
+			if (bytesRead >= 0) {
+				bytesReceived += bytesRead;
+
+				if (fListener != NULL) {
+					if (decompress) {
+						readError = decompressingStream->WriteExactly(
+							inputTempBuffer, bytesRead);
+						if (readError != B_OK)
+							break;
+
+						ssize_t size = decompressorStorage.Size();
+						BStackOrHeapArray<char, 4096> buffer(size);
+						size = decompressorStorage.Read(buffer, size);
+						if (size > 0) {
+							fListener->DataReceived(this, buffer, bytesUnpacked,
+								size);
+							bytesUnpacked += size;
+						}
+					} else if (bytesRead > 0) {
+						fListener->DataReceived(this, inputTempBuffer,
+							bytesReceived - bytesRead, bytesRead);
+					}
+					fListener->DownloadProgress(this, bytesReceived,
+						std::max((ssize_t)0, bytesTotal));
+				}
+
+				if (bytesTotal >= 0 && bytesReceived >= bytesTotal)
+					receiveEnd = true;
+
+				if (decompress && receiveEnd) {
+					readError = decompressingStream->Flush();
+
+					if (readError == B_BUFFER_OVERFLOW)
+						readError = B_OK;
+
+					if (readError != B_OK)
+						break;
+
+					ssize_t size = decompressorStorage.Size();
+					BStackOrHeapArray<char, 4096> buffer(size);
+					size = decompressorStorage.Read(buffer, size);
+					if (fListener != NULL && size > 0) {
+						fListener->DataReceived(this, buffer,
+							bytesUnpacked, size);
+						bytesUnpacked += size;
+					}
+				}
+			}
+		}
+
+		parseEnd = (fInputBuffer.Size() == 0);
+	}
+
+	fSocket->Disconnect();
+	delete[] inputTempBuffer;
+
+	if (readError != B_OK)
+		return readError;
+
+	return fQuit ? B_INTERRUPTED : B_OK;
+}
+
+
+void
+BHttpRequest::_ParseStatus()
+{
+	// Status line should be formatted like: HTTP/M.m SSS ...
+	// With:   M = Major version of the protocol
+	//         m = Minor version of the protocol
+	//       SSS = three-digit status code of the response
+	//       ... = additional text info
+	BString statusLine;
+	if (_GetLine(statusLine) == B_ERROR)
+		return;
+
+	if (statusLine.CountChars() < 12)
+		return;
+
+	fRequestStatus = kRequestStatusReceived;
+
+	BString statusCodeStr;
+	BString statusText;
+	statusLine.CopyInto(statusCodeStr, 9, 3);
+	_SetResultStatusCode(atoi(statusCodeStr.String()));
+
+	statusLine.CopyInto(_ResultStatusText(), 13, statusLine.Length() - 13);
+
+	_EmitDebug(B_URL_PROTOCOL_DEBUG_TEXT, "Status line received: Code %d (%s)",
+		atoi(statusCodeStr.String()), _ResultStatusText().String());
+}
+
+
+void
+BHttpRequest::_ParseHeaders()
+{
+	BString currentHeader;
+	while (_GetLine(currentHeader) != B_ERROR) {
+		// An empty line means the end of the header section
+		if (currentHeader.Length() == 0) {
+			fRequestStatus = kRequestHeadersReceived;
+			return;
+		}
+
+		_EmitDebug(B_URL_PROTOCOL_DEBUG_HEADER_IN, "%s",
+			currentHeader.String());
+		fHeaders.AddHeader(currentHeader.String());
+	}
+}
+
+
+void
+BHttpRequest::_SendRequest()
+{
+	BString request(fRequestMethod);
+	request << ' ';
+
+	if (fContext->UseProxy()) {
+		// When there is a proxy, the request must include the host and port so
+		// the proxy knows where to send the request.
+		request << Url().Protocol() << "://" << Url().Host();
+		if (Url().HasPort())
+			request << ':' << Url().Port();
+	}
+
+	if (Url().HasPath())
+		request << Url().Path();
+	else
+		request << '/';
+
+	if (Url().HasRequest())
+		request << '?' << Url().Request();
+
+	switch (fHttpVersion) {
+		case B_HTTP_11:
+			request << " HTTP/1.1\r\n";
+			break;
+
+		default:
+		case B_HTTP_10:
+			request << " HTTP/1.0\r\n";
+			break;
+	}
+
+	fSocket->Write(request.String(), request.Length());
+}
+
+
+void
+BHttpRequest::_SendHeaders()
+{
+	BHttpHeaders outputHeaders;
+
+	// HTTP 1.1 additional headers
+	if (fHttpVersion == B_HTTP_11) {
+		BString host = Url().Host();
+		if (Url().HasPort() && !_IsDefaultPort())
+			host << ':' << Url().Port();
+
+		outputHeaders.AddHeader("Host", host);
+
+		outputHeaders.AddHeader("Accept", "*/*");
+		outputHeaders.AddHeader("Accept-Encoding", "gzip");
+			// Allows the server to compress data using the "gzip" format.
+			// "deflate" is not supported, because there are two interpretations
+			// of what it means (the RFC and Microsoft products), and we don't
+			// want to handle this. Very few websites support only deflate,
+			// and most of them will send gzip, or at worst, uncompressed data.
+
+		outputHeaders.AddHeader("Connection", "close");
+			// Let the remote server close the connection after response since
+			// we don't handle multiple request on a single connection
+	}
+
+	// Classic HTTP headers
+	if (fOptUserAgent.CountChars() > 0)
+		outputHeaders.AddHeader("User-Agent", fOptUserAgent.String());
+
+	if (fOptReferer.CountChars() > 0)
+		outputHeaders.AddHeader("Referer", fOptReferer.String());
+
+	// Authentication
+	if (fContext != NULL) {
+		BHttpAuthentication& authentication = fContext->GetAuthentication(fUrl);
+		if (authentication.Method() != B_HTTP_AUTHENTICATION_NONE) {
+			if (fOptUsername.Length() > 0) {
+				authentication.SetUserName(fOptUsername);
+				authentication.SetPassword(fOptPassword);
+			}
+
+			BString request(fRequestMethod);
+			outputHeaders.AddHeader("Authorization",
+				authentication.Authorization(fUrl, request));
+		}
+	}
+
+	// Required headers for POST data
+	if (fOptPostFields != NULL && fRequestMethod == B_HTTP_POST) {
+		BString contentType;
+
+		switch (fOptPostFields->GetFormType()) {
+			case B_HTTP_FORM_MULTIPART:
+				contentType << "multipart/form-data; boundary="
+					<< fOptPostFields->GetMultipartBoundary() << "";
+				break;
+
+			case B_HTTP_FORM_URL_ENCODED:
+				contentType << "application/x-www-form-urlencoded";
+				break;
+		}
+
+		outputHeaders.AddHeader("Content-Type", contentType);
+		outputHeaders.AddHeader("Content-Length",
+			fOptPostFields->ContentLength());
+	} else if (fOptInputData != NULL
+			&& (fRequestMethod == B_HTTP_POST
+			|| fRequestMethod == B_HTTP_PUT)) {
+		if (fOptInputDataSize >= 0)
+			outputHeaders.AddHeader("Content-Length", fOptInputDataSize);
+		else
+			outputHeaders.AddHeader("Transfer-Encoding", "chunked");
+	}
+
+	// Optional headers specified by the user
+	if (fOptHeaders != NULL) {
+		for (int32 headerIndex = 0; headerIndex < fOptHeaders->CountHeaders();
+				headerIndex++) {
+			BHttpHeader& optHeader = (*fOptHeaders)[headerIndex];
+			int32 replaceIndex = outputHeaders.HasHeader(optHeader.Name());
+
+			// Add or replace the current option header to the
+			// output header list
+			if (replaceIndex == -1)
+				outputHeaders.AddHeader(optHeader.Name(), optHeader.Value());
+			else
+				outputHeaders[replaceIndex].SetValue(optHeader.Value());
+		}
+	}
+
+	// Context cookies
+	if (fOptSetCookies && fContext != NULL) {
+		BString cookieString;
+
+		BNetworkCookieJar::UrlIterator iterator
+			= fContext->GetCookieJar().GetUrlIterator(fUrl);
+		const BNetworkCookie* cookie = iterator.Next();
+		if (cookie != NULL) {
+			while (true) {
+				cookieString << cookie->RawCookie(false);
+				cookie = iterator.Next();
+				if (cookie == NULL)
+					break;
+				cookieString << "; ";
+			}
+
+			outputHeaders.AddHeader("Cookie", cookieString);
+		}
+	}
+
+	// Write output headers to output stream
+	BString headerData;
+
+	for (int32 headerIndex = 0; headerIndex < outputHeaders.CountHeaders();
+			headerIndex++) {
+		const char* header = outputHeaders.HeaderAt(headerIndex).Header();
+
+		headerData << header;
+		headerData << "\r\n";
+
+		_EmitDebug(B_URL_PROTOCOL_DEBUG_HEADER_OUT, "%s", header);
+	}
+
+	fSocket->Write(headerData.String(), headerData.Length());
+}
+
+
+void
+BHttpRequest::_SendPostData()
+{
 	if (fRequestMethod == B_HTTP_POST && fOptPostFields != NULL) {
 		if (fOptPostFields->GetFormType() != B_HTTP_FORM_MULTIPART) {
 			BString outputBuffer = fOptPostFields->RawData();
@@ -570,444 +1028,6 @@ BHttpRequest::_MakeRequest()
 		}
 	}
 
-	fRequestStatus = kRequestInitialState;
-
-	// Receive loop
-	bool receiveEnd = false;
-	bool parseEnd = false;
-	bool readByChunks = false;
-	bool decompress = false;
-	status_t readError = B_OK;
-	ssize_t bytesRead = 0;
-	ssize_t bytesReceived = 0;
-	ssize_t bytesTotal = 0;
-	off_t bytesUnpacked = 0;
-	char* inputTempBuffer = new(std::nothrow) char[kHttpBufferSize];
-	ssize_t inputTempSize = kHttpBufferSize;
-	ssize_t chunkSize = -1;
-	DynamicBuffer decompressorStorage;
-	BDataIO* decompressingStream;
-	ObjectDeleter<BDataIO> decompressingStreamDeleter;
-
-	while (!fQuit && !(receiveEnd && parseEnd)) {
-		if (!receiveEnd) {
-			fSocket->WaitForReadable();
-			BNetBuffer chunk(kHttpBufferSize);
-			bytesRead = fSocket->Read(chunk.Data(), kHttpBufferSize);
-
-			if (bytesRead < 0) {
-				readError = bytesRead;
-				break;
-			} else if (bytesRead == 0)
-				receiveEnd = true;
-
-			fInputBuffer.AppendData(chunk.Data(), bytesRead);
-		} else
-			bytesRead = 0;
-
-		if (fRequestStatus < kRequestStatusReceived) {
-			_ParseStatus();
-
-			//! ProtocolHook:ResponseStarted
-			if (fRequestStatus >= kRequestStatusReceived && fListener != NULL)
-				fListener->ResponseStarted(this);
-		}
-
-		if (fRequestStatus < kRequestHeadersReceived) {
-			_ParseHeaders();
-
-			if (fRequestStatus >= kRequestHeadersReceived) {
-				_ResultHeaders() = fHeaders;
-
-				//! ProtocolHook:HeadersReceived
-				if (fListener != NULL)
-					fListener->HeadersReceived(this);
-
-				// Parse received cookies
-				if (fContext != NULL) {
-					for (int32 i = 0;  i < fHeaders.CountHeaders(); i++) {
-						if (fHeaders.HeaderAt(i).NameIs("Set-Cookie")) {
-							fContext->GetCookieJar().AddCookie(
-								fHeaders.HeaderAt(i).Value(), fUrl);
-						}
-					}
-				}
-
-				if (BString(fHeaders["Transfer-Encoding"]) == "chunked")
-					readByChunks = true;
-
-				BString contentEncoding(fHeaders["Content-Encoding"]);
-				if (contentEncoding == "gzip"
-						|| contentEncoding == "deflate") {
-					decompress = true;
-					readError = BZlibCompressionAlgorithm()
-						.CreateDecompressingOutputStream(&decompressorStorage,
-							NULL, decompressingStream);
-					if (readError != B_OK)
-						break;
-
-					decompressingStreamDeleter.SetTo(decompressingStream);
-				}
-
-				int32 index = fHeaders.HasHeader("Content-Length");
-				if (index != B_ERROR)
-					bytesTotal = atoi(fHeaders.HeaderAt(index).Value());
-				else
-					bytesTotal = 0;
-			}
-		}
-
-		if (fRequestStatus >= kRequestHeadersReceived) {
-			// If Transfer-Encoding is chunked, we should read a complete
-			// chunk in buffer before handling it
-			if (readByChunks) {
-				if (chunkSize >= 0) {
-					if ((ssize_t)fInputBuffer.Size() >= chunkSize + 2) {
-							// 2 more bytes to handle the closing CR+LF
-						bytesRead = chunkSize;
-						if (inputTempSize < chunkSize + 2) {
-							delete[] inputTempBuffer;
-							inputTempSize = chunkSize + 2;
-							inputTempBuffer
-								= new(std::nothrow) char[inputTempSize];
-						}
-
-						if (inputTempBuffer == NULL) {
-							readError = B_NO_MEMORY;
-							break;
-						}
-
-						fInputBuffer.RemoveData(inputTempBuffer,
-							chunkSize + 2);
-						chunkSize = -1;
-					} else {
-						// Not enough data, try again later
-						bytesRead = -1;
-					}
-				} else {
-					BString chunkHeader;
-					if (_GetLine(chunkHeader) == B_ERROR) {
-						chunkSize = -1;
-						bytesRead = -1;
-					} else {
-						// Format of a chunk header:
-						// <chunk size in hex>[; optional data]
-						int32 semiColonIndex = chunkHeader.FindFirst(';', 0);
-
-						// Cut-off optional data if present
-						if (semiColonIndex != -1) {
-							chunkHeader.Remove(semiColonIndex,
-								chunkHeader.Length() - semiColonIndex);
-						}
-
-						chunkSize = strtol(chunkHeader.String(), NULL, 16);
-						PRINT(("BHP[%p] Chunk %s=%ld\n", this,
-							chunkHeader.String(), chunkSize));
-						if (chunkSize == 0)
-							fRequestStatus = kRequestContentReceived;
-
-						bytesRead = -1;
-					}
-				}
-
-				// A chunk of 0 bytes indicates the end of the chunked transfer
-				if (bytesRead == 0)
-					receiveEnd = true;
-			} else {
-				bytesRead = fInputBuffer.Size();
-
-				if (bytesRead > 0) {
-					if (inputTempSize < bytesRead) {
-						inputTempSize = bytesRead;
-						delete[] inputTempBuffer;
-						inputTempBuffer = new(std::nothrow) char[bytesRead];
-					}
-
-					if (inputTempBuffer == NULL) {
-						readError = B_NO_MEMORY;
-						break;
-					}
-					fInputBuffer.RemoveData(inputTempBuffer, bytesRead);
-				}
-			}
-
-			if (bytesRead > 0) {
-				bytesReceived += bytesRead;
-
-				if (fListener != NULL) {
-					if (decompress) {
-						readError = decompressingStream->WriteExactly(
-							inputTempBuffer, bytesRead);
-						if (readError != B_OK)
-							break;
-
-						ssize_t size = decompressorStorage.Size();
-						BStackOrHeapArray<char, 4096> buffer(size);
-						size = decompressorStorage.Read(buffer, size);
-						if (size > 0) {
-							fListener->DataReceived(this, buffer, bytesUnpacked,
-								size);
-							bytesUnpacked += size;
-						}
-					} else {
-						fListener->DataReceived(this, inputTempBuffer,
-							bytesReceived - bytesRead, bytesRead);
-					}
-					fListener->DownloadProgress(this, bytesReceived,
-						bytesTotal);
-				}
-
-				if (bytesTotal > 0 && bytesReceived >= bytesTotal) {
-					receiveEnd = true;
-
-					if (decompress) {
-						readError = decompressingStream->Flush();
-						if (readError != B_OK)
-							break;
-
-						ssize_t size = decompressorStorage.Size();
-						BStackOrHeapArray<char, 4096> buffer(size);
-						size = decompressorStorage.Read(buffer, size);
-						if (fListener != NULL && size > 0) {
-							fListener->DataReceived(this, buffer,
-								bytesUnpacked, size);
-							bytesUnpacked += size;
-						}
-					}
-				}
-			}
-		}
-
-		parseEnd = (fInputBuffer.Size() == 0);
-	}
-
-	fSocket->Disconnect();
-	delete[] inputTempBuffer;
-
-	if (readError != B_OK)
-		return readError;
-
-	return fQuit ? B_INTERRUPTED : B_OK;
-}
-
-
-status_t
-BHttpRequest::_GetLine(BString& destString)
-{
-	// Find a complete line in inputBuffer
-	uint32 characterIndex = 0;
-
-	while ((characterIndex < fInputBuffer.Size())
-		&& ((fInputBuffer.Data())[characterIndex] != '\n'))
-		characterIndex++;
-
-	if (characterIndex == fInputBuffer.Size())
-		return B_ERROR;
-
-	char* temporaryBuffer = new(std::nothrow) char[characterIndex + 1];
-	if (temporaryBuffer == NULL)
-		return B_NO_MEMORY;
-
-	fInputBuffer.RemoveData(temporaryBuffer, characterIndex + 1);
-
-	// Strip end-of-line character(s)
-	if (temporaryBuffer[characterIndex - 1] == '\r')
-		destString.SetTo(temporaryBuffer, characterIndex - 1);
-	else
-		destString.SetTo(temporaryBuffer, characterIndex);
-
-	delete[] temporaryBuffer;
-	return B_OK;
-}
-
-
-void
-BHttpRequest::_ParseStatus()
-{
-	// Status line should be formatted like: HTTP/M.m SSS ...
-	// With:   M = Major version of the protocol
-	//         m = Minor version of the protocol
-	//       SSS = three-digit status code of the response
-	//       ... = additional text info
-	BString statusLine;
-	if (_GetLine(statusLine) == B_ERROR)
-		return;
-
-	if (statusLine.CountChars() < 12)
-		return;
-
-	fRequestStatus = kRequestStatusReceived;
-
-	BString statusCodeStr;
-	BString statusText;
-	statusLine.CopyInto(statusCodeStr, 9, 3);
-	_SetResultStatusCode(atoi(statusCodeStr.String()));
-
-	statusLine.CopyInto(_ResultStatusText(), 13, statusLine.Length() - 13);
-
-	_EmitDebug(B_URL_PROTOCOL_DEBUG_TEXT, "Status line received: Code %d (%s)",
-		atoi(statusCodeStr.String()), _ResultStatusText().String());
-}
-
-
-void
-BHttpRequest::_ParseHeaders()
-{
-	BString currentHeader;
-	if (_GetLine(currentHeader) == B_ERROR)
-		return;
-
-	// An empty line means the end of the header section
-	if (currentHeader.Length() == 0) {
-		fRequestStatus = kRequestHeadersReceived;
-		return;
-	}
-
-	_EmitDebug(B_URL_PROTOCOL_DEBUG_HEADER_IN, "%s", currentHeader.String());
-	fHeaders.AddHeader(currentHeader.String());
-}
-
-
-void
-BHttpRequest::_SendRequest()
-{
-	BString request(fRequestMethod);
-
-	if (Url().HasPath())
-		request << ' ' << Url().Path();
-	else
-		request << " /";
-
-	if (Url().HasRequest())
-		request << '?' << Url().Request();
-
-	switch (fHttpVersion) {
-		case B_HTTP_11:
-			request << " HTTP/1.1\r\n";
-			break;
-
-		default:
-		case B_HTTP_10:
-			request << " HTTP/1.0\r\n";
-			break;
-	}
-
-	fSocket->Write(request.String(), request.Length());
-}
-
-
-void
-BHttpRequest::_SendHeaders()
-{
-	// HTTP 1.1 additional headers
-	if (fHttpVersion == B_HTTP_11) {
-		fOutputHeaders.AddHeader("Host", Url().Host());
-
-		fOutputHeaders.AddHeader("Accept", "*/*");
-		fOutputHeaders.AddHeader("Accept-Encoding", "gzip,deflate");
-			// Allow the remote server to send dynamic content by chunks
-			// rather than waiting for the full content to be generated and
-			// sending us data.
-
-		fOutputHeaders.AddHeader("Connection", "close");
-			// Let the remote server close the connection after response since
-			// we don't handle multiple request on a single connection
-	}
-
-	// Classic HTTP headers
-	if (fOptUserAgent.CountChars() > 0)
-		fOutputHeaders.AddHeader("User-Agent", fOptUserAgent.String());
-
-	if (fOptReferer.CountChars() > 0)
-		fOutputHeaders.AddHeader("Referer", fOptReferer.String());
-
-	// Authentication
-	if (fContext != NULL) {
-		BHttpAuthentication& authentication = fContext->GetAuthentication(fUrl);
-		if (authentication.Method() != B_HTTP_AUTHENTICATION_NONE) {
-			if (fOptUsername.Length() > 0) {
-				authentication.SetUserName(fOptUsername);
-				authentication.SetPassword(fOptPassword);
-			}
-
-			BString request(fRequestMethod);
-			fOutputHeaders.AddHeader("Authorization",
-				authentication.Authorization(fUrl, request));
-		}
-	}
-
-	// Required headers for POST data
-	if (fOptPostFields != NULL && fRequestMethod == B_HTTP_POST) {
-		BString contentType;
-
-		switch (fOptPostFields->GetFormType()) {
-			case B_HTTP_FORM_MULTIPART:
-				contentType << "multipart/form-data; boundary="
-					<< fOptPostFields->GetMultipartBoundary() << "";
-				break;
-
-			case B_HTTP_FORM_URL_ENCODED:
-				contentType << "application/x-www-form-urlencoded";
-				break;
-		}
-
-		fOutputHeaders.AddHeader("Content-Type", contentType);
-		fOutputHeaders.AddHeader("Content-Length",
-			fOptPostFields->ContentLength());
-	} else if (fOptInputData != NULL
-			&& (fRequestMethod == B_HTTP_POST
-			|| fRequestMethod == B_HTTP_PUT)) {
-		if (fOptInputDataSize >= 0)
-			fOutputHeaders.AddHeader("Content-Length", fOptInputDataSize);
-		else
-			fOutputHeaders.AddHeader("Transfer-Encoding", "chunked");
-	}
-
-	// Optional headers specified by the user
-	if (fOptHeaders != NULL) {
-		for (int32 headerIndex = 0; headerIndex < fOptHeaders->CountHeaders();
-				headerIndex++) {
-			BHttpHeader& optHeader = (*fOptHeaders)[headerIndex];
-			int32 replaceIndex = fOutputHeaders.HasHeader(optHeader.Name());
-
-			// Add or replace the current option header to the
-			// output header list
-			if (replaceIndex == -1)
-				fOutputHeaders.AddHeader(optHeader.Name(), optHeader.Value());
-			else
-				fOutputHeaders[replaceIndex].SetValue(optHeader.Value());
-		}
-	}
-
-	// Context cookies
-	if (fOptSetCookies && fContext != NULL) {
-		BString cookieString;
-
-		BNetworkCookieJar::UrlIterator iterator
-			= fContext->GetCookieJar().GetUrlIterator(fUrl);
-		const BNetworkCookie* cookie = iterator.Next();
-		if (cookie != NULL) {
-			while (true) {
-				cookieString << cookie->RawCookie(false);
-				cookie = iterator.Next();
-				if (cookie == NULL)
-					break;
-				cookieString << "; ";
-			}
-	
-			fOutputHeaders.AddHeader("Cookie", cookieString);
-		}
-	}
-
-	// Write output headers to output stream
-	for (int32 headerIndex = 0; headerIndex < fOutputHeaders.CountHeaders();
-			headerIndex++) {
-		const char* header = fOutputHeaders.HeaderAt(headerIndex).Header();
-		fSocket->Write(header, strlen(header));
-		fSocket->Write("\r\n", 2);
-
-		_EmitDebug(B_URL_PROTOCOL_DEBUG_HEADER_OUT, "%s", header);
-	}
 }
 
 
@@ -1030,3 +1050,29 @@ BHttpRequest::_ResultStatusText()
 {
 	return fResult.fStatusString;
 }
+
+
+bool
+BHttpRequest::_CertificateVerificationFailed(BCertificate& certificate,
+	const char* message)
+{
+	if (fListener != NULL) {
+		return fListener->CertificateVerificationFailed(this, certificate,
+			message);
+	}
+
+	return false;
+}
+
+
+bool
+BHttpRequest::_IsDefaultPort()
+{
+	if (fSSL && Url().Port() == 443)
+		return true;
+	if (!fSSL && Url().Port() == 80)
+		return true;
+	return false;
+}
+
+

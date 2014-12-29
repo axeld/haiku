@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include <ACPI.h>
+#include <apic.h>
 #include <dpc.h>
 #include <KernelExport.h>
 #include <PCI.h>
@@ -37,6 +38,9 @@ extern "C" {
 
 #define ERROR(x...) dprintf("acpi: " x)
 
+#define PIC_MODE 0
+#define APIC_MODE 1
+
 #define ACPI_DEVICE_ID_LENGTH	0x08
 
 extern pci_module_info* gPCIManager;
@@ -44,15 +48,25 @@ extern dpc_module_info* gDPC;
 void* gDPCHandle = NULL;
 
 
+static bool
+checkAndLogFailure(const ACPI_STATUS status, const char* msg)
+{
+	bool failure = ACPI_FAILURE(status);
+	if (failure)
+		dprintf("acpi: %s %s\n", msg, AcpiFormatException(status));
+
+	return failure;
+}
+
+
 static ACPI_STATUS
 get_device_by_hid_callback(ACPI_HANDLE object, UINT32 depth, void* context,
 	void** _returnValue)
 {
 	uint32* counter = (uint32*)context;
-	ACPI_STATUS status;
 	ACPI_BUFFER buffer;
 
-	TRACE("get_device_by_hid_callback %p, %ld, %p\n", object, depth, context);
+	TRACE("get_device_by_hid_callback %p, %d, %p\n", object, depth, context);
 
 	*_returnValue = NULL;
 
@@ -60,8 +74,8 @@ get_device_by_hid_callback(ACPI_HANDLE object, UINT32 depth, void* context,
 		buffer.Length = 254;
 		buffer.Pointer = malloc(255);
 
-		status = AcpiGetName(object, ACPI_FULL_PATHNAME, &buffer);
-		if (status != AE_OK) {
+		if (checkAndLogFailure(AcpiGetName(object, ACPI_FULL_PATHNAME, &buffer),
+				"Failed to find device")) {
 			free(buffer.Pointer);
 			return AE_CTRL_TERMINATE;
 		}
@@ -76,6 +90,81 @@ get_device_by_hid_callback(ACPI_HANDLE object, UINT32 depth, void* context,
 }
 
 
+static void
+globalGPEHandler(UINT32 eventType, ACPI_HANDLE device, UINT32 eventNumber,
+	void* context)
+{
+	ACPI_BUFFER path;
+	char deviceName[256];
+	path.Length = sizeof(deviceName);
+	path.Pointer = deviceName;
+
+	ACPI_STATUS status = AcpiNsHandleToPathname(device, &path);
+	if (ACPI_FAILURE(status))
+		strcpy(deviceName, "(missing)");
+
+	switch (eventType) {
+		case ACPI_EVENT_TYPE_GPE:
+			dprintf("acpi: GPE Event %d for %s\n", eventNumber, deviceName);
+			break;
+
+		case ACPI_EVENT_TYPE_FIXED:
+		{
+			switch (eventNumber) {
+				case ACPI_EVENT_PMTIMER:
+					dprintf("acpi: PMTIMER(%d) event for %s\n", eventNumber,
+						deviceName);
+					break;
+
+				case ACPI_EVENT_GLOBAL:
+					dprintf("acpi: Global(%d) event for %s\n", eventNumber,
+						deviceName);
+					break;
+
+				case ACPI_EVENT_POWER_BUTTON:
+					dprintf("acpi: Powerbutton(%d) event for %s\n", eventNumber,
+						deviceName);
+					break;
+
+				case ACPI_EVENT_SLEEP_BUTTON:
+					dprintf("acpi: sleepbutton(%d) event for %s\n", eventNumber,
+						deviceName);
+					break;
+
+				case ACPI_EVENT_RTC:
+					dprintf("acpi: RTC(%d) event for %s\n", eventNumber,
+						deviceName);
+					break;
+
+				default:
+					dprintf("acpi: unknown fixed(%d) event for %s\n",
+						eventNumber, deviceName);
+			}
+			break;
+		}
+
+		default:
+			dprintf("acpi: unknown event type (%d:%d)  event for %s\n",
+				eventType, eventNumber, deviceName);
+	}
+}
+
+
+static void globalNotifyHandler(ACPI_HANDLE device, UINT32 value, void* context)
+{
+	ACPI_BUFFER path;
+	char deviceName[256];
+	path.Length = sizeof(deviceName);
+	path.Pointer = deviceName;
+
+	ACPI_STATUS status = AcpiNsHandleToPathname(device, &path);
+	if (ACPI_FAILURE(status))
+		strcpy(deviceName, "(missing)");
+
+	dprintf("acpi: Notify event %d for %s\n", value, deviceName);
+}
+
+
 //	#pragma mark - ACPI bus manager API
 
 
@@ -85,7 +174,6 @@ acpi_std_ops(int32 op,...)
 	switch (op) {
 		case B_MODULE_INIT:
 		{
-			ACPI_STATUS status;
 			ACPI_OBJECT arg;
 			ACPI_OBJECT_LIST parameter;
 			void *settings;
@@ -115,91 +203,81 @@ acpi_std_ops(int32 op,...)
 			}
 
 			if (gDPC->new_dpc_queue(&gDPCHandle, "acpi_task",
-				B_NORMAL_PRIORITY) != B_OK) {
+					B_NORMAL_PRIORITY) != B_OK) {
 				ERROR("failed to create os execution queue\n");
 				return B_ERROR;
 			}
-
-			AcpiGbl_EnableInterpreterSlack = true;
-//			AcpiGbl_CreateOSIMethod = true;
 
 #ifdef ACPI_DEBUG_OUTPUT
 			AcpiDbgLevel = ACPI_DEBUG_ALL | ACPI_LV_VERBOSE;
 			AcpiDbgLayer = ACPI_ALL_COMPONENTS;
 #endif
 
-			status = AcpiInitializeSubsystem();
-			if (ACPI_FAILURE(status)) {
-				ERROR("AcpiInitializeSubsystem failed (%s)\n",
-					AcpiFormatException(status));
+			if (checkAndLogFailure(AcpiInitializeSubsystem(),
+					"AcpiInitializeSubsystem failed"))
 				goto err;
-			}
 
-			status = AcpiInitializeTables(NULL, 0, TRUE);
-			if (ACPI_FAILURE(status)) {
-				ERROR("AcpiInitializeTables failed (%s)\n",
-					AcpiFormatException(status));
+			if (checkAndLogFailure(AcpiInitializeTables(NULL, 0, TRUE),
+					"AcpiInitializeTables failed"))
 				goto err;
-			}
 
-			status = AcpiLoadTables();
-			if (ACPI_FAILURE(status)) {
-				ERROR("AcpiLoadTables failed (%s)\n",
-					AcpiFormatException(status));
+			if (checkAndLogFailure(AcpiLoadTables(),
+					"AcpiLoadTables failed"))
 				goto err;
-			}
 
 			/* Install the default address space handlers. */
-			status = AcpiInstallAddressSpaceHandler(ACPI_ROOT_OBJECT,
-				ACPI_ADR_SPACE_SYSTEM_MEMORY, ACPI_DEFAULT_HANDLER, NULL, NULL);
-			if (ACPI_FAILURE(status)) {
-				ERROR("Could not initialise SystemMemory handler: %s\n",
-					AcpiFormatException(status));
+			if (checkAndLogFailure(AcpiInstallAddressSpaceHandler(
+						ACPI_ROOT_OBJECT, ACPI_ADR_SPACE_SYSTEM_MEMORY,
+						ACPI_DEFAULT_HANDLER, NULL, NULL),
+					"Could not initialise SystemMemory handler:"))
 				goto err;
-			}
 
-			status = AcpiInstallAddressSpaceHandler(ACPI_ROOT_OBJECT,
-				ACPI_ADR_SPACE_SYSTEM_IO, ACPI_DEFAULT_HANDLER, NULL, NULL);
-			if (ACPI_FAILURE(status)) {
-				ERROR("Could not initialise SystemIO handler: %s\n",
-					AcpiFormatException(status));
+			if (checkAndLogFailure(AcpiInstallAddressSpaceHandler(
+						ACPI_ROOT_OBJECT, ACPI_ADR_SPACE_SYSTEM_IO,
+						ACPI_DEFAULT_HANDLER, NULL, NULL),
+					"Could not initialise SystemIO handler:"))
 				goto err;
-			}
 
-			status = AcpiInstallAddressSpaceHandler(ACPI_ROOT_OBJECT,
-				ACPI_ADR_SPACE_PCI_CONFIG, ACPI_DEFAULT_HANDLER, NULL, NULL);
-			if (ACPI_FAILURE(status)) {
-				ERROR("Could not initialise PciConfig handler: %s\n",
-					AcpiFormatException(status));
+			if (checkAndLogFailure(AcpiInstallAddressSpaceHandler(
+						ACPI_ROOT_OBJECT, ACPI_ADR_SPACE_PCI_CONFIG,
+						ACPI_DEFAULT_HANDLER, NULL, NULL),
+					"Could not initialise PciConfig handler:"))
 				goto err;
-			}
 
 			arg.Integer.Type = ACPI_TYPE_INTEGER;
-			arg.Integer.Value = 0;
+			arg.Integer.Value = apic_available() ? APIC_MODE : PIC_MODE;
 
 			parameter.Count = 1;
 			parameter.Pointer = &arg;
 
 			AcpiEvaluateObject(NULL, "\\_PIC", &parameter, NULL);
 
-			// FreeBSD seems to pass in the above flags here as
-			// well but specs don't define ACPI_NO_DEVICE_INIT
-			// and ACPI_NO_OBJECT_INIT here.
-			status = AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION);
-			if (ACPI_FAILURE(status)) {
-				ERROR("AcpiEnableSubsystem failed (%s)\n",
-					AcpiFormatException(status));
+			if (checkAndLogFailure(AcpiEnableSubsystem(
+						ACPI_FULL_INITIALIZATION),
+					"AcpiEnableSubsystem failed"))
 				goto err;
-			}
 
-			status = AcpiInitializeObjects(ACPI_FULL_INITIALIZATION);
-			if (ACPI_FAILURE(status)) {
-				ERROR("AcpiInitializeObjects failed (%s)\n",
-					AcpiFormatException(status));
+			if (checkAndLogFailure(AcpiInitializeObjects(
+						ACPI_FULL_INITIALIZATION),
+					"AcpiInitializeObjects failed"))
 				goto err;
-			}
 
-			/* Phew. Now in ACPI mode */
+			//TODO: Walk namespace init ALL _PRW's
+
+			checkAndLogFailure(
+				AcpiInstallGlobalEventHandler(globalGPEHandler, NULL),
+				"Failed to install global GPE-handler.");
+
+			checkAndLogFailure(AcpiInstallNotifyHandler(ACPI_ROOT_OBJECT,
+					ACPI_ALL_NOTIFY, globalNotifyHandler, NULL),
+				"Failed to install global Notify-handler.");
+
+			checkAndLogFailure(AcpiEnableAllRuntimeGpes(),
+				"Failed to enable all runtime Gpes");
+
+			checkAndLogFailure(AcpiUpdateAllGpes(),
+				"Failed to update all Gpes");
+
 			TRACE("ACPI initialized\n");
 			return B_OK;
 
@@ -209,8 +287,8 @@ acpi_std_ops(int32 op,...)
 
 		case B_MODULE_UNINIT:
 		{
-			if (AcpiTerminate() != AE_OK)
-				ERROR("Could not bring system out of ACPI mode. Oh well.\n");
+			if (checkAndLogFailure(AcpiTerminate(),
+				"Could not bring system out of ACPI mode. Oh well."));
 
 			gDPC->delete_dpc_queue(gDPCHandle);
 			gDPCHandle = NULL;
@@ -229,6 +307,15 @@ get_handle(acpi_handle parent, const char *pathname, acpi_handle *retHandle)
 {
 	return AcpiGetHandle(parent, (ACPI_STRING)pathname, retHandle) == AE_OK
 		? B_OK : B_ERROR;
+}
+
+
+status_t
+get_name(acpi_handle handle, uint32 nameType, char* returnedName,
+	size_t bufferLength)
+{
+	ACPI_BUFFER buffer = {bufferLength, (void*)returnedName};
+	return AcpiGetName(handle, nameType, &buffer) == AE_OK ? B_OK : B_ERROR;
 }
 
 
@@ -424,6 +511,16 @@ get_next_entry(uint32 objectType, const char *base, char *result,
 		return B_NO_MEMORY; /* Corresponds to AE_BUFFER_OVERFLOW */
 
 	return B_OK;
+}
+
+
+status_t
+get_next_object(uint32 objectType, acpi_handle parent,
+	acpi_handle* currentChild)
+{
+	acpi_handle child = *currentChild;
+	return AcpiGetNextObject(objectType, parent, child, currentChild) == AE_OK
+		? B_OK : B_ERROR;
 }
 
 
@@ -730,6 +827,7 @@ struct acpi_module_info gACPIModule = {
 	},
 
 	get_handle,
+	get_name,
 	acquire_global_lock,
 	release_global_lock,
 	install_notify_handler,
@@ -751,6 +849,7 @@ struct acpi_module_info gACPIModule = {
 	install_fixed_event_handler,
 	remove_fixed_event_handler,
 	get_next_entry,
+	get_next_object,
 	get_device,
 	get_device_hid,
 	get_object_type,

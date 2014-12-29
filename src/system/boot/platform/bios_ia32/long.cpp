@@ -62,6 +62,11 @@ fix_address(FixedWidthPointer<Type>& p)
 static void
 long_gdt_init()
 {
+	STATIC_ASSERT(BOOT_GDT_SEGMENT_COUNT > KERNEL_CODE_SEGMENT
+		&& BOOT_GDT_SEGMENT_COUNT > KERNEL_DATA_SEGMENT
+		&& BOOT_GDT_SEGMENT_COUNT > USER_CODE_SEGMENT
+		&& BOOT_GDT_SEGMENT_COUNT > USER_DATA_SEGMENT);
+
 	clear_segment_descriptor(&gBootGDT[0]);
 
 	// Set up code/data segments (TSS segments set up later in the kernel).
@@ -237,6 +242,7 @@ convert_kernel_args()
 	fix_address(gKernelArgs.vesa_modes);
 	fix_address(gKernelArgs.edid_info);
 	fix_address(gKernelArgs.debug_output);
+	fix_address(gKernelArgs.previous_debug_output);
 	fix_address(gKernelArgs.boot_splash);
 	fix_address(gKernelArgs.arch_args.apic);
 	fix_address(gKernelArgs.arch_args.hpet);
@@ -278,6 +284,14 @@ convert_kernel_args()
 
 
 static void
+enable_sse()
+{
+	x86_write_cr4(x86_read_cr4() | CR4_OS_FXSR | CR4_OS_XMM_EXCEPTION);
+	x86_write_cr0(x86_read_cr0() & ~(CR0_FPU_EMULATION | CR0_MONITOR_FPU));
+}
+
+
+static void
 long_smp_start_kernel(void)
 {
 	uint32 cpu = smp_get_current_cpu();
@@ -286,6 +300,7 @@ long_smp_start_kernel(void)
 	asm("movl %%eax, %%cr0" : : "a" ((1 << 31) | (1 << 16) | (1 << 5) | 1));
 	asm("cld");
 	asm("fninit");
+	enable_sse();
 
 	// Fix our kernel stack address.
 	gKernelArgs.cpu_kstack[cpu].start
@@ -307,14 +322,16 @@ long_start_kernel()
 	if ((info.regs.edx & (1 << 29)) == 0)
 		panic("64-bit kernel requires a 64-bit CPU");
 
+	enable_sse();
+
 	preloaded_elf64_image *image = static_cast<preloaded_elf64_image *>(
 		gKernelArgs.kernel_image.Pointer());
 
 	smp_init_other_cpus();
 
 	long_gdt_init();
-	long_mmu_init();
 	debug_cleanup();
+	long_mmu_init();
 	convert_kernel_args();
 
 	// Save the kernel entry point address.

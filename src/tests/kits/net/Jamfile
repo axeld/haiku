@@ -28,7 +28,7 @@ SimpleTest NetAddressTest : NetAddressTest.cpp
 	: $(TARGET_NETWORK_LIBS) $(HAIKU_NETAPI_LIB) ;
 
 SimpleTest NetEndpointTest : NetEndpointTest.cpp
-	: $(TARGET_NETWORK_LIBS) $(HAIKU_NETAPI_LIB) be $(TARGET_LIBSUPC++) ;
+	: $(TARGET_NETWORK_LIBS) $(HAIKU_NETAPI_LIB) be [ TargetLibsupc++ ] ;
 
 SimpleTest wlan_test : wlan_test.cpp : $(TARGET_NETWORK_LIBS) bnetapi be ;
 
@@ -39,7 +39,7 @@ SubInclude HAIKU_TOP src tests kits net ipv6 ;
 HaikuSubInclude libnetapi ;
 SubInclude HAIKU_TOP src tests kits net multicast ;
 SubInclude HAIKU_TOP src tests kits net netperf ;
-SubInclude HAIKU_TOP src tests kits net preflet ;
+SubInclude HAIKU_TOP src tests kits net posixnet ;
 SubInclude HAIKU_TOP src tests kits net service ;
 SubInclude HAIKU_TOP src tests kits net sock ;
 SubInclude HAIKU_TOP src tests kits net tcp_shell ;

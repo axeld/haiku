@@ -1,6 +1,6 @@
 /*
  * Copyright 2009-2012, Ingo Weinhold, ingo_weinhold@gmx.de.
- * Copyright 2013, Rene Gollent, rene@gollent.com.
+ * Copyright 2013-2014, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 
@@ -21,6 +21,7 @@
 #include "Statement.h"
 #include "TeamDebugInfo.h"
 #include "Tracing.h"
+#include "Value.h"
 #include "Watchpoint.h"
 
 

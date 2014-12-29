@@ -1,4 +1,5 @@
-1	hungarian	x-vnd.Haiku-CodyCam	2416864674
+1	hungarian	x-vnd.Haiku-CodyCam	2193838145
+Upload…	VideoConsumer.cpp		Feltöltés…
 Capturing Image…	VideoConsumer.cpp		Kép készítése…
 Every 30 seconds	CodyCam		30 másodpercenként
 File name:	CodyCam		Fájlnév:
@@ -32,7 +33,6 @@ Output	CodyCam		Kimenet
 Every 15 minutes	CodyCam		15 percenként
 Cannot find an available video stream	CodyCam		Nem található elérhető videóadás
 Can't find an available connection to the video window	CodyCam		Nem található használható kapcsolat a videó ablakához
-Transmitting…	VideoConsumer.cpp		Átvitel…
 Cannot get a time source	CodyCam		Nem található időforrás
 Every 8 hours	CodyCam		8 óránként
 Rename failed	VideoConsumer.cpp		Átnevezés sikertelen
@@ -62,9 +62,9 @@ upload client name expected	CodyCam		nincs megadva a feltöltési kliens neve
 SFTP	CodyCam		SFTP
 Connected…	VideoConsumer.cpp		Csatlakozva…
 PASS <suppressed>  (real password sent)\n	FtpClient		PASS <rejtve> (itt az igazi jelszó lett elküldve)\n
+File upload failed	VideoConsumer.cpp		Sikertelen feltöltés
 Every 5 minutes	CodyCam		5 percenként
 read: %d\n	SftpClient		olvasás: %d\n
-OK	CodyCam		Rendben
 Capture controls	CodyCam		Képkészítés vezérlői
 Every hour	CodyCam		Óránként
 Cannot connect the video source to the video window	CodyCam		Nem lehet beállítani az videó forrását a videó ablakának
@@ -84,7 +84,6 @@ reply: %d, %d\n	FtpClient		válasz: %d, %d\n
 Cannot find the media roster	CodyCam		Nem található a médiajegyzék
 Every 4 hours	CodyCam		4 óránként
 FTP	CodyCam		FTP
-File transmission failed	VideoConsumer.cpp		A fáljátvitel sikertelen
 Cannot seek time source!	CodyCam		Nem lehet az időforráshoz ugrani!
 File	CodyCam		Fálj
 Image Format Menu	CodyCam		Képformátum menü

@@ -141,7 +141,8 @@ static const char* kHandledProtocols[] = {
 	"https",
 	"file",
 	"about",
-	"data"
+	"data",
+	"gopher"
 };
 
 
@@ -359,7 +360,8 @@ BrowserWindow::BrowserWindow(BRect frame, SettingsMessage* appSettings,
 	fZoomTextOnly(true),
 	fShowTabsIfSinglePageOpen(true),
 	fAutoHideInterfaceInFullscreenMode(false),
-	fAutoHidePointer(false)
+	fAutoHidePointer(false),
+	fBookmarkBar(NULL)
 {
 	// Begin listening to settings changes and read some current values.
 	fAppSettings->AddListener(BMessenger(this));
@@ -453,7 +455,7 @@ BrowserWindow::BrowserWindow(BRect frame, SettingsMessage* appSettings,
 	menu->AddItem(new BMenuItem(B_TRANSLATE("Reload"), new BMessage(RELOAD),
 		'R'));
 	// the label will be replaced with the appropriate text later on
-	fBookmarkBarMenuItem = new BMenuItem("Show/Hide bookmark bar",
+	fBookmarkBarMenuItem = new BMenuItem(B_TRANSLATE("Show bookmark bar"),
 		new BMessage(SHOW_HIDE_BOOKMARK_BAR));
 	menu->AddItem(fBookmarkBarMenuItem);
 	menu->AddSeparatorItem();
@@ -493,6 +495,16 @@ BrowserWindow::BrowserWindow(BRect frame, SettingsMessage* appSettings,
 		BMenu* bookmarkMenu
 			= new BookmarkMenu(B_TRANSLATE("Bookmarks"), this, &bookmarkRef);
 		mainMenu->AddItem(bookmarkMenu);
+
+		BDirectory barDir(&bookmarkRef);
+		BEntry bookmarkBar(&barDir, "Bookmark bar");
+		entry_ref bookmarkBarRef;
+		// TODO we could also check if the folder is empty here.
+		if (bookmarkBar.Exists() && bookmarkBar.GetRef(&bookmarkBarRef) == B_OK) {
+			fBookmarkBar = new BookmarkBar("Bookmarks", this, &bookmarkBarRef);
+			fBookmarkBarMenuItem->SetEnabled(true);
+		} else
+			fBookmarkBarMenuItem->SetEnabled(false);
 	}
 
 	// Back, Forward, Stop & Home buttons
@@ -599,30 +611,29 @@ BrowserWindow::BrowserWindow(BRect frame, SettingsMessage* appSettings,
 		.Add(toggleFullscreenButton, 0.0f)
 	;
 
-	fBookmarkBar = new BookmarkBar("Bookmarks", this, &bookmarkRef);
-	if (fAppSettings->GetValue(kSettingsShowBookmarkBar, true)) {
-		// We need to hide the bookmark bar and then show it again
-		// to save the setting and set the menu item label.
-		fBookmarkBar->Hide();
+	if (fAppSettings->GetValue(kSettingsShowBookmarkBar, true))
 		_ShowBookmarkBar(true);
-	} else
+	else
 		_ShowBookmarkBar(false);
 
 	fSavePanel = new BFilePanel(B_SAVE_PANEL, new BMessenger(this), NULL, 0,
 		false);
 
 	// Layout
-	AddChild(BLayoutBuilder::Group<>(B_VERTICAL, 0.0)
+	BGroupView* topView = new BGroupView(B_VERTICAL, 0.0);
+
 #if !INTEGRATE_MENU_INTO_TAB_BAR
-		.Add(menuBarGroup)
+	topView->AddChild(menuBarGroup);
 #endif
-		.Add(fTabManager->TabGroup())
-		.Add(navigationGroup)
-		.Add(fBookmarkBar)
-		.Add(fTabManager->ContainerView())
-		.Add(findGroup)
-		.Add(statusGroup)
-	);
+	topView->AddChild(fTabManager->TabGroup());
+	topView->AddChild(navigationGroup);
+	if (fBookmarkBar != NULL)
+		topView->AddChild(fBookmarkBar);
+	topView->AddChild(fTabManager->ContainerView());
+	topView->AddChild(findGroup);
+	topView->AddChild(statusGroup);
+
+	AddChild(topView);
 
 	fURLInputGroup->MakeFocus(true);
 
@@ -1506,6 +1517,8 @@ BrowserWindow::LoadFinished(const BString& url, BWebView* view)
 	if (view != CurrentWebView())
 		return;
 
+	fURLInputGroup->SetText(url.String());
+
 	BString status(B_TRANSLATE_COMMENT("%url finished", "Loading URL "
 		"finished. Don't translate variable %url."));
 	status.ReplaceFirst("%url", url);
@@ -1980,8 +1993,8 @@ BrowserWindow::_ShowBookmarks()
 
 	if (status != B_OK && status != B_ALREADY_RUNNING) {
 		BString message(B_TRANSLATE_COMMENT("There was an error trying to "
-			"show the Bookmarks folder.\n\nError: %error", "Don't translate variable "
-			"%error"));
+			"show the Bookmarks folder.\n\nError: %error",
+			"Don't translate variable %error"));
 		message.ReplaceFirst("%error", strerror(status));
 		BAlert* alert = new BAlert(B_TRANSLATE("Bookmark error"),
 			message.String(), B_TRANSLATE("OK"), NULL, NULL,
@@ -2395,6 +2408,7 @@ BrowserWindow::_NewTabURL(bool isNewWindow) const
 	return url;
 }
 
+
 BString
 BrowserWindow::_EncodeURIComponent(const BString& search)
 {
@@ -2430,9 +2444,8 @@ void
 BrowserWindow::_VisitSearchEngine(const BString& search)
 {
 	BString engine = "";
-	engine.SetToFormat(fSearchPageURL, 
-		_EncodeURIComponent(search).String());
-	
+	engine.SetToFormat(fSearchPageURL, _EncodeURIComponent(search).String());
+
 	_VisitURL(engine);
 }
 
@@ -2486,7 +2499,7 @@ BrowserWindow::_SmartURLHandler(const BString& url)
 	else {
 		const char* localhostPrefix = "localhost/";
 
-		if(url.Compare(localhostPrefix, strlen(localhostPrefix)) == 0)
+		if (url.Compare(localhostPrefix, strlen(localhostPrefix)) == 0)
 			_VisitURL(url);
 		else {
 			bool isURL = false;
@@ -2590,14 +2603,13 @@ BrowserWindow::_HandlePageSourceResult(const BMessage* message)
 void
 BrowserWindow::_ShowBookmarkBar(bool show)
 {
+	fBookmarkBarMenuItem->SetMarked(show);
+
 	if (fBookmarkBar == NULL || fBookmarkBar->IsHidden() != show)
 		return;
 
 	fAppSettings->SetValue(kSettingsShowBookmarkBar, show);
 
-	fBookmarkBarMenuItem->SetLabel(show
-		? B_TRANSLATE("Hide bookmark bar")
-		: B_TRANSLATE("Show bookmark bar"));
 	if (show)
 		fBookmarkBar->Show();
 	else

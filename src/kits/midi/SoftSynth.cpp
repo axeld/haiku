@@ -1,5 +1,5 @@
 /*
- * Copyright 2006, Haiku.
+ * Copyright 2006-2014, Haiku.
  *
  * Copyright (c) 2004-2005 Matthijs Hollemans
  * Copyright (c) 2003 Jerome Leveque
@@ -9,10 +9,12 @@
  * 		Jérôme Duval
  *		Jérôme Leveque
  *		Matthijs Hollemans
+ *		Pete Goodeve
  */
 
 #include <MidiRoster.h>
 #include <MidiConsumer.h>
+#include <File.h>
 #include <FindDirectory.h>
 #include <Path.h>
 #include <string.h>
@@ -24,12 +26,26 @@
 
 using namespace BPrivate;
 
+struct ReverbSettings {
+	double room, damp, width, level;
+} gReverbSettings[] = {
+		 {0.0, 0.0, 0.0, 0.0},   //  B_REVERB_NONE
+		 {0.2, 0.0, 0.5, 0.9},   //  B_REVERB_CLOSET
+		 {0.5, 0.0, 0.9, 0.9},   //  B_REVERB_GARAGE
+		 {0.7, 0.25, 0.9, 0.95}, //  B_REVERB_BALLROOM
+		 {0.99, 0.3, 1.0, 1.0},  //  B_REVERB_CAVERN
+		 {1.03, 0.6, 1.0, 1.0}   //  B_REVERB_DUNGEON
+};
+
 
 BSoftSynth::BSoftSynth()
 : 	fInitCheck(false),
 	fSynth(NULL),
 	fSettings(NULL),
-	fSoundPlayer(NULL)
+	fSoundPlayer(NULL),
+	fMonitor(NULL),
+	fMonitorSize(0),
+	fMonitorChans(-1)
 {
 	fInstrumentsFile = NULL;
 	SetDefaultInstrumentsFile();
@@ -51,6 +67,7 @@ BSoftSynth::~BSoftSynth()
 	// a big deal, but the Midi Kit will complain (on stdout) that we 
 	// didn't release our endpoints.
 
+	delete[] fMonitor;
 	Unload();
 }
 
@@ -83,11 +100,38 @@ BSoftSynth::IsLoaded(void) const
 status_t 
 BSoftSynth::SetDefaultInstrumentsFile()
 {
+	// We first search for a setting file (or symlink to it)
+	// in the user settings directory
+	char buffer[512];
 	BPath path;
-	if (B_OK == find_directory(B_SYNTH_DIRECTORY, &path, false, NULL)) {
+	if (find_directory(B_USER_SETTINGS_DIRECTORY, &path) == B_OK) {
+		path.Append("midi");
+		BFile file(path.Path(), B_READ_ONLY);
+		if (file.InitCheck() == B_OK
+				&& file.Read(buffer, sizeof(buffer)) > 0) {
+			char soundFont[512];
+			sscanf(buffer, "# Midi Settings\n soundfont = %s\n",
+				soundFont);
+			return SetInstrumentsFile(soundFont);
+		}
+	}
+
+	// fall back to the old default
+	// softsynth (big_synth.sy)
+	// TODO: Remove this
+	if (find_directory(B_SYNTH_DIRECTORY, &path, false, NULL) == B_OK) {
 		path.Append(B_BIG_SYNTH_FILE);
 		return SetInstrumentsFile(path.Path());
 	}
+
+	// TODO: Use the first soundfont found in the synth directory
+	// instead of hardcoding
+	if (find_directory(B_SYNTH_DIRECTORY, &path, false, NULL) == B_OK) {
+		path.Append("TimGM6mb.sf2");
+		return SetInstrumentsFile(path.Path());
+	}
+
+	// TODO: Write the settings file
 	
 	return B_ERROR;
 }
@@ -99,6 +143,9 @@ BSoftSynth::SetInstrumentsFile(const char* path)
 	if (path == NULL)
 		return B_BAD_VALUE;
 	
+	if (!BEntry(path).Exists())
+		return B_FILE_NOT_FOUND;
+
 	if (IsLoaded())
 		Unload();
 	
@@ -219,9 +266,16 @@ BSoftSynth::IsReverbEnabled() const
 void 
 BSoftSynth::SetReverb(reverb_mode mode)
 {
-	// TODO: this function could change depending on the synth back-end.
+	if (mode < B_REVERB_NONE || mode > B_REVERB_DUNGEON)
+		return;
 
 	fReverbMode = mode;
+	if (fSynth) {
+		// We access the table using "mode - 1" because B_REVERB_NONE == 1
+		ReverbSettings *rvb = &gReverbSettings[mode - 1];
+		fluid_synth_set_reverb(fSynth, rvb->room, rvb->damp, rvb->width,
+				rvb->level);
+	}
 }
 
 
@@ -445,6 +499,8 @@ BSoftSynth::_Init()
 		return;
 	}
 
+	SetReverb(fReverbMode);
+
 	media_raw_audio_format format = media_raw_audio_format::wildcard;
 	format.channel_count = 2;
 	format.frame_rate = fSampleRate;
@@ -485,15 +541,25 @@ BSoftSynth::_Done()
 
 
 void
-BSoftSynth::PlayBuffer(void * cookie, void * data, size_t size, const media_raw_audio_format & format)
+BSoftSynth::PlayBuffer(void* cookie, void* data, size_t size,
+		const media_raw_audio_format& format)
 {
-	BSoftSynth *synth = (BSoftSynth *)cookie;
+	BSoftSynth* synth = (BSoftSynth*)cookie;
+
+	if (synth->fMonitorSize == 0) {
+		synth->fMonitor = (float*)new void*[size];
+		synth->fMonitorSize = size;
+		synth->fMonitorChans = format.channel_count;
+	}
 
 	// we use float samples
-	
-	if (synth->fSynth)
-		fluid_synth_write_float(synth->fSynth, size / sizeof(float) / format.channel_count, 
+	if (synth->fSynth) {
+		fluid_synth_write_float(
+			synth->fSynth, size / sizeof(float) / format.channel_count,
 			data, 0, format.channel_count,
 			data, 1, format.channel_count);
+
+		memcpy(synth->fMonitor, data, size);
+	}
 }
 

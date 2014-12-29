@@ -13,6 +13,8 @@
 
 #include <Button.h>
 #include <Catalog.h>
+#include <CharacterSet.h>
+#include <CharacterSetRoster.h>
 #include <CheckBox.h>
 #include <ColorControl.h>
 #include <LayoutBuilder.h>
@@ -27,6 +29,7 @@
 #include "Colors.h"
 #include "PrefHandler.h"
 #include "TermConst.h"
+#include "TermWindow.h"
 
 
 #undef B_TRANSLATION_CONTEXT
@@ -99,6 +102,21 @@ AppearancePrefView::AppearancePrefView(const char* name,
 		PrefHandler::Default()->getString(PREF_HALF_FONT_STYLE));
 	fFontField = new BMenuField(B_TRANSLATE("Font:"), fontMenu);
 
+	BMenu* sizeMenu = new (std::nothrow) BPopUpMenu(
+		B_TRANSLATE_COMMENT("Custom", "Window size"));
+	if (sizeMenu != NULL) {
+		TermWindow::MakeWindowSizeMenu(sizeMenu);
+		sizeMenu->SetLabelFromMarked(true);
+	}
+	fWindowSizeField = new BMenuField(B_TRANSLATE("Window size:"), sizeMenu);
+
+	BMenu* encodingMenu = new (std::nothrow) BPopUpMenu("Text encoding");
+	if (encodingMenu != NULL) {
+		TermWindow::MakeEncodingMenu(encodingMenu);
+		encodingMenu->SetLabelFromMarked(true);
+	}
+	fEncodingField = new BMenuField(B_TRANSLATE("Encoding:"), encodingMenu);
+
 	BPopUpMenu* schemesPopUp = _MakeColorSchemeMenu(MSG_COLOR_SCHEME_CHANGED,
 		gPredefinedColorSchemes, gPredefinedColorSchemes[0]);
 	fColorSchemeField = new BMenuField(B_TRANSLATE("Color scheme:"),
@@ -132,12 +150,16 @@ AppearancePrefView::AppearancePrefView(const char* name,
 			.Add(fTabTitle->CreateTextViewLayoutItem(), 1, 0)
 			.Add(fWindowTitle->CreateLabelLayoutItem(), 0, 1)
 			.Add(fWindowTitle->CreateTextViewLayoutItem(), 1, 1)
-			.Add(fFontField->CreateLabelLayoutItem(), 0, 2)
-			.Add(fFontField->CreateMenuBarLayoutItem(), 1, 2)
-			.Add(fColorSchemeField->CreateLabelLayoutItem(), 0, 3)
-			.Add(fColorSchemeField->CreateMenuBarLayoutItem(), 1, 3)
-			.Add(fColorField->CreateLabelLayoutItem(), 0, 4)
-			.Add(fColorField->CreateMenuBarLayoutItem(), 1, 4)
+			.Add(fWindowSizeField->CreateLabelLayoutItem(), 0, 2)
+			.Add(fWindowSizeField->CreateMenuBarLayoutItem(), 1, 2)
+			.Add(fFontField->CreateLabelLayoutItem(), 0, 3)
+			.Add(fFontField->CreateMenuBarLayoutItem(), 1, 3)
+			.Add(fEncodingField->CreateLabelLayoutItem(), 0, 4)
+			.Add(fEncodingField->CreateMenuBarLayoutItem(), 1, 4)
+			.Add(fColorSchemeField->CreateLabelLayoutItem(), 0, 5)
+			.Add(fColorSchemeField->CreateMenuBarLayoutItem(), 1, 5)
+			.Add(fColorField->CreateLabelLayoutItem(), 0, 6)
+			.Add(fColorField->CreateMenuBarLayoutItem(), 1, 6)
 			.End()
 		.AddGlue()
 		.Add(fColorControl = new BColorControl(BPoint(10, 10),
@@ -149,19 +171,12 @@ AppearancePrefView::AppearancePrefView(const char* name,
 	fTabTitle->SetAlignment(B_ALIGN_RIGHT, B_ALIGN_LEFT);
 	fWindowTitle->SetAlignment(B_ALIGN_RIGHT, B_ALIGN_LEFT);
 	fFontField->SetAlignment(B_ALIGN_RIGHT);
+	fWindowSizeField->SetAlignment(B_ALIGN_RIGHT);
+	fEncodingField->SetAlignment(B_ALIGN_RIGHT);
 	fColorField->SetAlignment(B_ALIGN_RIGHT);
 	fColorSchemeField->SetAlignment(B_ALIGN_RIGHT);
 
-	fTabTitle->SetText(PrefHandler::Default()->getString(PREF_TAB_TITLE));
-	fWindowTitle->SetText(PrefHandler::Default()->getString(PREF_WINDOW_TITLE));
-
-	fColorControl->SetValue(
-		PrefHandler::Default()->getRGB(PREF_TEXT_FORE_COLOR));
-
-	fBlinkCursor->SetValue(PrefHandler::Default()->getBool(PREF_BLINK_CURSOR));
-	fBrightInsteadOfBold->SetValue(PrefHandler::Default()->getBool(
-		PREF_BRIGHT_INSTEAD_OF_BOLD));
-	fWarnOnExit->SetValue(PrefHandler::Default()->getBool(PREF_WARN_ON_EXIT));
+	Revert();
 
 	BTextControl* redInput = (BTextControl*)fColorControl->ChildAt(0);
 	BTextControl* greenInput = (BTextControl*)fColorControl->ChildAt(1);
@@ -174,17 +189,6 @@ AppearancePrefView::AppearancePrefView(const char* name,
 
 
 void
-AppearancePrefView::GetPreferredSize(float* _width, float* _height)
-{
-	if (_width)
-		*_width = Bounds().Width();
-
-	if (*_height)
-		*_height = fColorControl->Frame().bottom;
-}
-
-
-void
 AppearancePrefView::Revert()
 {
 	PrefHandler* pref = PrefHandler::Default();
@@ -192,12 +196,14 @@ AppearancePrefView::Revert()
 	fTabTitle->SetText(pref->getString(PREF_TAB_TITLE));
 	fWindowTitle->SetText(pref->getString(PREF_WINDOW_TITLE));
 
-	fWarnOnExit->SetValue(pref->getBool(
-		PREF_WARN_ON_EXIT));
+	fBlinkCursor->SetValue(pref->getBool(PREF_BLINK_CURSOR));
+	fBrightInsteadOfBold->SetValue(pref->getBool(PREF_BRIGHT_INSTEAD_OF_BOLD));
+	fWarnOnExit->SetValue(pref->getBool(PREF_WARN_ON_EXIT));
 
-	fColorSchemeField->Menu()->ItemAt(0)->SetMarked(true);
-	fColorControl->SetValue(pref->
-		getRGB(PREF_TEXT_FORE_COLOR));
+	_SetCurrentColorScheme();
+	_SetEncoding(pref->getString(PREF_TEXT_ENCODING));
+	_SetWindowSize(pref->getInt32(PREF_ROWS), pref->getInt32(PREF_COLS));
+	fColorControl->SetValue(pref->getRGB(PREF_TEXT_FORE_COLOR));
 
 	const char* family = pref->getString(PREF_HALF_FONT_FAMILY);
 	const char* style = pref->getString(PREF_HALF_FONT_STYLE);
@@ -228,6 +234,8 @@ AppearancePrefView::AttachedToWindow()
 	fColorControl->SetTarget(this);
 	fColorField->Menu()->SetTargetForItems(this);
 	fColorSchemeField->Menu()->SetTargetForItems(this);
+	fWindowSizeField->Menu()->SetTargetForItems(this);
+	fEncodingField->Menu()->SetTargetForItems(this);
 
 	_SetCurrentColorScheme();
 }
@@ -317,6 +325,24 @@ AppearancePrefView::MessageReceived(BMessage* msg)
 			const char* label = NULL;
 			if (msg->FindString("label", &label) == B_OK)
 				fColorControl->SetValue(PrefHandler::Default()->getRGB(label));
+			break;
+		}
+
+		case MSG_COLS_CHANGED:
+		{
+			int rows = msg->FindInt32("rows");
+			int columns = msg->FindInt32("columns");
+			_SetWindowSize(rows, columns);
+			PrefHandler* handler = PrefHandler::Default();
+			if (handler->getInt32(PREF_ROWS) != rows) {
+				PrefHandler::Default()->setInt32(PREF_ROWS, rows);
+				modified = true;
+			}
+			if (handler->getInt32(PREF_COLS) != columns) {
+				PrefHandler::Default()->setInt32(PREF_COLS, columns);
+				modified = true;
+			}
+
 			break;
 		}
 
@@ -420,11 +446,46 @@ AppearancePrefView::_SetCurrentColorScheme()
 		}
 	}
 
+	// If the scheme is not one of the known ones, assume a custom one.
+	if (currentSchemeName == NULL)
+		currentSchemeName = "Custom";
+
 	for (int32 i = 0; i < fColorSchemeField->Menu()->CountItems(); i++) {
-		if (currentSchemeName == NULL)
-			break;
 		BMenuItem* item = fColorSchemeField->Menu()->ItemAt(i);
 		if (strcmp(item->Label(), currentSchemeName) == 0) {
+			item->SetMarked(true);
+			break;
+		}
+	}
+}
+
+
+void
+AppearancePrefView::_SetEncoding(const char* name)
+{
+	const BPrivate::BCharacterSet* charset
+		= BPrivate::BCharacterSetRoster::FindCharacterSetByName(name);
+	if (charset == NULL)
+		return;
+	int code = charset->GetConversionID();
+	for (int32 i = 0; i < fEncodingField->Menu()->CountItems(); i++) {
+		BMenuItem* item = fEncodingField->Menu()->ItemAt(i);
+		BMessage* msg = item->Message();
+		if (msg->FindInt32("op") == code) {
+			item->SetMarked(true);
+			break;
+		}
+	}
+}
+
+
+void
+AppearancePrefView::_SetWindowSize(int rows, int cols)
+{
+	for (int32 i = 0; i < fWindowSizeField->Menu()->CountItems(); i++) {
+		BMenuItem* item = fWindowSizeField->Menu()->ItemAt(i);
+		BMessage* msg = item->Message();
+		if (msg->FindInt32("rows") == rows && msg->FindInt32("columns") == cols) {
 			item->SetMarked(true);
 			break;
 		}

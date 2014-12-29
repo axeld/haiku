@@ -8,9 +8,11 @@ UsePrivateHeaders shared ;
 UnitTestLib libsharedtest.so :
 	SharedTestAddon.cpp
 
+	CalendarViewTest.cpp
+	GeolocationTest.cpp
 	NaturalCompareTest.cpp
 
-	: be libshared.a $(TARGET_LIBSTDC++) $(TARGET_LIBSUPC++)
+	: be libshared.a bnetapi [ TargetLibstdc++ ] [ TargetLibsupc++ ]
 ;
 
 SubInclude HAIKU_TOP src tests kits shared shake_filter ;

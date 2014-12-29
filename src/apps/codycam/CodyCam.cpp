@@ -55,20 +55,6 @@ const int32 kSliderViewRectHeight = 40;
 
 namespace {
 
-void
-ErrorAlert(const char* message, status_t err, BWindow *window = NULL)
-{
-	BAlert *alert = new BAlert(B_TRANSLATE_SYSTEM_NAME("CodyCam"), message,
-		B_TRANSLATE("OK"));
-	if (window != NULL)
-		alert->CenterIn(window->Frame());
-	alert->SetFlags(alert->Flags() | B_CLOSE_ON_ESCAPE);
-	alert->Go();
-
-	printf("%s\n%s [%" B_PRIx32 "]", message, strerror(err), err);
-}
-
-
 // functions for EnumeratedStringValueSettings
 
 const char*
@@ -151,12 +137,11 @@ CodyCam::ReadyToRun()
 		(const char*) B_TRANSLATE_SYSTEM_NAME("CodyCam"), B_TITLED_WINDOW,
 		B_NOT_ZOOMABLE | B_AUTO_UPDATE_SIZE_LIMITS, &fPort);
 
-	if(_SetUpNodes() != B_OK)
+	if (_SetUpNodes() != B_OK)
 		fWindow->ToggleMenuOnOff();
 
 	((VideoWindow*)fWindow)->ApplyControls();
 }
-
 
 
 bool
@@ -234,15 +219,15 @@ CodyCam::_SetUpNodes()
 	/* find the media roster */
 	fMediaRoster = BMediaRoster::Roster(&status);
 	if (status != B_OK) {
-		ErrorAlert(B_TRANSLATE("Cannot find the media roster"), status,
-			fWindow);
+		fWindow->ErrorAlert(B_TRANSLATE("Cannot find the media roster"),
+			status);
 		return status;
 	}
 
 	/* find the time source */
 	status = fMediaRoster->GetTimeSource(&fTimeSourceNode);
 	if (status != B_OK) {
-		ErrorAlert(B_TRANSLATE("Cannot get a time source"), status, fWindow);
+		fWindow->ErrorAlert(B_TRANSLATE("Cannot get a time source"), status);
 		return status;
 	}
 
@@ -250,8 +235,8 @@ CodyCam::_SetUpNodes()
 	INFO("CodyCam acquiring VideoInput node\n");
 	status = fMediaRoster->GetVideoInput(&fProducerNode);
 	if (status != B_OK) {
-		ErrorAlert(B_TRANSLATE("Cannot find a video source. You need a webcam "
-			"to use CodyCam."), status, fWindow);
+		fWindow->ErrorAlert(B_TRANSLATE("Cannot find a video source. You need "
+			"a webcam to use CodyCam."), status);
 		return status;
 	}
 
@@ -260,16 +245,16 @@ CodyCam::_SetUpNodes()
 		((VideoWindow*)fWindow)->VideoView(),
 		((VideoWindow*)fWindow)->StatusLine(), NULL, 0);
 	if (!fVideoConsumer) {
-		ErrorAlert(B_TRANSLATE("Cannot create a video window"), B_ERROR,
-			fWindow);
+		fWindow->ErrorAlert(B_TRANSLATE("Cannot create a video window"),
+			B_ERROR);
 		return B_ERROR;
 	}
 
 	/* register the node */
 	status = fMediaRoster->RegisterNode(fVideoConsumer);
 	if (status != B_OK) {
-		ErrorAlert(B_TRANSLATE("Cannot register the video window"), status,
-			fWindow);
+		fWindow->ErrorAlert(B_TRANSLATE("Cannot register the video window"),
+			status);
 		return status;
 	}
 	fPort = fVideoConsumer->ControlPort();
@@ -280,8 +265,8 @@ CodyCam::_SetUpNodes()
 		&cnt, B_MEDIA_RAW_VIDEO);
 	if (status != B_OK || cnt < 1) {
 		status = B_RESOURCE_UNAVAILABLE;
-		ErrorAlert(B_TRANSLATE("Cannot find an available video stream"),
-			status,	fWindow);
+		fWindow->ErrorAlert(B_TRANSLATE("Cannot find an available video stream"),
+			status);
 		return status;
 	}
 
@@ -291,8 +276,8 @@ CodyCam::_SetUpNodes()
 		&fConsumerIn, 1, &cnt, B_MEDIA_RAW_VIDEO);
 	if (status != B_OK || cnt < 1) {
 		status = B_RESOURCE_UNAVAILABLE;
-		ErrorAlert(B_TRANSLATE("Can't find an available connection to the "
-			"video window"), status, fWindow);
+		fWindow->ErrorAlert(B_TRANSLATE("Can't find an available connection to "
+			"the video window"), status);
 		return status;
 	}
 
@@ -307,8 +292,8 @@ CodyCam::_SetUpNodes()
 	status = fMediaRoster->Connect(fProducerOut.source,
 		fConsumerIn.destination, &format, &fProducerOut, &fConsumerIn);
 	if (status != B_OK) {
-		ErrorAlert(B_TRANSLATE("Cannot connect the video source to the video "
-			"window"), status);
+		fWindow->ErrorAlert(B_TRANSLATE("Cannot connect the video source to "
+			"the video window"), status);
 		return status;
 	}
 
@@ -317,16 +302,16 @@ CodyCam::_SetUpNodes()
 	status = fMediaRoster->SetTimeSourceFor(fProducerNode.node,
 		fTimeSourceNode.node);
 	if (status != B_OK) {
-		ErrorAlert(B_TRANSLATE("Cannot set the time source for the video "
-			"source"), status);
+		fWindow->ErrorAlert(B_TRANSLATE("Cannot set the time source for the "
+			"video source"), status);
 		return status;
 	}
 
 	status = fMediaRoster->SetTimeSourceFor(fVideoConsumer->ID(),
 		fTimeSourceNode.node);
 	if (status != B_OK) {
-		ErrorAlert(B_TRANSLATE("Cannot set the time source for the video "
-			"window"), status);
+		fWindow->ErrorAlert(B_TRANSLATE("Cannot set the time source for the "
+			"video window"), status);
 		return status;
 	}
 
@@ -339,8 +324,8 @@ CodyCam::_SetUpNodes()
 	bigtime_t initLatency = 0;
 	status = fMediaRoster->GetInitialLatencyFor(fProducerNode, &initLatency);
 	if (status < B_OK) {
-		ErrorAlert(B_TRANSLATE("Error getting initial latency for the capture "
-			"node"), status);
+		fWindow->ErrorAlert(B_TRANSLATE("Error getting initial latency for the "
+			"capture node"), status);
 		return status;
 	}
 
@@ -356,13 +341,15 @@ CodyCam::_SetUpNodes()
 		status = fMediaRoster->StartTimeSource(fTimeSourceNode, real);
 		if (status != B_OK) {
 			timeSource->Release();
-			ErrorAlert(B_TRANSLATE("Cannot start time source!"), status);
+			fWindow->ErrorAlert(B_TRANSLATE("Cannot start time source!"),
+				status);
 			return status;
 		}
 		status = fMediaRoster->SeekTimeSource(fTimeSourceNode, 0, real);
 		if (status != B_OK) {
 			timeSource->Release();
-			ErrorAlert(B_TRANSLATE("Cannot seek time source!"), status);
+			fWindow->ErrorAlert(B_TRANSLATE("Cannot seek time source!"),
+				status);
 			return status;
 		}
 	}
@@ -374,12 +361,14 @@ CodyCam::_SetUpNodes()
 	/* start the nodes */
 	status = fMediaRoster->StartNode(fProducerNode, perf);
 	if (status != B_OK) {
-		ErrorAlert(B_TRANSLATE("Cannot start the video source"), status);
+		fWindow->ErrorAlert(B_TRANSLATE("Cannot start the video source"),
+			status);
 		return status;
 	}
 	status = fMediaRoster->StartNode(fVideoConsumer->Node(), perf);
 	if (status != B_OK) {
-		ErrorAlert(B_TRANSLATE("Cannot start the video window"), status);
+		fWindow->ErrorAlert(B_TRANSLATE("Cannot start the video window"),
+			status);
 		return status;
 	}
 
@@ -473,12 +462,15 @@ VideoWindow::VideoWindow(BRect frame, const char* title, window_type type,
 	/* add some controls */
 	_BuildCaptureControls();
 
+	BBox* box = new BBox("box");
+	box->AddChild(fVideoView);
+
 	BLayoutBuilder::Group<>(this, B_VERTICAL, 0)
 		.SetInsets(0, 0, 0, 0)
 		.Add(menuBar)
 		.AddGroup(B_VERTICAL, kYBuffer)
 			.SetInsets(kXBuffer, kYBuffer, kXBuffer, kYBuffer)
-			.Add(fVideoView)
+			.Add(box)
 			.AddGroup(B_HORIZONTAL, kXBuffer)
 				.SetInsets(0, 0, 0, 0)
 				.Add(fCaptureSetupBox)
@@ -490,12 +482,10 @@ VideoWindow::VideoWindow(BRect frame, const char* title, window_type type,
 }
 
 
-
 VideoWindow::~VideoWindow()
 {
 	_QuitSettings();
 }
-
 
 
 bool
@@ -614,9 +604,14 @@ void
 VideoWindow::_BuildCaptureControls()
 {
 	// a view to hold the video image
-	fVideoView = new BView("Video View", B_WILL_DRAW);
+	fVideoView = new BTextView("");
 	fVideoView->SetExplicitMinSize(BSize(VIDEO_SIZE_X, VIDEO_SIZE_Y));
 	fVideoView->SetExplicitMaxSize(BSize(VIDEO_SIZE_X, VIDEO_SIZE_Y));
+	fVideoView->MakeEditable(false);
+	fVideoView->MakeResizable(false);
+	fVideoView->MakeSelectable(false);
+	fVideoView->SetAlignment(B_ALIGN_CENTER);
+	fVideoView->SetInsets(0, VIDEO_SIZE_Y / 3, 0 , 0);
 
 	// Capture controls
 	fCaptureSetupBox = new BBox("Capture Controls", B_WILL_DRAW);
@@ -677,7 +672,7 @@ VideoWindow::_BuildCaptureControls()
 		m->AddInt32("client", i);
 		fUploadClientMenu->AddItem(new BMenuItem(kUploadClients[i], m));
 	}
-	
+
 	fUploadClientMenu->SetTargetForItems(this);
 	fUploadClientMenu->FindItem(fUploadClientSetting->Value())->SetMarked(true);
 	fUploadClientSelector = new BMenuField("UploadClient", NULL,
@@ -744,6 +739,17 @@ VideoWindow::ApplyControls()
 	fPassiveFtp->Invoke();
 
 	Unlock();
+}
+
+
+void
+VideoWindow::ErrorAlert(const char* message, status_t err)
+{
+	Lock();
+	fVideoView->SetText(message);
+	Unlock();
+
+	printf("%s\n%s [%" B_PRIx32 "]", message, strerror(err), err);
 }
 
 

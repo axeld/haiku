@@ -12,6 +12,8 @@
 
 #include <algorithm>
 
+#include <vm/vm.h>
+
 #include "driver.h"
 #include "hda_codec_defs.h"
 
@@ -30,7 +32,6 @@
 		+ (index)) * HDAC_STREAM_SIZE)
 
 #define ALIGN(size, align)	(((size) + align - 1) & ~(align - 1))
-#define PAGE_ALIGN(size)	(((size) + B_PAGE_SIZE - 1) & ~(B_PAGE_SIZE - 1))
 
 
 #define PCI_VENDOR_AMD			0x1002
@@ -106,15 +107,22 @@ get_controller_quirks(pci_info& info)
 }
 
 
-static inline void
+static inline bool
 update_pci_register(hda_controller* controller, uint8 reg, uint32 mask,
-	uint32 value, uint8 size)
+	uint32 value, uint8 size, bool check = false)
 {
 	uint32 originalValue = (gPci->read_pci_config)(controller->pci_info.bus,
 		controller->pci_info.device, controller->pci_info.function, reg, size);
 	(gPci->write_pci_config)(controller->pci_info.bus,
 		controller->pci_info.device, controller->pci_info.function,
 		reg, size, (originalValue & mask) | value);
+
+	if (!check)
+		return true;
+
+	uint32 newValue = (gPci->read_pci_config)(controller->pci_info.bus,
+		controller->pci_info.device, controller->pci_info.function, reg, size);
+	return (newValue & ~mask) == value;
 }
 
 
@@ -346,8 +354,23 @@ reset_controller(hda_controller* controller)
 	}
 
 	// stop DMA
-	controller->Write8(HDAC_CORB_CONTROL, 0);
-	controller->Write8(HDAC_RIRB_CONTROL, 0);
+	controller->ReadModifyWrite8(HDAC_CORB_CONTROL, HDAC_CORB_CONTROL_MASK, 0);
+	controller->ReadModifyWrite8(HDAC_RIRB_CONTROL, HDAC_RIRB_CONTROL_MASK, 0);
+
+	uint8 corbControl = 0;
+	uint8 rirbControl = 0;
+	for (int timeout = 0; timeout < 10; timeout++) {
+		snooze(100);
+
+		corbControl = controller->Read8(HDAC_CORB_CONTROL);
+		rirbControl = controller->Read8(HDAC_RIRB_CONTROL);
+		if (corbControl == 0 && rirbControl == 0)
+			break;
+	}
+	if (corbControl != 0 || rirbControl != 0) {
+		dprintf("hda: unable to stop dma\n");
+		return B_BUSY;
+	}
 
 	// reset DMA position buffer
 	controller->Write32(HDAC_DMA_POSITION_BASE_LOWER, 0);
@@ -414,26 +437,38 @@ init_corb_rirb_pos(hda_controller* controller)
 	uint8 corbSize = controller->Read8(HDAC_CORB_SIZE);
 	if ((corbSize & CORB_SIZE_CAP_256_ENTRIES) != 0) {
 		controller->corb_length = 256;
-		controller->Write8(HDAC_CORB_SIZE, CORB_SIZE_256_ENTRIES);
+		controller->ReadModifyWrite8(
+			HDAC_CORB_SIZE, HDAC_CORB_SIZE_MASK,
+			CORB_SIZE_256_ENTRIES);
 	} else if (corbSize & CORB_SIZE_CAP_16_ENTRIES) {
 		controller->corb_length = 16;
-		controller->Write8(HDAC_CORB_SIZE, CORB_SIZE_16_ENTRIES);
+		controller->ReadModifyWrite8(
+			HDAC_CORB_SIZE, HDAC_CORB_SIZE_MASK,
+			CORB_SIZE_16_ENTRIES);
 	} else if (corbSize & CORB_SIZE_CAP_2_ENTRIES) {
 		controller->corb_length = 2;
-		controller->Write8(HDAC_CORB_SIZE, CORB_SIZE_2_ENTRIES);
+		controller->ReadModifyWrite8(
+			HDAC_CORB_SIZE, HDAC_CORB_SIZE_MASK,
+			CORB_SIZE_2_ENTRIES);
 	}
 
 	// Determine and set size of RIRB
 	uint8 rirbSize = controller->Read8(HDAC_RIRB_SIZE);
 	if (rirbSize & RIRB_SIZE_CAP_256_ENTRIES) {
 		controller->rirb_length = 256;
-		controller->Write8(HDAC_RIRB_SIZE, RIRB_SIZE_256_ENTRIES);
+		controller->ReadModifyWrite8(
+			HDAC_RIRB_SIZE, HDAC_RIRB_SIZE_MASK,
+			RIRB_SIZE_256_ENTRIES);
 	} else if (rirbSize & RIRB_SIZE_CAP_16_ENTRIES) {
 		controller->rirb_length = 16;
-		controller->Write8(HDAC_RIRB_SIZE, RIRB_SIZE_16_ENTRIES);
+		controller->ReadModifyWrite8(
+			HDAC_RIRB_SIZE, HDAC_RIRB_SIZE_MASK,
+			RIRB_SIZE_16_ENTRIES);
 	} else if (rirbSize & RIRB_SIZE_CAP_2_ENTRIES) {
 		controller->rirb_length = 2;
-		controller->Write8(HDAC_RIRB_SIZE, RIRB_SIZE_2_ENTRIES);
+		controller->ReadModifyWrite8(
+			HDAC_RIRB_SIZE, HDAC_RIRB_SIZE_MASK,
+			RIRB_SIZE_2_ENTRIES);
 	}
 
 	// Determine rirb offset in memory and total size of corb+alignment+rirb
@@ -462,6 +497,11 @@ init_corb_rirb_pos(hda_controller* controller)
 		return status;
 	}
 
+	if (!controller->dma_snooping) {
+		vm_set_area_memory_type(controller->corb_rirb_pos_area,
+			pe.address, B_MTR_UC);
+	}
+
 	// Program CORB/RIRB for these locations
 	controller->Write32(HDAC_CORB_BASE_LOWER, (uint32)pe.address);
 	controller->Write32(HDAC_CORB_BASE_UPPER,
@@ -479,28 +519,67 @@ init_corb_rirb_pos(hda_controller* controller)
 	controller->stream_positions = (uint32*)
 		((uint8*)controller->corb + posOffset);
 
-	controller->Write16(HDAC_CORB_WRITE_POS, 0);
-	// Reset CORB read pointer
-	controller->Write16(HDAC_CORB_READ_POS, CORB_READ_POS_RESET);
-	// Reading CORB_READ_POS_RESET as zero fails on some chips.
-	// We reset the bit here.
-	controller->Write16(HDAC_CORB_READ_POS, 0);
+	controller->ReadModifyWrite16(HDAC_CORB_WRITE_POS,
+		HDAC_CORB_WRITE_POS_MASK, 0);
+
+	// Reset CORB read pointer. Preseve bits marked as RsvdP.
+	// After setting the reset bit, we must wait for the hardware
+	// to acknowledge it, then manually unset it and wait for that
+	// to be acknowledged as well.
+	uint16 corbReadPointer = controller->Read16(HDAC_CORB_READ_POS);
+
+	corbReadPointer |= CORB_READ_POS_RESET;
+	controller->Write16(HDAC_CORB_READ_POS, corbReadPointer);
+	for (int timeout = 0; timeout < 10; timeout++) {
+		snooze(100);
+		corbReadPointer = controller->Read16(HDAC_CORB_READ_POS);
+		if ((corbReadPointer & CORB_READ_POS_RESET) != 0)
+			break;
+	}
+	if ((corbReadPointer & CORB_READ_POS_RESET) == 0) {
+		dprintf("hda: CORB read pointer reset not acknowledged\n");
+
+		// According to HDA spec v1.0a ch3.3.21, software must read the
+		// bit as 1 to verify that the reset completed. However, at least
+		// some nVidia HDA controllers do not update the bit after reset.
+		// Thus don't fail here on nVidia controllers.
+		if (controller->pci_info.vendor_id != PCI_VENDOR_NVIDIA)
+			return B_BUSY;
+	}
+
+	corbReadPointer &= ~CORB_READ_POS_RESET;
+	controller->Write16(HDAC_CORB_READ_POS, corbReadPointer);
+	for (int timeout = 0; timeout < 10; timeout++) {
+		snooze(100);
+		corbReadPointer = controller->Read16(HDAC_CORB_READ_POS);
+		if ((corbReadPointer & CORB_READ_POS_RESET) == 0)
+			break;
+	}
+	if ((corbReadPointer & CORB_READ_POS_RESET) != 0) {
+		dprintf("hda: CORB read pointer reset failed\n");
+		return B_BUSY;
+	}
 
 	// Reset RIRB write pointer
-	controller->Write16(HDAC_RIRB_WRITE_POS, RIRB_WRITE_POS_RESET);
+	controller->ReadModifyWrite16(HDAC_RIRB_WRITE_POS,
+		RIRB_WRITE_POS_RESET, RIRB_WRITE_POS_RESET);
 
 	// Generate interrupt for every response
-	controller->Write16(HDAC_RESPONSE_INTR_COUNT, 1);
+	controller->ReadModifyWrite16(HDAC_RESPONSE_INTR_COUNT,
+		HDAC_RESPONSE_INTR_COUNT_MASK, 1);
 
 	// Setup cached read/write indices
 	controller->rirb_read_pos = 1;
 	controller->corb_write_pos = 0;
 
 	// Gentlemen, start your engines...
-	controller->Write8(HDAC_CORB_CONTROL,
+	controller->ReadModifyWrite8(HDAC_CORB_CONTROL,
+		HDAC_CORB_CONTROL_MASK,
 		CORB_CONTROL_RUN | CORB_CONTROL_MEMORY_ERROR_INTR);
-	controller->Write8(HDAC_RIRB_CONTROL, RIRB_CONTROL_DMA_ENABLE
-		| RIRB_CONTROL_OVERRUN_INTR | RIRB_CONTROL_RESPONSE_INTR);
+	controller->ReadModifyWrite8(HDAC_RIRB_CONTROL,
+		HDAC_RIRB_CONTROL_MASK,
+		RIRB_CONTROL_DMA_ENABLE | RIRB_CONTROL_OVERRUN_INTR
+		| RIRB_CONTROL_RESPONSE_INTR);
 
 	return B_OK;
 }
@@ -688,6 +767,11 @@ hda_stream_setup_buffers(hda_audio_group* audioGroup, hda_stream* stream,
 
 	phys_addr_t bufferPhysicalAddress = pe.address;
 
+	if (!stream->controller->dma_snooping) {
+		vm_set_area_memory_type(stream->buffer_area,
+			bufferPhysicalAddress, B_MTR_UC);
+	}
+
 	dprintf("%s(%s): Allocated %lu bytes for %ld buffers\n", __func__, desc,
 		alloc, stream->num_buffers);
 
@@ -721,6 +805,11 @@ hda_stream_setup_buffers(hda_audio_group* audioGroup, hda_stream* stream,
 	}
 
 	stream->physical_buffer_descriptors = pe.address;
+
+	if (!stream->controller->dma_snooping) {
+		vm_set_area_memory_type(stream->buffer_descriptors_area,
+			stream->physical_buffer_descriptors, B_MTR_UC);
+	}
 
 	dprintf("%s(%s): Allocated %ld bytes for %ld BDLEs\n", __func__, desc,
 		alloc, bdlCount);
@@ -921,26 +1010,48 @@ hda_hw_init(hda_controller* controller)
 	// TCSEL is reset to TC0 (clear 0-2 bits)
 	update_pci_register(controller, PCI_HDA_TCSEL, PCI_HDA_TCSEL_MASK, 0, 1);
 
+	controller->dma_snooping = false;
+
 	if ((quirks & HDA_QUIRK_SNOOP) != 0) {
 		switch (controller->pci_info.vendor_id) {
 			case PCI_VENDOR_NVIDIA:
-				update_pci_register(controller, NVIDIA_HDA_TRANSREG,
-					NVIDIA_HDA_TRANSREG_MASK, NVIDIA_HDA_ENABLE_COHBITS, 1);
-				update_pci_register(controller, NVIDIA_HDA_ISTRM_COH,
-					~NVIDIA_HDA_ENABLE_COHBIT, NVIDIA_HDA_ENABLE_COHBIT, 1);
-				update_pci_register(controller, NVIDIA_HDA_OSTRM_COH,
-					~NVIDIA_HDA_ENABLE_COHBIT, NVIDIA_HDA_ENABLE_COHBIT, 1);
+			{
+				controller->dma_snooping = update_pci_register(controller,
+					NVIDIA_HDA_TRANSREG, NVIDIA_HDA_TRANSREG_MASK,
+					NVIDIA_HDA_ENABLE_COHBITS, 1, true);
+				if (!controller->dma_snooping)
+					break;
+
+				controller->dma_snooping = update_pci_register(controller,
+					NVIDIA_HDA_ISTRM_COH, ~NVIDIA_HDA_ENABLE_COHBIT,
+					NVIDIA_HDA_ENABLE_COHBIT, 1, true);
+				if (!controller->dma_snooping)
+					break;
+
+				controller->dma_snooping = update_pci_register(controller,
+					NVIDIA_HDA_OSTRM_COH, ~NVIDIA_HDA_ENABLE_COHBIT,
+					NVIDIA_HDA_ENABLE_COHBIT, 1, true);
+
 				break;
+			}
+
 			case PCI_VENDOR_AMD:
-				update_pci_register(controller, ATI_HDA_MISC_CNTR2,
-					ATI_HDA_MISC_CNTR2_MASK, ATI_HDA_ENABLE_SNOOP, 1);
+			{
+				controller->dma_snooping = update_pci_register(controller,
+					ATI_HDA_MISC_CNTR2, ATI_HDA_MISC_CNTR2_MASK,
+					ATI_HDA_ENABLE_SNOOP, 1, true);
 				break;
+			}
+
 			case PCI_VENDOR_INTEL:
-				update_pci_register(controller, INTEL_SCH_HDA_DEVC,
-					~INTEL_SCH_HDA_DEVC_SNOOP, 0, 2);
+				controller->dma_snooping = update_pci_register(controller,
+					INTEL_SCH_HDA_DEVC, ~INTEL_SCH_HDA_DEVC_SNOOP, 0, 2, true);
 				break;
 		}
 	}
+
+	dprintf("hda: DMA snooping: %s\n",
+		controller->dma_snooping ? "yes" : "no");
 
 	capabilities = controller->Read16(HDAC_GLOBAL_CAP);
 	controller->num_input_streams = GLOBAL_CAP_INPUT_STREAMS(capabilities);
@@ -974,7 +1085,7 @@ hda_hw_init(hda_controller* controller)
 	// them, as we want to use the STATE_STATUS register to identify
 	// available codecs. We'd have to clear that register in the interrupt
 	// handler to 'ack' the codec change.
-	controller->Write16(HDAC_WAKE_ENABLE, 0x0);
+	controller->ReadModifyWrite16(HDAC_WAKE_ENABLE, HDAC_WAKE_ENABLE_MASK, 0);
 
 	// Enable controller interrupts
 	controller->Write32(HDAC_INTR_CONTROL, INTR_CONTROL_GLOBAL_ENABLE

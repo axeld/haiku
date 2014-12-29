@@ -161,6 +161,11 @@ get_next_page_table()
 static uint32*
 add_page_table(addr_t base)
 {
+	if (gKernelArgs.arch_args.num_pgtables == MAX_BOOT_PTABLES) {
+		panic("gKernelArgs.arch_args.pgtables overflow");
+		return NULL;
+	}
+
 	base = ROUNDDOWN(base, B_PAGE_SIZE * 1024);
 
 	// Get new page table and clear it out
@@ -207,7 +212,7 @@ unmap_page(addr_t virtualAddress)
 		/ (B_PAGE_SIZE * 1024)] & 0xfffff000);
 	pageTable[(virtualAddress % (B_PAGE_SIZE * 1024)) / B_PAGE_SIZE] = 0;
 
-	asm volatile("invlpg (%0)" : : "r" (virtualAddress));
+	asm volatile("invlpg (%0)" : : "r" (virtualAddress) : "memory");
 }
 
 
@@ -252,7 +257,7 @@ map_page(addr_t virtualAddress, addr_t physicalAddress, uint32 flags)
 
 	pageTable[tableEntry] = physicalAddress | flags;
 
-	asm volatile("invlpg (%0)" : : "r" (virtualAddress));
+	asm volatile("invlpg (%0)" : : "r" (virtualAddress) : "memory");
 
 	TRACE("map_page: done\n");
 }
@@ -538,6 +543,11 @@ mmu_init_for_kernel(void)
 {
 	TRACE("mmu_init_for_kernel\n");
 
+	STATIC_ASSERT(BOOT_GDT_SEGMENT_COUNT > KERNEL_CODE_SEGMENT
+		&& BOOT_GDT_SEGMENT_COUNT > KERNEL_DATA_SEGMENT
+		&& BOOT_GDT_SEGMENT_COUNT > USER_CODE_SEGMENT
+		&& BOOT_GDT_SEGMENT_COUNT > USER_DATA_SEGMENT);
+
 	// set up a new gdt
 
 	// put standard segment descriptors in GDT
@@ -643,8 +653,9 @@ mmu_init(void)
 	gKernelArgs.cpu_kstack[0].size = KERNEL_STACK_SIZE
 		+ KERNEL_STACK_GUARD_PAGES * B_PAGE_SIZE;
 
-	TRACE("kernel stack at 0x%lx to 0x%lx\n", gKernelArgs.cpu_kstack[0].start,
-		gKernelArgs.cpu_kstack[0].start + gKernelArgs.cpu_kstack[0].size);
+	TRACE("kernel stack at 0x%" B_PRIx64 " to 0x%" B_PRIx64 "\n",
+		gKernelArgs.cpu_kstack[0].start, gKernelArgs.cpu_kstack[0].start
+		+ gKernelArgs.cpu_kstack[0].size);
 
 	extended_memory *extMemoryBlock;
 	uint32 extMemoryCount = get_memory_map(&extMemoryBlock);

@@ -19,7 +19,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+#include <strings.h>
 
 #include <Alert.h>
 #include <Application.h>
@@ -220,6 +220,10 @@ ScreenWindow::ScreenWindow(ScreenSettings* settings)
 	fMonitorInfo = new BStringView("monitor info", "");
 	fMonitorInfo->SetAlignment(B_ALIGN_CENTER);
 	screenBox->AddChild(fMonitorInfo);
+
+	fDeviceInfo = new BStringView("monitor info", "");
+	fDeviceInfo->SetAlignment(B_ALIGN_CENTER);
+	screenBox->AddChild(fDeviceInfo);
 
 	fMonitorView = new MonitorView(BRect(0.0, 0.0, 80.0, 80.0),
 		"monitor", screen.Frame().IntegerWidth() + 1,
@@ -511,7 +515,7 @@ ScreenWindow::ScreenWindow(ScreenSettings* settings)
 	fApplyButton->SetEnabled(false);
 	BLayoutBuilder::Group<>(outerControlsView)
 		.AddGlue()
-			.AddGroup(B_HORIZONTAL)
+		.AddGroup(B_HORIZONTAL)
 			.AddGlue()
 			.Add(fApplyButton);
 
@@ -521,11 +525,11 @@ ScreenWindow::ScreenWindow(ScreenSettings* settings)
 
 	BLayoutBuilder::Group<>(this, B_VERTICAL, B_USE_DEFAULT_SPACING)
 		.AddGroup(B_HORIZONTAL)
-			.AddGroup(B_VERTICAL, 0)
+			.AddGroup(B_VERTICAL, 0, 1)
 				.AddStrut(floorf(controlsBox->TopBorderOffset()) - 1)
 				.Add(screenBox)
 				.End()
-			.Add(controlsBox)
+			.Add(controlsBox, 2)
 			.End()
 		.AddGroup(B_HORIZONTAL, B_USE_DEFAULT_SPACING)
 			.Add(fRevertButton)
@@ -1255,6 +1259,25 @@ ScreenWindow::_UpdateMonitor()
 			fMonitorInfo->Hide();
 	}
 
+	// Add info about the graphics device
+
+	accelerant_device_info deviceInfo;
+
+	if (fScreenMode.GetDeviceInfo(deviceInfo) == B_OK) {
+		BString deviceString;
+
+		if (deviceInfo.name[0] && deviceInfo.chipset[0]) {
+			deviceString.SetToFormat("%s (%s)", deviceInfo.name,
+				deviceInfo.chipset);
+		} else if (deviceInfo.name[0] || deviceInfo.chipset[0]) {
+			deviceString
+				= deviceInfo.name[0] ? deviceInfo.name : deviceInfo.chipset;
+		}
+
+		fDeviceInfo->SetText(deviceString);
+	}
+
+
 	char text[512];
 	size_t length = 0;
 	text[0] = 0;
@@ -1279,23 +1302,7 @@ ScreenWindow::_UpdateMonitor()
 				&& length < sizeof(text)) {
 				length += snprintf(text + length, sizeof(text) - length,
 					" (%u/%u)", info.produced.week, info.produced.year);
-	 		}
-		}
-	}
-
-	// Add info about the graphics device
-
-	accelerant_device_info deviceInfo;
-	if (fScreenMode.GetDeviceInfo(deviceInfo) == B_OK
-		&& length < sizeof(text)) {
-		if (deviceInfo.name[0] && deviceInfo.chipset[0]) {
-			length += snprintf(text + length, sizeof(text) - length,
-				"%s%s (%s)", length != 0 ? "\n\n" : "", deviceInfo.name,
-				deviceInfo.chipset);
-		} else if (deviceInfo.name[0] || deviceInfo.chipset[0]) {
-			length += snprintf(text + length, sizeof(text) - length,
-				"%s%s", length != 0 ? "\n\n" : "", deviceInfo.name[0]
-					? deviceInfo.name : deviceInfo.chipset);
+			}
 		}
 	}
 

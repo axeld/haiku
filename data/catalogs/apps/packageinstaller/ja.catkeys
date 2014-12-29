@@ -1,4 +1,4 @@
-1	japanese	x-vnd.Haiku-PackageInstaller	2033288398
+1	japanese	x-vnd.Haiku-PackageInstaller	3672759664
 Install to:	PackageView		インストール先:
 OK	PackageView		OK
 Accept	PackageTextViewer		承認
@@ -23,7 +23,6 @@ Install %name%	PackageView		%name% をインストール
 Stop	PackageStatus		中止
 Other…	PackageView		他の場所…
 No installation type selected	PackageView		インストールタイプが選択されていません
-The symbolic link named '%s' already exists in the give path.\nReplace the link with the one from this package or skip it?	PackageView		シンボリックリンク '%s' がすでにパスに存在します。\nリンクををパッケージの物と置き換えますか、またはスキップしますか?
 Installing files and folders	PackageInstall		ファイルとフォルダーをインストールしています
 Package installer	PackageView		パッケージインストーラー
 Skip all	PackageView		すべてスキップ
@@ -47,7 +46,7 @@ Decline	PackageTextViewer		断る
 The file named '%s' already exits in the given path.\nReplace the file with the one from this package or skip it?	PackageView		ファイル '%s' がすでにパスに存在します。\nファイルをパッケージの物と置き換えますか、またはスキップしますか?
 All existing files will be skipped?	PackageView		既存のファイルをすべてスキップしますか?
 Continue	PackageInfo		続ける
-%index% of %total%	PackageInstall		%index%  / %total%
+%index% of %total%	PackageInstall		%index% / %total%
 %.1f KiB	PackageView		%.1f KiB
 Abort	PackageInfo		中断
 PackageInstaller	System name		PackageInstaller
@@ -55,6 +54,7 @@ Abort	PackageInstall		中断
 %name% (%size%)	PackageView		%name% (%size%)
 Continue	PackageTextViewer		続ける
 Begin	PackageView		開始
+The symbolic link named '%s' already exists in the given path.\nReplace the link with the one from this package or skip it?	PackageView		'%s' で指定されたシンボリックリンクはすでに与えられたパスに存在します。\nリンクをパッケージからのものに置き換えますか、またはスキップしますか?
 Replace	PackageView		置き換える
 Installation progress	PackageView		インストール状況
 The package file is not readable.\nOne of the possible reasons for this might be that the requested file is not a valid BeOS .pkg package.	PackageView		パッケージファイルを読めません。\n考えられる原因のひとつとして、要求されたファイルが正しい BeOS .pkg パッケージで無いことが考えられます。

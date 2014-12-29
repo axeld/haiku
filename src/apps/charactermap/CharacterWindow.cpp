@@ -15,6 +15,7 @@
 #include <Catalog.h>
 #include <File.h>
 #include <FindDirectory.h>
+#include <Font.h>
 #include <LayoutBuilder.h>
 #include <ListView.h>
 #include <Menu.h>
@@ -171,9 +172,18 @@ CharacterWindow::CharacterWindow()
 
 	const char* family;
 	const char* style;
+	BString displayName;
+	
 	if (settings.FindString("font family", &family) == B_OK
 		&& settings.FindString("font style", &style) == B_OK) {
 		_SetFont(family, style);
+		displayName << family << " " << style; 
+	} else {
+		font_family currentFontFamily;
+		font_style currentFontStyle;
+		fCharacterView->CharacterFont().GetFamilyAndStyle(&currentFontFamily,
+			&currentFontStyle);
+		displayName << currentFontFamily << " " << currentFontStyle;
 	}
 
 	int32 fontSize;
@@ -193,7 +203,7 @@ CharacterWindow::CharacterWindow()
 		fCharacterView, 0, false, true);
 
 	fFontSizeSlider = new FontSizeSlider("fontSizeSlider",
-		B_TRANSLATE("Font size:"),
+		displayName,
 		new BMessage(kMsgFontSizeChanged), kMinFontSize, kMaxFontSize);
 	fFontSizeSlider->SetValue(fontSize);
 
@@ -201,6 +211,18 @@ CharacterWindow::CharacterWindow()
 	fCodeView->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED,
 		fCodeView->PreferredSize().Height()));
 
+	// set minimum width for character pane to prevent UI
+	// from jumping when longer code strings are displayed.
+	// use 'w' character for sizing as it's likely the widest
+	// character for a Latin font.  40 characters is a little
+	// wider than needed so hopefully this covers other 
+	// non-Latin fonts that may be wider.
+	BFont viewFont;
+	fCodeView->GetFont(&viewFont);
+	fCharacterView->SetExplicitMinSize(BSize(viewFont.StringWidth(
+		"w") * 40,
+		B_SIZE_UNSET));
+		
 	BLayoutBuilder::Group<>(this, B_VERTICAL)
 		.Add(menuBar)
 		.AddGroup(B_HORIZONTAL)
@@ -243,7 +265,8 @@ CharacterWindow::CharacterWindow()
 #endif
 	menuBar->AddItem(menu);
 
-	menuBar->AddItem(_CreateFontMenu());
+	fFontMenu = _CreateFontMenu();
+	menuBar->AddItem(fFontMenu);
 
 	AddCommonFilter(new EscapeMessageFilter(kMsgClearFilter));
 	AddCommonFilter(new RedirectUpAndDownFilter(fUnicodeBlockView));
@@ -252,6 +275,8 @@ CharacterWindow::CharacterWindow()
 	fUnicodeBlockView->SetTarget(this);
 
 	fFilterControl->MakeFocus();
+	
+	fUnicodeBlockView->SelectBlockForCharacter(0);
 }
 
 
@@ -319,6 +344,8 @@ CharacterWindow::MessageReceived(BMessage* message)
 
 			fGlyphView->SetText(glyph);
 			fCodeView->SetText(text);
+			
+			fUnicodeBlockView->SelectBlockForCharacter(character);
 			break;
 		}
 
@@ -342,6 +369,12 @@ CharacterWindow::MessageReceived(BMessage* message)
 				fSelectedFontItem = item;
 
 				_SetFont(item->Menu()->Name(), item->Label());
+				
+				BString displayName;
+				displayName << item->Menu()->Name() << " " << item->Label();
+			
+				fFontSizeSlider->SetLabel(displayName);
+				
 				item = item->Menu()->Superitem();
 				item->SetMarked(true);
 			}
@@ -500,7 +533,22 @@ BMenu*
 CharacterWindow::_CreateFontMenu()
 {
 	BMenu* menu = new BMenu(B_TRANSLATE("Font"));
+
+	_UpdateFontMenu(menu);
+
+	return menu;
+}
+
+
+void
+CharacterWindow::_UpdateFontMenu(BMenu* menu)
+{
 	BMenuItem* item;
+
+	while (menu->CountItems() > 0) {
+		item = menu->RemoveItem(static_cast<int32>(0));
+		delete(item);
+	}
 
 	font_family currentFamily;
 	font_style currentStyle;
@@ -538,6 +586,13 @@ CharacterWindow::_CreateFontMenu()
 
 	item = menu->FindItem(currentFamily);
 	item->SetMarked(true);
-
-	return menu;
 }
+
+
+void CharacterWindow::MenusBeginning()
+{
+	if (update_font_families(false) == true) {
+		_UpdateFontMenu(fFontMenu);
+	}	
+}
+

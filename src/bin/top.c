@@ -16,8 +16,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <OS.h>
-#include <termcap.h>
 #include <termios.h>
+
+#include "termcap.h"
 
 static const char IDLE_NAME[] = "idle thread ";
 static bigtime_t lastMeasure = 0;
@@ -361,7 +362,7 @@ gather(
 	team_info	tm;
 	thread_time_list_t times;
 	int i;
-	system_info info;
+	//system_info info;
 	bigtime_t	oldLastMeasure;
 
 	i = 0;

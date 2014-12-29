@@ -1,4 +1,5 @@
-1	finnish	x-vnd.Haiku-CodyCam	2416864674
+1	finnish	x-vnd.Haiku-CodyCam	2193838145
+Upload…	VideoConsumer.cpp		Kopioi palvelimelle...
 Capturing Image…	VideoConsumer.cpp		Kaapataan kuva…
 Every 30 seconds	CodyCam		Joka 30. sekunti
 File name:	CodyCam		Tiedostonimi:
@@ -32,7 +33,6 @@ Output	CodyCam		Tuloste
 Every 15 minutes	CodyCam		Joka 15. minuutti
 Cannot find an available video stream	CodyCam		Käytettävissä olevan videovirran löytäminen epäonnistui
 Can't find an available connection to the video window	CodyCam		Käytettävissä olevan yhteyden löytäminen videoikkunaan epäonnistui
-Transmitting…	VideoConsumer.cpp		Siirretään…
 Cannot get a time source	CodyCam		Aikalähteen hakeminen epäonnistui
 Every 8 hours	CodyCam		Joka 8. tunti
 Rename failed	VideoConsumer.cpp		Uudelleennimeäminen epäonnistui
@@ -62,9 +62,9 @@ upload client name expected	CodyCam		odotettiin lähetysasiakasnimeä
 SFTP	CodyCam		SFTP
 Connected…	VideoConsumer.cpp		Yhdistetty…
 PASS <suppressed>  (real password sent)\n	FtpClient		PASS <vaimennettu>  (oikea salasana lähetetty)\n
+File upload failed	VideoConsumer.cpp		Tiedoston kopioiminen palvelimelle epäonnistui
 Every 5 minutes	CodyCam		Joka 5. minuutti
 read: %d\n	SftpClient		luettu: %d\n
-OK	CodyCam		Valmis
 Capture controls	CodyCam		Kaappausohjaimet
 Every hour	CodyCam		Joka tunti
 Cannot connect the video source to the video window	CodyCam		Videolähteen yhdistäminen videoikkunaan epäonnistui
@@ -84,7 +84,6 @@ reply: %d, %d\n	FtpClient		vastaus: %d, %d\n
 Cannot find the media roster	CodyCam		Medialuettelon löytäminen epäonnistui
 Every 4 hours	CodyCam		Joka 4. tunti
 FTP	CodyCam		FTP
-File transmission failed	VideoConsumer.cpp		Tiedostonsiirto epäonnistui
 Cannot seek time source!	CodyCam		Aikalähteen etsiminen epäonnistui!
 File	CodyCam		Tiedosto
 Image Format Menu	CodyCam		Kuvamuotovalikko

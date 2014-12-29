@@ -141,6 +141,9 @@ public:
 								uint32* _offset = NULL);
 	static	status_t		Identify(int fd, disk_super_block* superBlock);
 
+private:
+			status_t		_EraseUnusedBootBlock();
+
 protected:
 			fs_volume*		fVolume;
 			int				fDevice;

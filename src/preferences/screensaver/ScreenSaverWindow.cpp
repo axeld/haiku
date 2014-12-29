@@ -7,12 +7,14 @@
  *		Jérôme Duval, jerome.duval@free.fr
  *		Michael Phipps
  *		John Scipione, jscipione@gmail.com
+ *		Puck Meerburg, puck@puckipedia.nl
  */
 
 
 #include "ScreenSaverWindow.h"
 
 #include <stdio.h>
+#include <strings.h>
 
 #include <Alignment.h>
 #include <Application.h>
@@ -52,7 +54,7 @@
 #include "PreviewView.h"
 #include "ScreenCornerSelector.h"
 #include "ScreenSaverItem.h"
-
+#include "ScreenSaverShared.h"
 
 #undef B_TRANSLATION_CONTEXT
 #define B_TRANSLATION_CONTEXT "ScreenSaver"
@@ -63,7 +65,6 @@ const uint32 kMinSettingsWidth = 230;
 const uint32 kMinSettingsHeight = 120;
 
 const int32 kMsgSaverSelected = 'SSEL';
-const int32 kMsgTestSaver = 'TEST';
 const int32 kMsgPasswordCheckBox = 'PWCB';
 const int32 kMsgRunSliderChanged = 'RSch';
 const int32 kMsgRunSliderUpdate = 'RSup';
@@ -255,7 +256,7 @@ void
 TimeSlider::_TimeToString(bigtime_t useconds, BString& string)
 {
 	BDurationFormat formatter;
-	formatter.Format(0, useconds, &string);
+	formatter.Format(string, 0, useconds);
 }
 
 
@@ -638,7 +639,8 @@ ModulesView::MessageReceived(BMessage* message)
 
 			be_roster->StartWatching(BMessenger(this, Looper()),
 				B_REQUEST_QUIT);
-			if (be_roster->Launch(SCREEN_BLANKER_SIG, &fSettings.Message(),
+			BMessage message(kMsgTestSaver);
+			if (be_roster->Launch(SCREEN_BLANKER_SIG, &message,
 					&fScreenSaverTestTeam) == B_OK) {
 				break;
 			}
@@ -655,7 +657,7 @@ ModulesView::MessageReceived(BMessage* message)
 			BEntry entry(path.Path());
 			entry_ref ref;
 			if (entry.GetRef(&ref) == B_OK) {
-				be_roster->Launch(&ref, &fSettings.Message(),
+				be_roster->Launch(&ref, &message,
 					&fScreenSaverTestTeam);
 			}
 			break;
@@ -827,10 +829,16 @@ ModulesView::_OpenSaver()
 	BScreenSaver* saver = ScreenSaver();
 	if (saver != NULL && fSettingsView != NULL) {
 		saver->StartConfig(fSettingsView);
-		if (saver->StartSaver(view, true) == B_OK)
+		if (saver->StartSaver(view, true) == B_OK) {
+			fPreviewView->HideNoPreview();
 			fSaverRunner->Run();
-		else
+		} else
 			fPreviewView->ShowNoPreview();
+	} else {
+		// Failed to load OR this is the "Darkness" screensaver. Show a black
+		// preview (this is what will happen in both cases when screen_blanker
+		// runs).
+		fPreviewView->HideNoPreview();
 	}
 
 	if (fSettingsView->ChildAt(0) == NULL) {
@@ -886,7 +894,7 @@ TabView::MouseDown(BPoint where)
 
 ScreenSaverWindow::ScreenSaverWindow()
 	:
-	BDirectWindow(BRect(50, 50, 496, 375),
+	BWindow(BRect(50, 50, 496, 375),
 		B_TRANSLATE_SYSTEM_NAME("ScreenSaver"), B_TITLED_WINDOW,
 		B_ASYNCHRONOUS_CONTROLS | B_AUTO_UPDATE_SIZE_LIMITS)
 {
@@ -958,15 +966,6 @@ ScreenSaverWindow::~ScreenSaverWindow()
 
 
 void
-ScreenSaverWindow::DirectConnected(direct_buffer_info* info)
-{
-	BScreenSaver* saver = fModulesView->ScreenSaver();
-	if (saver != NULL)
-		saver->DirectConnected(info);
-}
-
-
-void
 ScreenSaverWindow::MessageReceived(BMessage* message)
 {
 	switch (message->what) {
@@ -981,7 +980,7 @@ ScreenSaverWindow::MessageReceived(BMessage* message)
 			break;
 
 		default:
-			BDirectWindow::MessageReceived(message);
+			BWindow::MessageReceived(message);
 	}
 }
 

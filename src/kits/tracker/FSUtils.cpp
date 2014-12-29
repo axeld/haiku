@@ -47,7 +47,7 @@ respective holders. All rights reserved.
 
 #include <ctype.h>
 #include <errno.h>
-#include <string.h>
+#include <strings.h>
 #include <unistd.h>
 
 #include <Alert.h>
@@ -58,6 +58,7 @@ respective holders. All rights reserved.
 #include <Entry.h>
 #include <FindDirectory.h>
 #include <Locale.h>
+#include <MessageFormat.h>
 #include <NodeInfo.h>
 #include <Path.h>
 #include <Roster.h>
@@ -1243,8 +1244,9 @@ LowLevelCopy(BEntry* srcEntry, StatStruct* srcStat, BDirectory* destDir,
 		char linkpath[MAXPATHLEN];
 
 		ThrowOnError(srcLink.SetTo(srcEntry));
-		ThrowIfNotSize(srcLink.ReadLink(linkpath, MAXPATHLEN-1));
-
+		ssize_t size = srcLink.ReadLink(linkpath, MAXPATHLEN - 1);
+		if (size < 0)
+			ThrowOnError(size);
 		ThrowOnError(destDir->CreateSymLink(destName, linkpath, &newLink));
 
 		node_ref destNodeRef;
@@ -1453,7 +1455,7 @@ CopyFolder(BEntry* srcEntry, BDirectory* destDir,
 	srcEntry->GetRef(&ref);
 
 	char destName[B_FILE_NAME_LENGTH];
-	strcpy(destName, ref.name);
+	strlcpy(destName, ref.name, sizeof(destName));
 
 	loopControl->UpdateStatus(ref.name, ref, 1024, true);
 
@@ -1621,7 +1623,7 @@ MoveItem(BEntry* entry, BDirectory* destDir, BPoint* loc, uint32 moveMode,
 		if (moveMode == kCreateLink || moveMode == kCreateRelativeLink) {
 			PoseInfo poseInfo;
 			char name[B_FILE_NAME_LENGTH];
-			strcpy(name, ref.name);
+			strlcpy(name, ref.name, sizeof(name));
 
 			BSymLink link;
 			BString suffix(" ");
@@ -1762,10 +1764,11 @@ MoveItem(BEntry* entry, BDirectory* destDir, BPoint* loc, uint32 moveMode,
 		return error.fError;
 	} catch (FailWithAlert error) {
 		BString buffer(error.fString);
-		if (error.fName)
+		if (error.fName != NULL)
 			buffer.ReplaceFirst("%name", error.fName);
 		else
-			buffer <<  error.fString;
+			buffer << error.fString;
+
 		BAlert* alert = new BAlert("", buffer.String(), B_TRANSLATE("OK"),
 			0, 0, B_WIDTH_AS_USUAL, B_WARNING_ALERT);
 		alert->SetFlags(alert->Flags() | B_CLOSE_ON_ESCAPE);
@@ -1955,7 +1958,7 @@ MoveEntryToTrash(BEntry* entry, BPoint* loc, Undo &undo)
 
 	// make sure name doesn't conflict with anything in trash already
 	char name[B_FILE_NAME_LENGTH];
-	strcpy(name, ref.name);
+	strlcpy(name, ref.name, sizeof(name));
 	if (trash_dir.Contains(name)) {
 		BString suffix(" ");
 		suffix << B_TRANSLATE_COMMENT("copy", "filename copy"),
@@ -2049,10 +2052,13 @@ FileStatToString(StatStruct* stat, char* buffer, int32 length)
 	tm timeData;
 	localtime_r(&stat->st_mtime, &timeData);
 
+	BString size;
+	static BMessageFormat format(
+		B_TRANSLATE("{0, plural, one{# byte} other{# bytes}}"));
+	format.Format(size, stat->st_size);
+	uint32 pos = snprintf(buffer, length, "\n\t(%s ", size.String());
 
-	uint32 pos = sprintf(buffer,
-		B_TRANSLATE("\n\t(%Ld bytes, "), stat->st_size);
-	strftime(buffer + pos, length - pos,"%b %d %Y, %I:%M:%S %p)", &timeData);
+	strftime(buffer + pos, length - pos, "%b %d %Y, %I:%M:%S %p)", &timeData);
 }
 
 
@@ -2484,6 +2490,9 @@ CalcItemsAndSize(CopyLoopControl* loopControl,
 status_t
 FSGetTrashDir(BDirectory* trashDir, dev_t dev)
 {
+	if (trashDir == NULL)
+		return B_BAD_VALUE;
+
 	BVolume volume(dev);
 	status_t result = volume.InitCheck();
 	if (result != B_OK)
@@ -2495,46 +2504,51 @@ FSGetTrashDir(BDirectory* trashDir, dev_t dev)
 		return result;
 
 	result = trashDir->SetTo(path.Path());
-	if (result == B_OK) {
-		// Directory already exists, we're done
-		return B_OK;
+	if (result != B_OK) {
+		// Trash directory does not exist yet, create it.
+		result = create_directory(path.Path(), 0755);
+		if (result != B_OK)
+			return result;
+
+		result = trashDir->SetTo(path.Path());
+		if (result != B_OK)
+			return result;
+
+		// make Trash directory invisible
+		StatStruct sbuf;
+		trashDir->GetStat(&sbuf);
+
+		PoseInfo poseInfo;
+		poseInfo.fInvisible = true;
+		poseInfo.fInitedDirectory = sbuf.st_ino;
+		trashDir->WriteAttr(kAttrPoseInfo, B_RAW_TYPE, 0, &poseInfo,
+			sizeof(PoseInfo));
 	}
 
-	// The trash directory does not exist yet - change that!
-
-	result = create_directory(path.Path(), 0755);
-	if (result != B_OK)
-		return result;
-
-	result = trashDir->SetTo(path.Path());
-	if (result != B_OK)
-		return result;
-
-	// make trash invisible
-	StatStruct sbuf;
-	trashDir->GetStat(&sbuf);
-
-	PoseInfo poseInfo;
-	poseInfo.fInvisible = true;
-	poseInfo.fInitedDirectory = sbuf.st_ino;
-	trashDir->WriteAttr(kAttrPoseInfo, B_RAW_TYPE, 0, &poseInfo,
-		sizeof(PoseInfo));
-
-	// set trash icon
+	// set Trash icons (if they haven't already been set)
+	attr_info attrInfo;
 	size_t size;
-	const void* data
-		= GetTrackerResources()->LoadResource('ICON', R_TrashIcon, &size);
-	if (data != NULL)
-		trashDir->WriteAttr(kAttrLargeIcon, 'ICON', 0, data, size);
+	const void* data;
+	if (trashDir->GetAttrInfo(kAttrLargeIcon, &attrInfo) == B_ENTRY_NOT_FOUND) {
+		data = GetTrackerResources()->LoadResource('ICON', R_TrashIcon, &size);
+		if (data != NULL)
+			trashDir->WriteAttr(kAttrLargeIcon, 'ICON', 0, data, size);
+	}
 
-	data = GetTrackerResources()->LoadResource('MICN', R_TrashIcon, &size);
-	if (data != NULL)
-		trashDir->WriteAttr(kAttrMiniIcon, 'MICN', 0, data, size);
+	if (trashDir->GetAttrInfo(kAttrMiniIcon, &attrInfo) == B_ENTRY_NOT_FOUND) {
+		data = GetTrackerResources()->LoadResource('MICN', R_TrashIcon, &size);
+		if (data != NULL)
+			trashDir->WriteAttr(kAttrMiniIcon, 'MICN', 0, data, size);
+	}
 
-	data = GetTrackerResources()->LoadResource(B_VECTOR_ICON_TYPE,
-		R_TrashIcon, &size);
-	if (data != NULL)
-		trashDir->WriteAttr(kAttrIcon, B_VECTOR_ICON_TYPE, 0, data, size);
+#ifdef __HAIKU__
+	if (trashDir->GetAttrInfo(kAttrIcon, &attrInfo) == B_ENTRY_NOT_FOUND) {
+		data = GetTrackerResources()->LoadResource(B_VECTOR_ICON_TYPE,
+			R_TrashIcon, &size);
+		if (data != NULL)
+			trashDir->WriteAttr(kAttrIcon, B_VECTOR_ICON_TYPE, 0, data, size);
+	}
+#endif // __HAIKU__
 
 	return B_OK;
 }
@@ -2550,12 +2564,15 @@ FSGetDeskDir(BDirectory* deskDir, dev_t)
 	// than /boot, redirect to FSGetDeskDir ignoring the volume argument
 	return FSGetDeskDir(deskDir);
 }
-#endif
+#endif // __GNUC__ && __GNUC__ < 3
 
 
 status_t
 FSGetDeskDir(BDirectory* deskDir)
 {
+	if (deskDir == NULL)
+		return B_BAD_VALUE;
+
 	BPath path;
 	status_t result = find_directory(B_DESKTOP_DIRECTORY, &path, true);
 	if (result != B_OK)
@@ -2565,23 +2582,30 @@ FSGetDeskDir(BDirectory* deskDir)
 	if (result != B_OK)
 		return result;
 
+	// set Desktop icons (if they haven't already been set)
+	attr_info attrInfo;
 	size_t size;
-	const void* data = GetTrackerResources()->
-		LoadResource('ICON', R_DeskIcon, &size);
-	if (data != NULL)
-		deskDir->WriteAttr(kAttrLargeIcon, 'ICON', 0, data, size);
+	const void* data;
+	if (deskDir->GetAttrInfo(kAttrLargeIcon, &attrInfo) == B_ENTRY_NOT_FOUND) {
+		data = GetTrackerResources()->LoadResource('ICON', R_DeskIcon, &size);
+		if (data != NULL)
+			deskDir->WriteAttr(kAttrLargeIcon, 'ICON', 0, data, size);
+	}
 
-	data = GetTrackerResources()->
-		LoadResource('MICN', R_DeskIcon, &size);
-	if (data != NULL)
-		deskDir->WriteAttr(kAttrMiniIcon, 'MICN', 0, data, size);
+	if (deskDir->GetAttrInfo(kAttrMiniIcon, &attrInfo) == B_ENTRY_NOT_FOUND) {
+		data = GetTrackerResources()->LoadResource('MICN', R_DeskIcon, &size);
+		if (data != NULL)
+			deskDir->WriteAttr(kAttrMiniIcon, 'MICN', 0, data, size);
+	}
 
 #ifdef __HAIKU__
-	data = GetTrackerResources()->
-		LoadResource(B_VECTOR_ICON_TYPE, R_DeskIcon, &size);
-	if (data != NULL)
-		deskDir->WriteAttr(kAttrIcon, B_VECTOR_ICON_TYPE, 0, data, size);
-#endif
+	if (deskDir->GetAttrInfo(kAttrIcon, &attrInfo) == B_ENTRY_NOT_FOUND) {
+		data = GetTrackerResources()->LoadResource(B_VECTOR_ICON_TYPE,
+			R_DeskIcon, &size);
+		if (data != NULL)
+			deskDir->WriteAttr(kAttrIcon, B_VECTOR_ICON_TYPE, 0, data, size);
+	}
+#endif // __HAIKU__
 
 	return B_OK;
 }
@@ -2590,12 +2614,12 @@ FSGetDeskDir(BDirectory* deskDir)
 status_t
 FSGetBootDeskDir(BDirectory* deskDir)
 {
-	BVolume	bootVol;
-	BVolumeRoster().GetBootVolume(&bootVol);
+	BVolume bootVolume;
+	BVolumeRoster().GetBootVolume(&bootVolume);
 	BPath path;
 
 	status_t result = find_directory(B_DESKTOP_DIRECTORY, &path, true,
-		&bootVol);
+		&bootVolume);
 	if (result != B_OK)
 		return result;
 
@@ -2746,7 +2770,7 @@ DirectoryMatches(const BEntry* entry, const char* additionalPath,
 extern status_t
 FSFindTrackerSettingsDir(BPath* path, bool autoCreate)
 {
-	status_t result = find_directory (B_USER_SETTINGS_DIRECTORY, path,
+	status_t result = find_directory(B_USER_SETTINGS_DIRECTORY, path,
 		autoCreate);
 	if (result != B_OK)
 		return result;
@@ -3236,8 +3260,10 @@ static status_t
 TrackerOpenWith(const BMessage* refs)
 {
 	BMessage clone(*refs);
-	ASSERT(dynamic_cast<TTracker*>(be_app));
-	ASSERT(clone.what);
+
+	ASSERT(dynamic_cast<TTracker*>(be_app) != NULL);
+	ASSERT(clone.what != 0);
+
 	clone.AddInt32("launchUsingSelector", 0);
 	// runs the Open With window
 	be_app->PostMessage(&clone);
@@ -3261,6 +3287,7 @@ AsynchLaunchBinder(void (*func)(const entry_ref*, const BMessage*, bool on),
 	gLaunchLooper->PostMessage(task);
 }
 
+
 static bool
 SniffIfGeneric(const entry_ref* ref)
 {
@@ -3283,6 +3310,7 @@ SniffIfGeneric(const entry_ref* ref)
 	return true;
 }
 
+
 static void
 SniffIfGeneric(const BMessage* refs)
 {
@@ -3293,6 +3321,7 @@ SniffIfGeneric(const BMessage* refs)
 		SniffIfGeneric(&ref);
 	}
 }
+
 
 static void
 _TrackerLaunchAppWithDocuments(const entry_ref* appRef, const BMessage* refs,
@@ -3323,15 +3352,18 @@ _TrackerLaunchAppWithDocuments(const entry_ref* appRef, const BMessage* refs,
 		// close possible parent window, if specified
 		const node_ref* nodeToClose = 0;
 		ssize_t numBytes;
-		refs->FindData("nodeRefsToClose", B_RAW_TYPE,
-			(const void**)&nodeToClose, &numBytes);
-		if (nodeToClose)
-			dynamic_cast<TTracker*>(be_app)->CloseParent(*nodeToClose);
+		if (refs != NULL && refs->FindData("nodeRefsToClose", B_RAW_TYPE,
+				(const void**)&nodeToClose, &numBytes) == B_OK
+			&& nodeToClose != NULL) {
+			TTracker* tracker = dynamic_cast<TTracker*>(be_app);
+			if (tracker != NULL)
+				tracker->CloseParent(*nodeToClose);
+		}
 	} else {
 		alertString.SetTo(B_TRANSLATE("Could not open \"%name\" (%error). "));
 		alertString.ReplaceFirst("%name", appRef->name);
 		alertString.ReplaceFirst("%error", strerror(error));
-		if (refs && openWithOK && error != B_SHUTTING_DOWN) {
+		if (refs != NULL && openWithOK && error != B_SHUTTING_DOWN) {
 			alertString << B_TRANSLATE_NOCOLLECT(kFindAlternativeStr);
 			BAlert* alert = new BAlert("", alertString.String(),
 				B_TRANSLATE("Cancel"), B_TRANSLATE("Find"), 0,
@@ -3452,9 +3484,12 @@ LoaderErrorDetails(const entry_ref* app, BString &details)
 
 
 static void
-_TrackerLaunchDocuments(const entry_ref* /*doNotUse*/, const BMessage* refs,
+_TrackerLaunchDocuments(const entry_ref*, const BMessage* refs,
 	bool openWithOK)
 {
+	if (refs == NULL)
+		return;
+
 	BMessage copyOfRefs(*refs);
 
 	entry_ref documentRef;
@@ -3678,7 +3713,7 @@ status_t
 TrackerLaunch(const entry_ref* appRef, bool async)
 {
 	if (!async)
-		_TrackerLaunchAppWithDocuments(appRef, 0, false);
+		_TrackerLaunchAppWithDocuments(appRef, NULL, false);
 	else
 		AsynchLaunchBinder(&_TrackerLaunchAppWithDocuments, appRef, 0, false);
 
@@ -3689,9 +3724,9 @@ status_t
 TrackerLaunch(const BMessage* refs, bool async, bool openWithOK)
 {
 	if (!async)
-		_TrackerLaunchDocuments(0, refs, openWithOK);
+		_TrackerLaunchDocuments(NULL, refs, openWithOK);
 	else
-		AsynchLaunchBinder(&_TrackerLaunchDocuments, 0, refs, openWithOK);
+		AsynchLaunchBinder(&_TrackerLaunchDocuments, NULL, refs, openWithOK);
 
 	return B_OK;
 }
@@ -3765,22 +3800,22 @@ FSLaunchUsing(const entry_ref* ref, BMessage* listOfRefs)
 
 
 status_t
-FSLaunchItem(const entry_ref* ref, BMessage* message, int32, bool async)
+FSLaunchItem(const entry_ref* appRef, BMessage* refs, int32, bool async)
 {
-	if (message != NULL)
-		message->what = B_REFS_RECEIVED;
+	if (refs != NULL)
+		refs->what = B_REFS_RECEIVED;
 
-	status_t result = TrackerLaunch(ref, message, async, true);
-	delete message;
+	status_t result = TrackerLaunch(appRef, refs, async, true);
+	delete refs;
 
 	return result;
 }
 
 
 void
-FSLaunchItem(const entry_ref* ref, BMessage* message, int32 workspace)
+FSLaunchItem(const entry_ref* appRef, BMessage* refs, int32 workspace)
 {
-	FSLaunchItem(ref, message, workspace, true);
+	FSLaunchItem(appRef, refs, workspace, true);
 }
 
 

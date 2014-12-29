@@ -12,10 +12,13 @@
 
 #include <iostream>
 
+#include <CardLayout.h>
 #include <Catalog.h>
+#include <GroupLayout.h>
 #include <Point.h>
 #include <Rect.h>
 #include <Size.h>
+#include <StringView.h>
 #include <TextView.h>
 
 #include "Utility.h"
@@ -53,18 +56,38 @@ scale2(int x1, int x2, int y1, int y2, BRect area)
 
 PreviewView::PreviewView(const char* name)
 	:
-	BView(name, B_WILL_DRAW),
+	BView(name, B_WILL_DRAW | B_FULL_UPDATE_ON_RESIZE),
 	fSaverView(NULL),
 	fNoPreview(NULL)
 {
 	SetViewColor(ui_color(B_PANEL_BACKGROUND_COLOR));
 
-	float aspectRatio = 4.0f / 3.0f;
-		// 4:3 monitor
-	float previewWidth = 160.0f;
-	float previewHeight = ceilf(previewWidth / aspectRatio);
+	BGroupLayout* layout = new BGroupLayout(B_VERTICAL);
+	// We draw the "monitor" around the preview, hence the strange insets.
+	layout->SetInsets(7, 6, 8, 12);
+	SetLayout(layout);
 
-	SetExplicitSize(BSize(previewWidth, previewHeight));
+	// A BStringView would be enough, if only it handled word wrapping.
+	fNoPreview = new BTextView("no preview");
+	fNoPreview->SetText(B_TRANSLATE("No preview available"));
+	fNoPreview->SetFontAndColor(be_plain_font, B_FONT_ALL, &kWhite);
+	fNoPreview->MakeEditable(false);
+	fNoPreview->MakeResizable(false);
+	fNoPreview->MakeSelectable(false);
+	fNoPreview->SetViewColor(0, 0, 0);
+	fNoPreview->SetLowColor(0, 0, 0);
+
+	fNoPreview->Hide();
+
+	BView* container = new BView("preview container", 0);
+	container->SetLayout(new BCardLayout());
+	AddChild(container);
+	container->SetViewColor(0, 0, 0);
+	container->SetLowColor(0, 0, 0);
+	container->AddChild(fNoPreview);
+
+	fNoPreview->SetHighColor(255, 255, 255);
+	fNoPreview->SetAlignment(B_ALIGN_CENTER);
 }
 
 
@@ -107,28 +130,22 @@ PreviewView::Draw(BRect updateRect)
 BView*
 PreviewView::AddPreview()
 {
-	BRect rect(scale2(1, 8, 1, 2, Bounds()).InsetBySelf(1.0f, 1.0f));
-	fSaverView = new BView(rect, "preview", B_FOLLOW_NONE, B_WILL_DRAW);
+	fSaverView = new BView("preview", B_WILL_DRAW);
 	fSaverView->SetViewColor(0, 0, 0);
 	fSaverView->SetLowColor(0, 0, 0);
-	AddChild(fSaverView);
+	ChildAt(0)->AddChild(fSaverView);
 
-	BRect textRect(rect);
-	textRect.OffsetTo(-7.0f, 0.0f);
-	textRect.InsetBy(15.0f, 20.0f);
-	fNoPreview = new BTextView(rect, "no preview", textRect, B_FOLLOW_NONE,
-		B_WILL_DRAW);
-	fNoPreview->SetViewColor(0, 0, 0);
-	fNoPreview->SetLowColor(0, 0, 0);
-	fNoPreview->SetFontAndColor(be_plain_font, B_FONT_ALL, &kWhite);
-	fNoPreview->SetText(B_TRANSLATE("No preview available"));
-	fNoPreview->SetAlignment(B_ALIGN_CENTER);
-	fNoPreview->MakeEditable(false);
-	fNoPreview->MakeResizable(false);
-	fNoPreview->MakeSelectable(false);
+	float aspectRatio = 4.0f / 3.0f;
+		// 4:3 monitor
+	float previewWidth = 120.0f;
+	float previewHeight = ceilf(previewWidth / aspectRatio);
 
-	fNoPreview->Hide();
-	fSaverView->AddChild(fNoPreview);
+	fSaverView->SetExplicitSize(BSize(previewWidth, previewHeight));
+	fSaverView->ResizeTo(previewWidth, previewHeight);
+
+	fNoPreview->SetExplicitSize(BSize(previewWidth, previewHeight));
+	fNoPreview->ResizeTo(previewWidth, previewHeight);
+	fNoPreview->SetInsets(0, previewHeight / 3, 0 , 0);
 
 	return fSaverView;
 }
@@ -137,8 +154,10 @@ PreviewView::AddPreview()
 BView*
 PreviewView::RemovePreview()
 {
+	ShowNoPreview();
+
 	if (fSaverView != NULL)
-		RemoveChild(fSaverView);
+		ChildAt(0)->RemoveChild(fSaverView);
 
 	BView* saverView = fSaverView;
 	fSaverView = NULL;
@@ -156,12 +175,12 @@ PreviewView::SaverView()
 void
 PreviewView::ShowNoPreview() const
 {
-	fNoPreview->Show();
+	((BCardLayout*)ChildAt(0)->GetLayout())->SetVisibleItem((int32)0);
 }
 
 
 void
 PreviewView::HideNoPreview() const
 {
-	fNoPreview->Hide();
+	((BCardLayout*)ChildAt(0)->GetLayout())->SetVisibleItem(1);
 }

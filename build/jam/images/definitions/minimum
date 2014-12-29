@@ -3,8 +3,8 @@
 SYSTEM_BIN = [ FFilterByBuildFeatures
 	"["
 	addattr alert arp
-	base64 basename bash bc beep bfsinfo
-	cal cat catattr checkfs checkitout chgrp chmod chop chown chroot cksum clear
+	base64 basename bc beep bfsinfo
+	cat catattr checkfs checkitout chgrp chmod chop chown chroot cksum clear
 	clockconfig cmp collectcatkeys comm compress copyattr cp csplit cut
 	date dc dd desklink df diff diff3 dircolors dirname diskimage draggers
 	driveinfo dstcheck du dumpcatalog
@@ -26,8 +26,8 @@ SYSTEM_BIN = [ FFilterByBuildFeatures
 	query quit
 	rc readlink reindex release renice rlog rm rmattr rmindex rmdir roster
 	route
-	safemode screen_blanker screenmode sdiff setarch setmime settype setversion
-	setvolume seq sha1sum sha256sum shred shuf shutdown sleep
+	safemode screen_blanker screeninfo screenmode sdiff setarch setmime settype
+	setversion setvolume seq sha1sum sha256sum shred shuf shutdown sleep
 	sort split stat strace stty su sum sync sysinfo
 	tac tail tcpdump tcptester tee telnet telnetd test timeout top touch
 	tr traceroute trash true truncate tsort tty
@@ -89,8 +89,7 @@ rule HaikuImageGetSystemLibs
 	return
 		# libs with special grist
 		[ MultiArchDefaultGristFiles libroot.so : revisioned ]
-		$(HAIKU_SHARED_LIBSTDC++_$(TARGET_PACKAGING_ARCH))
-		$(HAIKU_SHARED_LIBSUPC++_$(TARGET_PACKAGING_ARCH))
+		[ Libstdc++ForImage ]
 		# libs with standard grist
 		[ MultiArchDefaultGristFiles [ FFilterByBuildFeatures
 			libbe.so libbsd.so libbnetapi.so
@@ -149,7 +148,6 @@ SYSTEM_NETWORK_PROTOCOLS =
 SYSTEM_ADD_ONS_ACCELERANTS = [ FFilterByBuildFeatures
 	x86,x86_64 @{
 		vesa.accelerant
-		vmware.accelerant
 	}@ # x86,x86_64
 ] ;
 
@@ -178,7 +176,6 @@ SYSTEM_ADD_ONS_DRIVERS_AUDIO_OLD = ;
 SYSTEM_ADD_ONS_DRIVERS_GRAPHICS = [ FFilterByBuildFeatures
 	x86,x86_64 @{
 		vesa
-		vmware
 	}@ # x86,x86_64
 ] ;
 
@@ -198,7 +195,7 @@ SYSTEM_ADD_ONS_DRIVERS_NET = [ FFilterByBuildFeatures
 		rtl8139 rtl81xx
 		sis19x syskonnect
 		via_rhine vt612x
-	}@ # x86_64
+	}@ # x86,x86_64
 
 	etherpci
 	pegasus
@@ -207,14 +204,14 @@ SYSTEM_ADD_ONS_DRIVERS_NET = [ FFilterByBuildFeatures
 	wb840
 
 	# WLAN drivers
-	x86 @{
+	x86,x86_64 @{
 		aironetwifi atheroswifi
 		broadcom43xx
 		iprowifi2100 iprowifi2200 iprowifi3945 iprowifi4965
 		marvell88w8363 marvell88w8335
 		ralinkwifi
 		wavelanwifi
-	}@ # x86
+	}@ # x86,x86_64
 
 	# WWAN drivers
 	#usb_beceemwmx@gpl

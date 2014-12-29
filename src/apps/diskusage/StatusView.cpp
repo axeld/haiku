@@ -17,6 +17,7 @@
 #include <Catalog.h>
 #include <Box.h>
 #include <Button.h>
+#include <MessageFormat.h>
 #include <Node.h>
 #include <String.h>
 #include <StringForSize.h>
@@ -39,13 +40,14 @@ StatusView::StatusView()
 	SetLowColor(kPieBGColor);
 
 	fSizeView = new BStringView(NULL, kEmptyStr);
-	fSizeView->SetExplicitMinSize(BSize(StringWidth(B_TRANSLATE("9999.99 GB")),
+	fSizeView->SetExplicitMinSize(BSize(StringWidth("9999.99 GiB"),
 		B_SIZE_UNSET));
-	fSizeView->SetExplicitMaxSize(BSize(StringWidth(B_TRANSLATE("9999.99 GB")),
+	fSizeView->SetExplicitMaxSize(BSize(StringWidth("9999.99 GiB"),
 		B_SIZE_UNSET));
 
 	char testLabel[256];
-	snprintf(testLabel, sizeof(testLabel), B_TRANSLATE("%d files"),
+	snprintf(testLabel, sizeof(testLabel), B_TRANSLATE_COMMENT("%d files",
+		"For UI layouting only, use the longest plural form for your language"),
 		999999);
 
 	fCountView = new BStringView(NULL, kEmptyStr);
@@ -83,7 +85,7 @@ StatusView::StatusView()
 				.Add(fCountView)
 				.Add(divider2)
 				.Add(fSizeView)
-				.End()			
+				.End()
 			.End()
 		.AddStrut(kSmallHMargin)
 		.Add(fRefreshBtn)
@@ -150,9 +152,10 @@ StatusView::ShowInfo(const FileInfo* info)
 	fSizeView->SetText(label);
 
 	if (info->count > 0) {
-		char label[256];
-		snprintf(label, sizeof(label), (info->count == 1) ?
-			B_TRANSLATE("%d file") : B_TRANSLATE("%d files"), info->count);
+		static BMessageFormat format(B_TRANSLATE("{0, plural, "
+			"one{# file} other{# files}}"));
+		BString label;
+		format.Format(label, info->count);
 		fCountView->SetText(label);
 	} else {
 		fCountView->SetText(kEmptyStr);

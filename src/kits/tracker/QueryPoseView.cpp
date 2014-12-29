@@ -353,7 +353,8 @@ BQueryPoseView::InitDirentIterator(const entry_ref* ref)
 		delta *=  1000000;
 
 		TTracker* tracker = dynamic_cast<TTracker*>(be_app);
-		ASSERT(tracker);
+		ThrowOnAssert(tracker != NULL);
+
 		tracker->MainTaskLoop()->RunLater(
 			NewLockingMemberFunctionObject(&BQueryPoseView::Refresh, this),
 			delta);
@@ -387,14 +388,12 @@ BQueryPoseView::SearchForType() const
 				&buffer);
 		}
 
-		if (buffer.Length()) {
-			TTracker* tracker = dynamic_cast<TTracker*>(be_app);
-			if (tracker) {
-				const ShortMimeInfo* info
-					= tracker->MimeTypes()->FindMimeType(buffer.String());
-				if (info)
-					fSearchForMimeType = info->InternalName();
-			}
+		TTracker* tracker = dynamic_cast<TTracker*>(be_app);
+		if (tracker != NULL && buffer.Length() > 0) {
+			const ShortMimeInfo* info = tracker->MimeTypes()->FindMimeType(
+				buffer.String());
+			if (info != NULL)
+				fSearchForMimeType = info->InternalName();
 		}
 
 		if (!fSearchForMimeType.Length())

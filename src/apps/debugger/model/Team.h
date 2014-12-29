@@ -1,6 +1,6 @@
 /*
  * Copyright 2009, Ingo Weinhold, ingo_weinhold@gmx.de.
- * Copyright 2013, Rene Gollent, rene@gollent.com.
+ * Copyright 2013-2014, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 #ifndef TEAM_H
@@ -49,7 +49,6 @@ enum {
 	TEAM_EVENT_WATCHPOINT_CHANGED,
 
 	TEAM_EVENT_DEBUG_REPORT_CHANGED
-
 };
 
 
@@ -67,6 +66,7 @@ class TeamDebugInfo;
 class TeamMemory;
 class TeamTypeInformation;
 class UserBreakpoint;
+class Value;
 
 
 class Team {

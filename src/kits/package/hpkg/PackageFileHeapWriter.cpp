@@ -6,8 +6,6 @@
 
 #include <package/hpkg/PackageFileHeapWriter.h>
 
-#include <errno.h>
-
 #include <algorithm>
 #include <new>
 
@@ -196,11 +194,12 @@ private:
 };
 
 
-PackageFileHeapWriter::PackageFileHeapWriter(BErrorOutput* errorOutput, int fd,
-	off_t heapOffset, CompressionAlgorithmOwner* compressionAlgorithm,
+PackageFileHeapWriter::PackageFileHeapWriter(BErrorOutput* errorOutput,
+	BPositionIO* file, off_t heapOffset,
+	CompressionAlgorithmOwner* compressionAlgorithm,
 	DecompressionAlgorithmOwner* decompressionAlgorithm)
 	:
-	PackageFileHeapAccessorBase(errorOutput, fd, heapOffset,
+	PackageFileHeapAccessorBase(errorOutput, file, heapOffset,
 		decompressionAlgorithm),
 	fPendingDataBuffer(NULL),
 	fCompressedDataBuffer(NULL),
@@ -442,7 +441,11 @@ PackageFileHeapWriter::Finish()
 	if (error != B_OK)
 		return error;
 
-	// write chunk sizes table 
+	// write chunk sizes table
+
+	// We don't need to do that, if we don't use any compression.
+	if (fCompressionAlgorithm == NULL)
+		return B_OK;
 
 	// We don't need to write the last chunk size, since it is implied by the
 	// total size minus the sum of all other chunk sizes.
@@ -580,18 +583,14 @@ PackageFileHeapWriter::_WriteDataCompressed(const void* data, size_t size)
 status_t
 PackageFileHeapWriter::_WriteDataUncompressed(const void* data, size_t size)
 {
-	ssize_t bytesWritten = pwrite(fFD, data, size,
-		fHeapOffset + (off_t)fCompressedHeapSize);
-	if (bytesWritten < 0) {
-		fErrorOutput->PrintError("Failed to write data: %s\n", strerror(errno));
-		return errno;
-	}
-	if ((size_t)bytesWritten != size) {
-		fErrorOutput->PrintError("Failed to write all data\n");
-		return B_ERROR;
+	status_t error = fFile->WriteAtExactly(
+		fHeapOffset + (off_t)fCompressedHeapSize, data, size);
+	if (error != B_OK) {
+		fErrorOutput->PrintError("Failed to write data: %s\n", strerror(error));
+		return error;
 	}
 
-	fCompressedHeapSize += bytesWritten;
+	fCompressedHeapSize += size;
 
 	return B_OK;
 }
@@ -643,13 +642,17 @@ PackageFileHeapWriter::_UnwriteLastPartialChunk()
 	// If the last chunk is partial, read it in and remove it from the offsets.
 	size_t lastChunkSize = fUncompressedHeapSize % kChunkSize;
 	if (lastChunkSize != 0) {
-		status_t error = ReadData(fUncompressedHeapSize - lastChunkSize,
-			fPendingDataBuffer, lastChunkSize);
+		uint64 lastChunkOffset = fOffsets[fOffsets.Count() - 1];
+		size_t compressedSize = fCompressedHeapSize - lastChunkOffset;
+
+		status_t error = ReadAndDecompressChunkData(lastChunkOffset,
+			compressedSize, lastChunkSize, fCompressedDataBuffer,
+			fPendingDataBuffer);
 		if (error != B_OK)
 			throw error;
 
 		fPendingDataSize = lastChunkSize;
-		fCompressedHeapSize = fOffsets[fOffsets.Count() - 1];
+		fCompressedHeapSize = lastChunkOffset;
 		fOffsets.Remove(fOffsets.Count() - 1);
 	}
 }

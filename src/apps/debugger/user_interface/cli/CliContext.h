@@ -1,5 +1,6 @@
 /*
  * Copyright 2012, Ingo Weinhold, ingo_weinhold@gmx.de.
+ * Copyright 2014, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 #ifndef CLI_CONTEXT_H
@@ -12,6 +13,7 @@
 
 #include <Locker.h>
 
+#include "ExpressionInfo.h"
 #include "Team.h"
 #include "TeamMemoryBlock.h"
 #include "ValueNodeContainer.h"
@@ -27,6 +29,7 @@ class ValueNodeManager;
 
 class CliContext : private Team::Listener,
 	public TeamMemoryBlock::Listener,
+	public ExpressionInfo::Listener,
 	private ValueNodeContainer::Listener {
 public:
 			enum {
@@ -37,7 +40,9 @@ public:
 				EVENT_THREAD_STOPPED				= 0x10,
 				EVENT_THREAD_STACK_TRACE_CHANGED	= 0x20,
 				EVENT_VALUE_NODE_CHANGED			= 0x40,
-				EVENT_TEAM_MEMORY_BLOCK_RETRIEVED	= 0x80
+				EVENT_TEAM_MEMORY_BLOCK_RETRIEVED	= 0x80,
+				EVENT_EXPRESSION_EVALUATED			= 0x100,
+				EVENT_DEBUG_REPORT_CHANGED			= 0x200
 			};
 
 public:
@@ -51,6 +56,9 @@ public:
 			void				Terminating();
 
 			bool				IsTerminating() const	{ return fTerminating; }
+
+			bool				IsInteractive() const	{ return fInteractive; }
+			void				SetInteractive(bool interactive);
 
 			// service methods for the input loop thread follow
 
@@ -72,6 +80,13 @@ public:
 			void				SetCurrentStackFrameIndex(int32 index);
 
 			TeamMemoryBlock*	CurrentBlock() const { return fCurrentBlock; }
+
+			ExpressionInfo*		GetExpressionInfo() const
+									{ return fExpressionInfo; }
+			status_t			GetExpressionResult() const
+									{ return fExpressionResult; }
+			ExpressionResult*	GetExpressionValue() const
+									{ return fExpressionValue; }
 
 			const char*			PromptUser(const char* prompt);
 			void				AddLineToInputHistory(const char* line);
@@ -97,8 +112,15 @@ private:
 	virtual	void				ThreadStackTraceChanged(
 									const Team::ThreadEvent& event);
 
+	virtual	void				DebugReportChanged(
+									const Team::DebugReportEvent& event);
+
 	// TeamMemoryBlock::Listener
 	virtual void				MemoryBlockRetrieved(TeamMemoryBlock* block);
+
+	// ExpressionInfo::Listener
+	virtual	void				ExpressionEvaluated(ExpressionInfo* info,
+									status_t result, ExpressionResult* value);
 
 	// ValueNodeContainer::Listener
 	virtual	void				ValueNodeChanged(ValueNodeChild* nodeChild,
@@ -128,12 +150,17 @@ private:
 			uint32				fInputLoopWaitingForEvents;
 			uint32				fEventsOccurred;
 			bool				fInputLoopWaiting;
+			bool				fInteractive;
 	volatile bool				fTerminating;
 
 			Thread*				fCurrentThread;
 			StackTrace*			fCurrentStackTrace;
 			int32				fCurrentStackFrameIndex;
 			TeamMemoryBlock*	fCurrentBlock;
+
+			ExpressionInfo*		fExpressionInfo;
+			status_t			fExpressionResult;
+			ExpressionResult*	fExpressionValue;
 
 			EventList			fPendingEvents;
 };

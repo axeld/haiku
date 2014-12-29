@@ -4,7 +4,7 @@ UsePrivateHeaders interface shared package ;
 
 # source directories
 local sourceDirs =
-	textview
+	model textview ui ui_generic
 ;
 
 local sourceDir ;
@@ -39,10 +39,15 @@ Application HaikuDepot :
 	BitmapButton.cpp
 	BitmapView.cpp
 	DecisionProvider.cpp
+	FeaturedPackagesView.cpp
 	FilterView.cpp
 	JobStateListener.cpp
+	LinkView.cpp
+	LinkedBitmapView.cpp
 	main.cpp
 	MainWindow.cpp
+	MarkupTextView.cpp
+	MessagePackageListener.cpp
 	Model.cpp
 	PackageAction.cpp
 	PackageActionHandler.cpp
@@ -52,7 +57,12 @@ Application HaikuDepot :
 	PackageListView.cpp
 	PackageManager.cpp
 	RatePackageWindow.cpp
+	RatingView.cpp
 	support.cpp
+	ScreenshotWindow.cpp
+	ScrollableGroupView.cpp
+	SharedBitmap.cpp
+	UserLoginWindow.cpp
 	WebAppInterface.cpp
 
 	# package_daemon
@@ -63,7 +73,7 @@ Application HaikuDepot :
 	$(textDocumentSources)
 
 	: be package bnetapi translation libcolumnlistview.a libshared.a
-		$(TARGET_LIBSTDC++) $(TARGET_LIBSUPC++) localestub
+		[ TargetLibstdc++ ] [ TargetLibsupc++ ] localestub
 	: HaikuDepot.rdef
 ;
 
@@ -71,6 +81,7 @@ DoCatalogs HaikuDepot :
 	x-vnd.Haiku-HaikuDepot
 	:
 	App.cpp
+	FeaturedPackagesView.cpp
 	FilterView.cpp
 	MainWindow.cpp
 	Model.cpp
@@ -78,11 +89,13 @@ DoCatalogs HaikuDepot :
 	PackageListView.cpp
 	PackageManager.cpp
 	RatePackageWindow.cpp
+	ScreenshotWindow.cpp
+	UserLoginWindow.cpp
 ;
 
 Application TextDocumentTest :
 	TextDocumentTest.cpp
 	$(textDocumentSources)
 
-	: be translation libshared.a $(TARGET_LIBSUPC++)
+	: be translation libshared.a [ TargetLibsupc++ ]
 ;

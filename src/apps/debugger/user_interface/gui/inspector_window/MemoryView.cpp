@@ -90,12 +90,13 @@ void
 MemoryView::SetTargetAddress(TeamMemoryBlock* block, target_addr_t address)
 {
 	fTargetAddress = address;
-	if (block != fTargetBlock && fTargetBlock != NULL)
-		fTargetBlock->ReleaseReference();
-
 	if (block != fTargetBlock) {
+		if (fTargetBlock != NULL)
+			fTargetBlock->ReleaseReference();
+
 		fTargetBlock = block;
-		fTargetBlock->AcquireReference();
+		if (block != NULL)
+			fTargetBlock->AcquireReference();
 	}
 
 	MakeFocus(true);
@@ -624,7 +625,7 @@ MemoryView::_GetNextHexBlock(char* buffer, int32 bufferSize,
 		}
 		case HexMode64BitInt:
 		{
-			uint64 data = *((const uint16*)address);
+			uint64 data = *((const uint64*)address);
 			switch(fCurrentEndianMode)
 			{
 				case EndianModeBigEndian:

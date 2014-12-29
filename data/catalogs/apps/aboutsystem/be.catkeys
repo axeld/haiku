@@ -1,12 +1,10 @@
-1	belarusian	x-vnd.Haiku-About	2441795911
+1	belarusian	x-vnd.Haiku-About	2377231150
 Copyright © 1999-2010 by the authors of Gutenprint. All rights reserved.	AboutView		Аўтарскае права © 1999-2010 by the authors of Gutenprint. Правы захаваныя.
 Travis Geiselbrecht (and his NewOS kernel)\n	AboutView		Travis Geiselbrecht (асабіста за ядро NewOS)\n
-%ld Processors:	AboutView		%ld Працэсараў:
 Copyright © 2000 Jean-Pierre ervbefeL and Remi Lefebvre.	AboutView		Аўтарскае права © 2000 Jean-Pierre ervbefeL and Remi Lefebvre.
 Copyright © 1996-2005 Julian R Seward. All rights reserved.	AboutView		Аўтарскае права © 1996-2005 Julian R Seward. Правы захаваныя.
 %d MiB total	AboutView		%d MiB усяго
 Michael Phipps (project founder)\n\n	AboutView		Michael Phipps (заснавальнік праекту)\n\n
-The Haiku-Ports team\n	AboutView		Каманда Haiku-Ports\n
 Copyright © 1998-2003 Daniel Veillard. All rights reserved.	AboutView		Аўтарскае права © 1998-2003 Daniel Veillard. Правы захаваныя.
 %d MiB used (%d%%)	AboutView		%d MiB выкарыстана (%d%%)
 Website, marketing & documentation:\n	AboutView		Web-сайт, маркетынг і дакументацыя:\n
@@ -18,7 +16,6 @@ Copyright © 2002-2005 Industrial Light & Magic, a division of Lucas Digital Ltd
 Be Inc. and its developer team, for having created BeOS!\n\n	AboutView		Be Inc. і яе распрацоўшчыкам, за тое што ставарылі BeOS!\n\n
 Copyright © 1999-2000 Y.Takagi. All rights reserved.	AboutView		Аўтарскае права © 1999-2000 Y.Takagi. Правы захаваныя.
 Source Code: 	AboutView		Зыходны код: 
-Processor:	AboutView		Працэсар:
 Kernel:	AboutView		Ядро:
 Copyright © 2001-2002 Thomas Broyer, Charlie Bozeman and Daniel Veillard. All rights reserved.	AboutView		Аўтарскае права © 2001-2002 Thomas Broyer, Charlie Bozeman and Daniel Veillard. Правы захаваныя.
 Portions of this software are under copyright.\nCopyright © 1996-2006 The FreeType Project. All rights reserved.	AboutView		Аўтарскае права на часткі гэтага праграмнага забяспячэння\n© 1996-2006 The FreeType Project. Правы захаваныя.
@@ -49,7 +46,6 @@ Copyright © 2006-2007 Intel Corporation. All rights reserved.	AboutView		Аўт
 The code that is unique to Haiku, especially the kernel and all code that applications may link against, is distributed under the terms of the <MIT license>. Some system libraries contain third party code distributed under the <LGPL license>. You can find the copyrights to third party code below.\n\n	AboutView	<MIT license> and <LGPL license> aren't variables and can be translated. However, please, don't remove < and > as they're needed as placeholders for proper hypertext functionality.	Код, якi з'яўляецца ўласнасцю Haiku, асаблiва ядро и праграмы, могуць распаўсюджвацца ў станаўленнi з ўмовами <MIT license>. Некаторыя сiстэмныя бiблiятэки змяшчаюць староннi код, якi распаўсюджваюцца пад лицэнзiяй <LGPL license>. Аўтарскiя правы на староннi код вы можаце знайсцi нiжэй.\n\n
 Time running:	AboutView		Час працы:
 Contains software developed by the NetBSD Foundation, Inc. and its contributors:\nftp, tput\nCopyright © 1996-2008 The NetBSD Foundation, Inc. All rights reserved.	AboutView		Утрымлівае праграмныя прадукты выдадзеныя NetBSD Foundation, Inc. і яе распрацоўшчыкамі:\nftp, tput\nАўтарскае права © 1996-2008 The NetBSD Foundation, Inc. Правы захаваныя.
-Contains software from the FreeBSD Project, released under the BSD license:\ncal, ftpd, ping, telnet, telnetd, traceroute\nCopyright © 1994-2008 The FreeBSD Project. All rights reserved.	AboutView		Утрымлівае праграмныя прадукты праекта FreeBSD, выдадзеныя пад ліцэнзіяй BSD:\ncal, ftpd, ping, telnet, telnetd, traceroute\nАўтарскае права © 1994-2008 The FreeBSD Project. Правы захаваныя.
 Google and their Google Summer of Code and Google Code In programs\n	AboutView		Карапарацыі Google і іх праграмам Google Summer of Code і Google Code In\n
 The Haikuware team and their bounty program\n	AboutView		Каманда Haikuware і ихнія ахвяраванні\n
 Copyright © 1995, 1998-2001 Jef Poskanzer. All rights reserved.	AboutView		Аўтарскае права © 1995, 1998-2001 Jef Poskanzer. Правы захаваныя.

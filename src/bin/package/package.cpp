@@ -41,6 +41,16 @@ static const char* kUsage =
 	"    -q         - Be quiet (don't show any output except for errors).\n"
 	"    -v         - Be verbose (show more info about created package).\n"
 	"\n"
+	"  checksum [ <options> ] [ <package> ]\n"
+	"    Computes the checksum of package file <package>. If <package> is "
+		"omitted\n"
+	"    or \"-\", the file is read from stdin. This is only supported, if the "
+		"package\n"
+	"    is uncompressed.\n"
+	"\n"
+	"    -q         - Be quiet (don't show any output except for errors).\n"
+	"    -v         - Be verbose (show more info about created package).\n"
+	"\n"
 	"  create [ <options> ] <package>\n"
 	"    Creates package file <package> from contents of current directory.\n"
 	"\n"
@@ -96,6 +106,21 @@ static const char* kUsage =
 	"    -i         - Only print the meta information, not the files.\n"
 	"    -p         - Only print a list of file paths.\n"
 	"\n"
+	"  recompress [ <options> ] <input package> <output package>\n"
+	"    Reads the package file <input package> and writes it to new package\n"
+	"    <output package> using the specified compression options. If the\n"
+	"    compression level 0 is specified (i.e. no compression), "
+		"<output package>\n"
+	"    can be \"-\", in which case the data are written to stdout.\n"
+	"    If the input files doesn't use compression <input package>\n"
+	"    can be \"-\", in which case the data are read from stdin.\n"
+	"\n"
+	"    -0 ... -9  - Use compression level 0 ... 9. 0 means no, 9 best "
+		"compression.\n"
+	"                 Defaults to 9.\n"
+	"    -q         - Be quiet (don't show any output except for errors).\n"
+	"    -v         - Be verbose (show more info about created package).\n"
+	"\n"
 	"Common Options:\n"
 	"  -h, --help   - Print this usage info.\n"
 ;
@@ -119,6 +144,9 @@ main(int argc, const char* const* argv)
 	if (strcmp(command, "add") == 0)
 		return command_add(argc - 1, argv + 1);
 
+	if (strcmp(command, "checksum") == 0)
+		return command_checksum(argc - 1, argv + 1);
+
 	if (strcmp(command, "create") == 0)
 		return command_create(argc - 1, argv + 1);
 
@@ -133,6 +161,9 @@ main(int argc, const char* const* argv)
 
 	if (strcmp(command, "info") == 0)
 		return command_info(argc - 1, argv + 1);
+
+	if (strcmp(command, "recompress") == 0)
+		return command_recompress(argc - 1, argv + 1);
 
 	if (strcmp(command, "help") == 0)
 		print_usage_and_exit(false);

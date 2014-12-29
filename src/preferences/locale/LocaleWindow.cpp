@@ -77,7 +77,7 @@ LocaleWindow::LocaleWindow()
 
 	float spacing = be_control_look->DefaultItemSpacing();
 
-	BTabView* tabView = new BTabView("tabview");
+	BTabView* tabView = new BTabView("tabview", B_WIDTH_FROM_WIDEST);
 	BGroupView* languageTab = new BGroupView(B_TRANSLATE("Language"),
 		B_HORIZONTAL, spacing);
 
@@ -642,7 +642,7 @@ LocaleWindow::_Defaults()
 		BListItem* superitem
 			= fConventionsListView->Superitem(fDefaultConventionsItem);
 		if (superitem != NULL && !superitem->IsExpanded())
-			superitem->SetExpanded(true);
+			fConventionsListView->Expand(superitem);
 		fConventionsListView->Select(fConventionsListView->IndexOf(
 				fDefaultConventionsItem));
 		fConventionsListView->ScrollToSelection();
