@@ -451,7 +451,7 @@ enum {
 	kTitleColumn,
 	kRatingColumn,
 	kDescriptionColumn,
-	kSizeColumn,
+//	kSizeColumn,
 	kStatusColumn,
 };
 
@@ -480,7 +480,7 @@ PackageRow::PackageRow(const PackageInfoRef& packageRef,
 
 	// Size
 	// TODO: Store package size
-	SetField(new BStringField("0 KiB"), kSizeColumn);
+//	SetField(new BStringField("0 KiB"), kSizeColumn);
 
 	// Status
 	SetField(new BStringField(package_state_to_string(fPackage)),
@@ -549,7 +549,7 @@ class PackageListView::ItemCountView : public BView {
 public:
 	ItemCountView()
 		:
-		BView("item count view", B_WILL_DRAW),
+		BView("item count view", B_WILL_DRAW | B_FULL_UPDATE_ON_RESIZE),
 		fItemCount(0)
 	{
 		BFont font(be_plain_font);
@@ -603,8 +603,10 @@ public:
 	{
 		if (count == fItemCount)
 			return;
+		BSize minSize = MinSize();
 		fItemCount = count;
-		InvalidateLayout();
+		if (minSize != MinSize())
+			InvalidateLayout();
 		Invalidate();
 	}
 
@@ -638,8 +640,8 @@ PackageListView::PackageListView(BLocker* modelLock)
 		B_TRUNCATE_MIDDLE), kRatingColumn);
 	AddColumn(new PackageColumn(B_TRANSLATE("Description"), 300, 80, 1000,
 		B_TRUNCATE_MIDDLE), kDescriptionColumn);
-	AddColumn(new PackageColumn(B_TRANSLATE("Size"), 60, 50, 100,
-		B_TRUNCATE_END), kSizeColumn);
+//	AddColumn(new PackageColumn(B_TRANSLATE("Size"), 60, 50, 100,
+//		B_TRUNCATE_END), kSizeColumn);
 	AddColumn(new PackageColumn(B_TRANSLATE("Status"), 60, 60, 100,
 		B_TRUNCATE_END), kStatusColumn);
 
@@ -725,6 +727,14 @@ PackageListView::SelectionChanged()
 
 
 void
+PackageListView::Clear()
+{
+	fItemCountView->SetItemCount(0);
+	BColumnListView::Clear();
+}
+
+
+void
 PackageListView::AddPackage(const PackageInfoRef& package)
 {
 	PackageRow* packageRow = _FindRow(package);
@@ -745,6 +755,21 @@ PackageListView::AddPackage(const PackageInfoRef& package)
 	ExpandOrCollapse(packageRow, true);
 
 	fItemCountView->SetItemCount(CountRows());
+}
+
+
+void
+PackageListView::SelectPackage(const PackageInfoRef& package)
+{
+	PackageRow* row = _FindRow(package);
+	BRow* selected = CurrentSelection();
+	if (row != selected)
+		DeselectAll();
+	if (row != NULL) {
+		AddToSelection(row);
+		SetFocusRow(row, false);
+		ScrollTo(row);
+	}
 }
 
 

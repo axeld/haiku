@@ -380,6 +380,10 @@ MediaConverterApp::_ConvertFile(BMediaFile* inFile, BMediaFile* outFile,
 //			audioFrameSize = (raf->format & 0xf) * raf->channel_count;
 			outAudTrack = outFile->CreateTrack(&outAudFormat, audioCodec);
 
+			// Negociate the format with the inTrack again in case the codec
+			// made some changes to it...
+			inTrack->DecodedFormat(&outAudFormat);
+
 			if (outAudTrack != NULL) {
 				if (outAudTrack->SetQuality(audioQuality / 100.0f) != B_OK
 					&& fWin->Lock()) {
@@ -519,7 +523,7 @@ MediaConverterApp::_ConvertFile(BMediaFile* inFile, BMediaFile* outFile,
 		}
 
 		framesRead = 0;
-		for (int64 i = start; (i <= end) && !fCancel; i += framesRead) {
+		for (int64 i = start; (i < end) && !fCancel; i += framesRead) {
 			if ((ret = inVidTrack->ReadFrames(videoBuffer, &framesRead,
 					&mh)) != B_OK) {
 				fprintf(stderr, "Error reading video frame %" B_PRId64 ": %s\n",
@@ -579,7 +583,7 @@ MediaConverterApp::_ConvertFile(BMediaFile* inFile, BMediaFile* outFile,
 				start = 0;
 		}
 
-		for (int64 i = start; (i <= end) && !fCancel; i += framesRead) {
+		for (int64 i = start; (i < end) && !fCancel; i += framesRead) {
 			if ((ret = inAudTrack->ReadFrames(audioBuffer, &framesRead,
 				&mh)) != B_OK) {
 				fprintf(stderr, "Error reading audio frames: %s\n", strerror(ret));

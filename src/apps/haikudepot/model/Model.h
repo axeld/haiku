@@ -97,6 +97,9 @@ public:
 			void				SetSearchTerms(const BString& searchTerms);
 			BString				SearchTerms() const;
 
+			void				SetShowFeaturedPackages(bool show);
+			bool				ShowFeaturedPackages() const
+									{ return fShowFeaturedPackages; }
 			void				SetShowAvailablePackages(bool show);
 			bool				ShowAvailablePackages() const
 									{ return fShowAvailablePackages; }
@@ -117,6 +120,7 @@ public:
 	static	const uint32		POPULATE_SCREEN_SHOTS	= 1 << 3;
 	static	const uint32		POPULATE_CHANGELOG		= 1 << 4;
 	static	const uint32		POPULATE_CATEGORIES		= 1 << 5;
+	static	const uint32		POPULATE_FORCE			= 1 << 6;
 
 			void				PopulatePackage(const PackageInfoRef& package,
 									uint32 flags);
@@ -140,6 +144,8 @@ public:
 
 
 private:
+			void				_UpdateIsFeaturedFilter();
+
 	static	int32				_PopulateAllPackagesEntry(void* cookie);
 			void				_PopulateAllPackagesThread(bool fromCacheOnly);
 
@@ -206,7 +212,9 @@ private:
 			PackageFilterRef	fCategoryFilter;
 			BString				fDepotFilter;
 			PackageFilterRef	fSearchTermsFilter;
+			PackageFilterRef	fIsFeaturedFilter;
 
+			bool				fShowFeaturedPackages;
 			bool				fShowAvailablePackages;
 			bool				fShowInstalledPackages;
 			bool				fShowSourcePackages;

@@ -65,6 +65,7 @@ enum {
 	MSG_AUTHORIZATION_CHANGED	= 'athc',
 	MSG_PACKAGE_CHANGED			= 'pchd',
 
+	MSG_SHOW_FEATURED_PACKAGES	= 'sofp',
 	MSG_SHOW_AVAILABLE_PACKAGES	= 'savl',
 	MSG_SHOW_INSTALLED_PACKAGES	= 'sins',
 	MSG_SHOW_SOURCE_PACKAGES	= 'ssrc',
@@ -160,7 +161,6 @@ MainWindow::MainWindow(BRect frame, const BMessage& settings)
 	listArea->SetLayout(fListLayout);
 	listArea->AddChild(featuredPackagesGroup);
 	listArea->AddChild(fPackageListView);
-	fListLayout->SetVisibleItem((int32)0);
 
 	BLayoutBuilder::Group<>(this, B_VERTICAL, 0.0f)
 		.AddGroup(B_HORIZONTAL, 0.0f)
@@ -190,6 +190,12 @@ MainWindow::MainWindow(BRect frame, const BMessage& settings)
 		fPackageListView->LoadState(&columnSettings);
 
 	bool showOption;
+	if (settings.FindBool("show featured packages", &showOption) == B_OK)
+		fModel.SetShowFeaturedPackages(showOption);
+	if (settings.FindBool("show available packages", &showOption) == B_OK)
+		fModel.SetShowAvailablePackages(showOption);
+	if (settings.FindBool("show installed packages", &showOption) == B_OK)
+		fModel.SetShowInstalledPackages(showOption);
 	if (settings.FindBool("show develop packages", &showOption) == B_OK)
 		fModel.SetShowDevelopPackages(showOption);
 	if (settings.FindBool("show source packages", &showOption) == B_OK)
@@ -200,6 +206,11 @@ MainWindow::MainWindow(BRect frame, const BMessage& settings)
 		&& username.Length() > 0) {
 		fModel.SetUsername(username);
 	}
+
+	if (fModel.ShowFeaturedPackages())
+		fListLayout->SetVisibleItem((int32)0);
+	else
+		fListLayout->SetVisibleItem(1);
 
 	// start worker threads
 	BPackageRoster().StartWatching(this,
@@ -322,6 +333,15 @@ MainWindow::MessageReceived(BMessage* message)
 			_UpdateAuthorization();
 			break;
 
+		case MSG_SHOW_FEATURED_PACKAGES:
+			{
+				BAutolock locker(fModel.Lock());
+				fModel.SetShowFeaturedPackages(
+					!fModel.ShowFeaturedPackages());
+			}
+			_AdoptModel();
+			break;
+
 		case MSG_SHOW_AVAILABLE_PACKAGES:
 			{
 				BAutolock locker(fModel.Lock());
@@ -360,11 +380,13 @@ MainWindow::MessageReceived(BMessage* message)
 		{
 			BString title;
 			if (message->FindString("title", &title) == B_OK) {
+				BAutolock locker(fModel.Lock());
 				int count = fVisiblePackages.CountItems();
 				for (int i = 0; i < count; i++) {
 					const PackageInfoRef& package
 						= fVisiblePackages.ItemAtFast(i);
 					if (package.Get() != NULL && package->Title() == title) {
+						locker.Unlock();
 						_AdoptPackage(package);
 						break;
 					}
@@ -429,7 +451,10 @@ MainWindow::MessageReceived(BMessage* message)
 				}
 				if ((changes & PKG_CHANGED_PROMINENCE) != 0) {
 					BAutolock locker(fModel.Lock());
-					if (_IsProminentPackage(ref))
+					// The package didn't get a chance yet to be in the
+					// visible package list
+					fVisiblePackages = fModel.CreatePackageList();
+					if (ref->IsProminent() && fVisiblePackages.Contains(ref))
 						fFeaturedPackagesView->AddPackage(ref);
 				}
 			}
@@ -464,6 +489,12 @@ MainWindow::StoreSettings(BMessage& settings) const
 	
 		settings.AddMessage("column settings", &columnSettings);
 	
+		settings.AddBool("show featured packages",
+			fModel.ShowFeaturedPackages());
+		settings.AddBool("show available packages",
+			fModel.ShowAvailablePackages());
+		settings.AddBool("show installed packages",
+			fModel.ShowInstalledPackages());
 		settings.AddBool("show develop packages", fModel.ShowDevelopPackages());
 		settings.AddBool("show source packages", fModel.ShowSourcePackages());
 	}
@@ -517,27 +548,34 @@ MainWindow::_BuildMenu(BMenuBar* menuBar)
 
 	menuBar->AddItem(menu);
 
-	menu = new BMenu(B_TRANSLATE("Options"));
+	menu = new BMenu(B_TRANSLATE("Show"));
+
+	fShowFeaturedPackagesItem = new BMenuItem(
+		B_TRANSLATE("Only featured packages"),
+		new BMessage(MSG_SHOW_FEATURED_PACKAGES));
+	menu->AddItem(fShowFeaturedPackagesItem);
+
+	menu->AddSeparatorItem();
 
 	fShowAvailablePackagesItem = new BMenuItem(
-		B_TRANSLATE("Show available packages"),
+		B_TRANSLATE("Available packages"),
 		new BMessage(MSG_SHOW_AVAILABLE_PACKAGES));
 	menu->AddItem(fShowAvailablePackagesItem);
 
 	fShowInstalledPackagesItem = new BMenuItem(
-		B_TRANSLATE("Show installed packages"),
+		B_TRANSLATE("Installed packages"),
 		new BMessage(MSG_SHOW_INSTALLED_PACKAGES));
 	menu->AddItem(fShowInstalledPackagesItem);
 
 	menu->AddSeparatorItem();
 
 	fShowDevelopPackagesItem = new BMenuItem(
-		B_TRANSLATE("Show develop packages"),
+		B_TRANSLATE("Develop packages"),
 		new BMessage(MSG_SHOW_DEVELOP_PACKAGES));
 	menu->AddItem(fShowDevelopPackagesItem);
 
 	fShowSourcePackagesItem = new BMenuItem(
-		B_TRANSLATE("Show source packages"),
+		B_TRANSLATE("Source packages"),
 		new BMessage(MSG_SHOW_SOURCE_PACKAGES));
 	menu->AddItem(fShowSourcePackagesItem);
 
@@ -596,41 +634,45 @@ MainWindow::_AdoptModel()
 		const PackageInfoRef& package = fVisiblePackages.ItemAtFast(i);
 		fPackageListView->AddPackage(package);
 
-		if (_IsProminentPackage(package))
+		if (package->IsProminent())
 			fFeaturedPackagesView->AddPackage(package);
 	}
 
 	BAutolock locker(fModel.Lock());
+	fShowFeaturedPackagesItem->SetMarked(fModel.ShowFeaturedPackages());
+	fShowFeaturedPackagesItem->SetEnabled(fModel.SearchTerms() == "");
 	fShowAvailablePackagesItem->SetMarked(fModel.ShowAvailablePackages());
 	fShowInstalledPackagesItem->SetMarked(fModel.ShowInstalledPackages());
 	fShowSourcePackagesItem->SetMarked(fModel.ShowSourcePackages());
 	fShowDevelopPackagesItem->SetMarked(fModel.ShowDevelopPackages());
 
-	if (fModel.Category() != ""
-		|| fModel.Depot() != ""
-		|| fModel.SearchTerms() != ""
-		|| fModel.ShowInstalledPackages()) {
-		fListLayout->SetVisibleItem((int32)1);
-	} else {
+	if (fModel.ShowFeaturedPackages() && fModel.SearchTerms() == "")
 		fListLayout->SetVisibleItem((int32)0);
-	}
-}
+	else
+		fListLayout->SetVisibleItem((int32)1);
 
+	// Maintain selection
+	const PackageInfoRef& selectedPackage = fPackageInfoView->Package();
+	fFeaturedPackagesView->SelectPackage(selectedPackage);
+	fPackageListView->SelectPackage(selectedPackage);
 
-bool
-MainWindow::_IsProminentPackage(const PackageInfoRef& package) const
-{
-	return package->HasProminence() && package->Prominence() <= 200
-		&& package->State() != ACTIVATED;
+	if (!fVisiblePackages.Contains(fPackageInfoView->Package()))
+		fPackageInfoView->Clear();
 }
 
 
 void
 MainWindow::_AdoptPackage(const PackageInfoRef& package)
 {
-	fPackageInfoView->SetPackage(package);
-	if (fFeaturedPackagesView != NULL)
-		fFeaturedPackagesView->SelectPackage(package);
+	{
+		BAutolock locker(fModel.Lock());
+		fPackageInfoView->SetPackage(package);
+	
+		if (fFeaturedPackagesView != NULL)
+			fFeaturedPackagesView->SelectPackage(package);
+		if (fPackageListView != NULL)
+			fPackageListView->SelectPackage(package);
+	}
 
 	// Trigger asynchronous package population from the web-app
 	{

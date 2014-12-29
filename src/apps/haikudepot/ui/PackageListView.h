@@ -29,7 +29,10 @@ public:
 
 	virtual void				SelectionChanged();
 
+	virtual void				Clear();
 			void				AddPackage(const PackageInfoRef& package);
+
+			void				SelectPackage(const PackageInfoRef& package);
 
 private:
 			PackageRow*			_FindRow(const PackageInfoRef& package,
