@@ -27,6 +27,7 @@ class FileManager;
 class SettingsManager;
 class TeamDebugInfo;
 class TeamMemoryBlockManager;
+class Thread;
 class WatchpointManager;
 
 
@@ -66,6 +67,8 @@ private:
 	virtual void				SourceEntryLocateRequested(
 									const char* sourcePath,
 									const char* locatedPath);
+	virtual void				SourceEntryInvalidateRequested(
+									LocatableFile* sourceFile);
 	virtual	void				ImageDebugInfoRequested(Image* image);
 	virtual	void				ValueNodeValueRequested(CpuState* cpuState,
 									ValueNodeContainer* container,
@@ -78,6 +81,11 @@ private:
 	virtual	void				SetBreakpointEnabledRequested(
 									UserBreakpoint* breakpoint,
 									bool enabled);
+	virtual	void				SetBreakpointConditionRequested(
+									UserBreakpoint* breakpoint,
+									const char* condition);
+	virtual	void				ClearBreakpointConditionRequested(
+									UserBreakpoint* breakpoint);
 	virtual	void				ClearBreakpointRequested(target_addr_t address);
 	virtual	void				ClearBreakpointRequested(
 									UserBreakpoint* breakpoint);
@@ -99,6 +107,12 @@ private:
 
 	virtual void				InspectRequested(target_addr_t address,
 									TeamMemoryBlock::Listener* listener);
+
+	virtual	void				ExpressionEvaluationRequested(
+									SourceLanguage* language,
+									ExpressionInfo* info,
+									StackFrame* frame = NULL,
+									::Thread* thread = NULL);
 
 	virtual void				DebugReportRequested(entry_ref* targetPath);
 
@@ -180,6 +194,13 @@ private:
 			void				_HandleInspectAddress(
 									target_addr_t address,
 									TeamMemoryBlock::Listener* listener);
+
+			void				_HandleEvaluateExpression(
+									SourceLanguage* language,
+									ExpressionInfo* info,
+									StackFrame* frame,
+									::Thread* thread);
+
 			status_t			_HandleSetArguments(int argc,
 									const char* const* argv);
 

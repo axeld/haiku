@@ -152,9 +152,9 @@ enter_debugger(void)
 {
 	if (!has_debugger_command("get_usb_keyboard_config")
 		|| !has_debugger_command("get_usb_pipe_for_id")
-		|| (!has_debugger_command("uhci_process_transfer")
-			&& !has_debugger_command("ohci_process_transfer")))
+		|| !has_debugger_command("usb_process_transfer")) {
 		return;
+	}
 
 	unset_debug_variable("_usbPipe");
 	unset_debug_variable("_usbReportSize");
@@ -179,8 +179,7 @@ exit_debugger(void)
 	if (sUseUSBKeyboard) {
 		// make sure a possibly pending transfer is canceled
 		set_debug_variable("_usbPipe", (uint64)sUSBPipe);
-		evaluate_debug_command("uhci_process_transfer cancel");
-
+		evaluate_debug_command("usb_process_transfer cancel");
 		sUseUSBKeyboard = false;
 	}
 }
@@ -205,8 +204,16 @@ debugger_getchar(void)
 		set_debug_variable("_usbPipe", (uint64)sUSBPipe);
 		set_debug_variable("_usbTransferData", (uint64)sUSBTransferData);
 		set_debug_variable("_usbTransferLength", (uint64)sUSBTransferLength);
-		if (evaluate_debug_command("uhci_process_transfer") != 0)
+
+		status_t status = evaluate_debug_command("usb_process_transfer");
+		if (status == B_DEV_PENDING)
 			return -1;
+
+		if (status != B_OK) {
+			// try clearing a possibly set halt due to toggle mismatches
+			evaluate_debug_command("usb_clear_stall");
+			return -1;
+		}
 
 		bool phantomState = true;
 		for (size_t i = 2; i < sUSBTransferLength; i++) {

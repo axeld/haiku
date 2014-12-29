@@ -8,22 +8,23 @@
 
 #include "StatusSlider.h"
 
-#include <stdio.h>
+#include <MessageFormat.h>
 
 
 StatusSlider::StatusSlider(const char* name, const char* label,
-	char* statusPrefix, BMessage* message, int32 minValue, int32 maxValue)
+	const char* statusPrefix, BMessage* message, int32 minValue, int32 maxValue)
 	:
-	BSlider(name, label, message, minValue, maxValue, B_HORIZONTAL), 
-	fStatusPrefix(statusPrefix)
+	BSlider(name, label, message, minValue, maxValue, B_HORIZONTAL),
+	fFormat(statusPrefix)
 {
-	fTemp = fStr; 
 }
-				
+
+
 const char*
 StatusSlider::UpdateText() const
 {
-	sprintf(fTemp, "%" B_PRId32 " %s", Value(), fStatusPrefix);
-
-	return fTemp;
+	fStr.Truncate(0);
+	fFormat.Format(fStr, Value());
+	strlcpy(fPattern, fStr.String(), sizeof(fPattern));
+	return fPattern;
 }

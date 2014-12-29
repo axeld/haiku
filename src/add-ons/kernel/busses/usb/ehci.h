@@ -15,6 +15,7 @@
 struct pci_info;
 struct pci_module_info;
 struct pci_x86_module_info;
+
 class EHCIRootHub;
 
 
@@ -54,10 +55,20 @@ public:
 									~EHCI();
 
 		status_t					Start();
+
+virtual	status_t					StartDebugTransfer(Transfer *transfer);
+virtual	status_t					CheckDebugTransfer(Transfer *transfer);
+		void						LinkAsyncDebugQueueHead(ehci_qh *queueHead);
+		void						LinkPeriodicDebugQueueHead(
+										ehci_qh *queueHead, Pipe *pipe);
+virtual	void						CancelDebugTransfer(Transfer *transfer);
+		void						CleanupDebugTransfer(Transfer *transfer);
+
 virtual	status_t					SubmitTransfer(Transfer *transfer);
+		status_t					SubmitIsochronous(Transfer *transfer);
+
 virtual	status_t					CancelQueuedTransfers(Pipe *pipe, bool force);
 		status_t					CancelQueuedIsochronousTransfers(Pipe *pipe, bool force);
-		status_t					SubmitIsochronous(Transfer *transfer);
 
 virtual	status_t					NotifyPipeChange(Pipe *pipe,
 										usb_change change);

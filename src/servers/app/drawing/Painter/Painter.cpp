@@ -2881,7 +2881,7 @@ Painter::_RasterizePath(VertexSource& path, const BGradient& gradient) const
 
 	agg::trans_affine gradientTransform;
 
-	switch(gradient.GetType()) {
+	switch (gradient.GetType()) {
 		case BGradient::TYPE_LINEAR:
 		{
 			GTRACE(("Painter::_FillPath> type == TYPE_LINEAR\n"));
@@ -2901,7 +2901,8 @@ Painter::_RasterizePath(VertexSource& path, const BGradient& gradient) const
 			agg::gradient_radial gradientFunction;
 			_CalcRadialGradientTransform(radialGradient.Center(),
 				gradientTransform);
-			_RasterizePath(path, gradient, gradientFunction, gradientTransform);
+			_RasterizePath(path, gradient, gradientFunction, gradientTransform,
+				radialGradient.Radius());
 			break;
 		}
 		case BGradient::TYPE_RADIAL_FOCUS:
@@ -2912,7 +2913,8 @@ Painter::_RasterizePath(VertexSource& path, const BGradient& gradient) const
 			agg::gradient_radial_focus gradientFunction;
 			_CalcRadialGradientTransform(radialGradient.Center(),
 				gradientTransform);
-			_RasterizePath(path, gradient, gradientFunction, gradientTransform);
+			_RasterizePath(path, gradient, gradientFunction, gradientTransform,
+				radialGradient.Radius());
 			break;
 		}
 		case BGradient::TYPE_DIAMOND:
@@ -3065,10 +3067,11 @@ Painter::_MakeGradient(Array& array, const BGradient& gradient) const
 							 from->color.blue, from->color.alpha);
 		agg::rgba8 toColor(to->color.red, to->color.green,
 						   to->color.blue, to->color.alpha);
-		GTRACE("Painter::_MakeGradient> fromColor(%d, %d, %d) offset = %f\n",
-			   fromColor.r, fromColor.g, fromColor.b, from->offset);
-		GTRACE("Painter::_MakeGradient> toColor(%d, %d, %d) offset = %f\n",
-			   toColor.r, toColor.g, toColor.b, to->offset);
+		GTRACE("Painter::_MakeGradient> fromColor(%d, %d, %d, %d) offset = %f\n",
+			   fromColor.r, fromColor.g, fromColor.b, fromColor.a,
+			   from->offset);
+		GTRACE("Painter::_MakeGradient> toColor(%d, %d, %d %d) offset = %f\n",
+			   toColor.r, toColor.g, toColor.b, toColor.a, to->offset);
 		float dist = to->offset - from->offset;
 		GTRACE("Painter::_MakeGradient> dist = %f\n", dist);
 		// TODO: Review this... offset should better be on [0..1]
@@ -3076,8 +3079,8 @@ Painter::_MakeGradient(Array& array, const BGradient& gradient) const
 			for (int j = (int)from->offset; j <= (int)to->offset; j++) {
 				float f = (float)(to->offset - j) / (float)(dist + 1);
 				array[j] = toColor.gradient(fromColor, f);
-				GTRACE("Painter::_MakeGradient> array[%d](%d, %d, %d)\n",
-					   array[j].r, array[j].g, array[j].b);
+				GTRACE("Painter::_MakeGradient> array[%d](%d, %d, %d, %d)\n",
+					   j, array[j].r, array[j].g, array[j].b, array[j].a);
 			}
 		}
 	}
@@ -3087,7 +3090,8 @@ Painter::_MakeGradient(Array& array, const BGradient& gradient) const
 template<class VertexSource, typename GradientFunction>
 void
 Painter::_RasterizePath(VertexSource& path, const BGradient& gradient,
-	GradientFunction function, agg::trans_affine& gradientTransform) const
+	GradientFunction function, agg::trans_affine& gradientTransform,
+	int gradientStop) const
 {
 	GTRACE("Painter::_RasterizePath\n");
 
@@ -3106,7 +3110,7 @@ Painter::_RasterizePath(VertexSource& path, const BGradient& gradient,
 	_MakeGradient(colorArray, gradient);
 
 	span_gradient_type spanGradient(spanInterpolator, function, colorArray,
-		0, 100);
+		0, gradientStop);
 
 	renderer_gradient_type gradientRenderer(fBaseRenderer, spanAllocator,
 		spanGradient);
@@ -3114,7 +3118,7 @@ Painter::_RasterizePath(VertexSource& path, const BGradient& gradient,
 	fRasterizer.reset();
 	fRasterizer.add_path(path);
 	if (fMaskedUnpackedScanline == NULL)
-		agg::render_scanlines(fRasterizer, fPackedScanline, gradientRenderer);
+		agg::render_scanlines(fRasterizer, fUnpackedScanline, gradientRenderer);
 	else {
 		agg::render_scanlines(fRasterizer, *fMaskedUnpackedScanline,
 			gradientRenderer);

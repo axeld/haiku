@@ -1,18 +1,17 @@
-1	german	x-vnd.haiku.zip-o-matic	2207848100
-1 file added.	file:ZipOMaticWindow.cpp		Eine Datei wurde hinzugefügt.
+1	german	x-vnd.haiku.zip-o-matic	2032806096
 Stop	file:ZipOMaticWindow.cpp		Abbrechen
 Creating archive: %s	file:ZipOMaticWindow.cpp		Archiv wird erzeugt: %s
 Continue	file:ZipOMaticWindow.cpp		Fortsetzen
 Preparing to archive	file:ZipperThread.cpp		Archivierung wird vorbereitet
 Drop files here.	file:ZipOMaticWindow.cpp		Dateien hier fallen lassen.
 Filename: %s	file:ZipOMaticWindow.cpp		Dateiname: %s
+You have {0, plural, one{# Zip-O-Matic} other{# Zip-O-Matics}} running.\n\n	file:ZipOMatic.cpp		Es laufen {0, plural, one{# Zip-O-Matic} other{# Zip-O-Matics}}.\n\n
 Let them continue	file:ZipOMatic.cpp		Fortsetzen zulassen
 Do you want to stop them?	file:ZipOMatic.cpp		Soll abgebrochen werden?
 Are you sure you want to stop creating this archive?	file:ZipOMaticWindow.cpp		Soll die Archivierung wirklich abgebrochen werden?
-%ld files added.	file:ZipOMaticWindow.cpp		%ld Dateien wurden hinzugefügt.
 Stopped	file:ZipOMaticWindow.cpp		Abgebrochen
 Archive	file:ZipperThread.cpp		Archiv
 Error creating archive	file:ZipOMaticWindow.cpp		Fehler beim Erzeugen des Archivs
-You have %ld Zip-O-Matic running.\n\n	file:ZipOMatic.cpp		Es laufen %ld Zip-O-Matic-Instanzen.\n\n
+{0, plural, one{# file added.} other{# files added.}}	file:ZipOMaticWindow.cpp		{0, plural, one{# Datei wurde hinzugefügt.} other{# Dateien wurden hinzugefügt.}}
 Archive created OK	file:ZipOMaticWindow.cpp		Archiv wurde fehlerfrei erzeugt
 Stop them	file:ZipOMatic.cpp		Abbrechen

@@ -6,9 +6,12 @@ AddSubDirSupportedPlatforms libbe_test ;
 UseHeaders [ FDirName os app ] ;
 UseHeaders [ FDirName os interface ] ;
 
+SEARCH_SOURCE += [ FDirName $(HAIKU_TOP) src tests servers app harness ] ;
+
 SimpleTest Transformation :
+	harness.cpp
 	main.cpp
-	: be $(TARGET_LIBSUPC++)
+	: be [ TargetLibsupc++ ]
 	: Transformation.rdef
 	;
 

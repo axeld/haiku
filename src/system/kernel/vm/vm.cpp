@@ -27,6 +27,7 @@
 
 #include <arch/cpu.h>
 #include <arch/vm.h>
+#include <arch/user_memory.h>
 #include <boot/elf.h>
 #include <boot/stage2.h>
 #include <condition_variable.h>
@@ -267,8 +268,7 @@ static cache_info* sCacheInfoTable;
 static void delete_area(VMAddressSpace* addressSpace, VMArea* area,
 	bool addressSpaceCleanup);
 static status_t vm_soft_fault(VMAddressSpace* addressSpace, addr_t address,
-	bool isWrite, bool isExecute, bool isUser, vm_page** wirePage,
-	VMAreaWiredRange* wiredRange = NULL);
+	bool isWrite, bool isExecute, bool isUser, vm_page** wirePage);
 static status_t map_backing_store(VMAddressSpace* addressSpace,
 	VMCache* cache, off_t offset, const char* areaName, addr_t size, int wiring,
 	int protection, int mapping, uint32 flags,
@@ -3892,6 +3892,27 @@ vm_allocate_early_physical_page(kernel_args* args)
 		}
 	}
 
+	// Expanding upwards didn't work, try going downwards.
+	for (uint32 i = 0; i < args->num_physical_allocated_ranges; i++) {
+		phys_addr_t nextPage;
+
+		nextPage = args->physical_allocated_range[i].start - B_PAGE_SIZE;
+		// see if the page after the prev allocated paddr run can be allocated
+		if (i > 0 && args->physical_allocated_range[i - 1].size != 0) {
+			// see if the next page will collide with the next allocated range
+			if (nextPage < args->physical_allocated_range[i-1].start
+				+ args->physical_allocated_range[i-1].size)
+				continue;
+		}
+		// see if the next physical page fits in the memory block
+		if (is_page_in_physical_memory_range(args, nextPage)) {
+			// we got one!
+			args->physical_allocated_range[i].start -= B_PAGE_SIZE;
+			args->physical_allocated_range[i].size += B_PAGE_SIZE;
+			return nextPage / B_PAGE_SIZE;
+		}
+	}
+
 	return 0;
 		// could not allocate a block
 }
@@ -3952,7 +3973,7 @@ vm_init(kernel_args* args)
 	slab_init(args);
 
 #if USE_DEBUG_HEAP_FOR_MALLOC || USE_GUARDED_HEAP_FOR_MALLOC
-	size_t heapSize = INITIAL_HEAP_SIZE;
+	off_t heapSize = INITIAL_HEAP_SIZE;
 	// try to accomodate low memory systems
 	while (heapSize > sAvailableMemory / 8)
 		heapSize /= 2;
@@ -4219,7 +4240,7 @@ vm_page_fault(addr_t address, addr_t faultAddress, bool isWrite, bool isExecute,
 				// this will cause the arch dependant page fault handler to
 				// modify the IP on the interrupt frame or whatever to return
 				// to this address
-				*newIP = thread->fault_handler;
+				*newIP = reinterpret_cast<uintptr_t>(thread->fault_handler);
 			} else {
 				// unhandled page fault in the kernel
 				panic("vm_page_fault: unhandled page fault in kernel space at "
@@ -4341,6 +4362,7 @@ struct PageFaultContext {
 	// return values
 	vm_page*				page;
 	bool					restart;
+	bool					pageAllocated;
 
 
 	PageFaultContext(VMAddressSpace* addressSpace, bool isWrite)
@@ -4363,6 +4385,7 @@ struct PageFaultContext {
 		this->cacheOffset = cacheOffset;
 		page = NULL;
 		restart = false;
+		pageAllocated = false;
 
 		cacheChainLocker.SetTo(topCache);
 	}
@@ -4482,6 +4505,7 @@ fault_get_page(PageFaultContext& context)
 
 		// insert the new page into our cache
 		cache->InsertPage(page, context.cacheOffset);
+		context.pageAllocated = true;
 	} else if (page->Cache() != context.topCache && context.isWrite) {
 		// We have a page that has the data we want, but in the wrong cache
 		// object so we need to copy it and stick it into the top cache.
@@ -4507,6 +4531,7 @@ fault_get_page(PageFaultContext& context)
 
 		// insert the new page into our cache
 		context.topCache->InsertPage(page, context.cacheOffset);
+		context.pageAllocated = true;
 	} else
 		DEBUG_PAGE_ACCESS_START(page);
 
@@ -4524,14 +4549,11 @@ fault_get_page(PageFaultContext& context)
 	\param wirePage On success, if non \c NULL, the wired count of the page
 		mapped at the given address is incremented and the page is returned
 		via this parameter.
-	\param wiredRange If given, this wiredRange is ignored when checking whether
-		an already mapped page at the virtual address can be unmapped.
 	\return \c B_OK on success, another error code otherwise.
 */
 static status_t
 vm_soft_fault(VMAddressSpace* addressSpace, addr_t originalAddress,
-	bool isWrite, bool isExecute, bool isUser, vm_page** wirePage,
-	VMAreaWiredRange* wiredRange)
+	bool isWrite, bool isExecute, bool isUser, vm_page** wirePage)
 {
 	FTRACE(("vm_soft_fault: thid 0x%" B_PRIx32 " address 0x%" B_PRIxADDR ", "
 		"isWrite %d, isUser %d\n", thread_get_current_thread_id(),
@@ -4676,11 +4698,26 @@ vm_soft_fault(VMAddressSpace* addressSpace, addr_t originalAddress,
 
 		if (unmapPage) {
 			// If the page is wired, we can't unmap it. Wait until it is unwired
-			// again and restart.
+			// again and restart. Note that the page cannot be wired for
+			// writing, since it it isn't in the topmost cache. So we can safely
+			// ignore ranges wired for writing (our own and other concurrent
+			// wiring attempts in progress) and in fact have to do that to avoid
+			// a deadlock.
 			VMAreaUnwiredWaiter waiter;
 			if (area->AddWaiterIfWired(&waiter, address, B_PAGE_SIZE,
-					wiredRange)) {
+					VMArea::IGNORE_WRITE_WIRED_RANGES)) {
 				// unlock everything and wait
+				if (context.pageAllocated) {
+					// ... but since we allocated a page and inserted it into
+					// the top cache, remove and free it first. Otherwise we'd
+					// have a page from a lower cache mapped while an upper
+					// cache has a page that would shadow it.
+					context.topCache->RemovePage(context.page);
+					vm_page_free_etc(context.topCache, context.page,
+						&context.reservation);
+				} else
+					DEBUG_PAGE_ACCESS_END(context.page);
+
 				context.UnlockAll();
 				waiter.waitEntry.Wait();
 				continue;
@@ -5255,8 +5292,7 @@ user_memcpy(void* to, const void* from, size_t size)
 	if ((addr_t)from + size < (addr_t)from || (addr_t)to + size < (addr_t)to)
 		return B_BAD_ADDRESS;
 
-	if (arch_cpu_user_memcpy(to, from, size,
-			&thread_get_current_thread()->fault_handler) < B_OK)
+	if (arch_cpu_user_memcpy(to, from, size) < B_OK)
 		return B_BAD_ADDRESS;
 
 	return B_OK;
@@ -5286,8 +5322,7 @@ user_strlcpy(char* to, const char* from, size_t size)
 		// NOTE: Since arch_cpu_user_strlcpy() determines the length of \a from,
 		// the source address might still overflow.
 
-	ssize_t result = arch_cpu_user_strlcpy(to, from, maxSize,
-		&thread_get_current_thread()->fault_handler);
+	ssize_t result = arch_cpu_user_strlcpy(to, from, maxSize);
 
 	// If we hit the address overflow boundary, fail.
 	if (result < 0 || (result >= 0 && (size_t)result >= maxSize
@@ -5305,9 +5340,7 @@ user_memset(void* s, char c, size_t count)
 	// don't allow address overflows
 	if ((addr_t)s + count < (addr_t)s)
 		return B_BAD_ADDRESS;
-
-	if (arch_cpu_user_memset(s, c, count,
-			&thread_get_current_thread()->fault_handler) < B_OK)
+	if (arch_cpu_user_memset(s, c, count) < B_OK)
 		return B_BAD_ADDRESS;
 
 	return B_OK;
@@ -5399,7 +5432,7 @@ vm_wire_page(team_id team, addr_t address, bool writable,
 		addressSpaceLocker.Unlock();
 
 		error = vm_soft_fault(addressSpace, pageAddress, writable, false,
-			isUser, &page, &info->range);
+			isUser, &page);
 
 		if (error != B_OK) {
 			// The page could not be mapped -- clean up.
@@ -5579,7 +5612,7 @@ lock_memory_etc(team_id team, void* address, size_t numBytes, uint32 flags)
 				addressSpaceLocker.Unlock();
 
 				error = vm_soft_fault(addressSpace, nextAddress, writable,
-					false, isUser, &page, range);
+					false, isUser, &page);
 
 				addressSpaceLocker.Lock();
 				cacheChainLocker.SetTo(vm_area_get_locked_cache(area));

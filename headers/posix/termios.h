@@ -185,6 +185,8 @@ struct termios {
 #define TIOCMSET			(TCGETA + 19)	/* does TCSETDTR/TCSETRTS */
 #define TIOCSBRK			(TCGETA + 20)	/* set txd pin */
 #define TIOCCBRK			(TCGETA + 21)	/* both are a frontend to TCSBRK */
+#define TIOCMBIS			(TCGETA + 22)	/* set bits in line state */
+#define TIOCMBIC			(TCGETA + 23)	/* clear bits in line state */
 
 /* Event codes.  Returned from TCWAITEVENT */
 #define EV_RING			0x0001
@@ -209,6 +211,7 @@ struct winsize {
 /* Bits for the TIOCMGET / TIOCMSET control */
 #define TIOCM_CTS		TCGB_CTS	/* clear to send */
 #define TIOCM_CD		TCGB_DCD	/* carrier detect */
+#define TIOCM_CAR		TIOCM_CD
 #define TIOCM_RI		TCGB_RI		/* ring indicator */
 #define TIOCM_DSR		TCGB_DSR	/* dataset ready */
 #define TIOCM_DTR		0x10		/* data terminal ready */

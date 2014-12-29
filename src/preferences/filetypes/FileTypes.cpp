@@ -24,7 +24,7 @@
 #include <Resources.h>
 
 #include <stdio.h>
-#include <string.h>
+#include <strings.h>
 
 
 #undef B_TRANSLATION_CONTEXT
@@ -180,7 +180,7 @@ FileTypes::FileTypes()
 	fTypeWindowCount(0)
 {
 	fFilePanel = new BFilePanel(B_OPEN_PANEL, NULL, NULL,
-		B_FILE_NODE | B_DIRECTORY_NODE, false);
+		B_FILE_NODE, false);
 }
 
 
@@ -384,6 +384,12 @@ FileTypes::MessageReceived(BMessage* message)
 				title.Append(": ");
 				title.Append(subTitle);
 			}
+
+			uint32 flavors = B_FILE_NODE;
+			if (message->FindBool("allowDirs"))
+				flavors |= B_DIRECTORY_NODE;
+			fFilePanel->SetNodeFlavors(flavors);
+
 
 			fFilePanel->SetMessage(new BMessage(what));
 			fFilePanel->Window()->SetTitle(title.String());

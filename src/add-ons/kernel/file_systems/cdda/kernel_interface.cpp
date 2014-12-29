@@ -20,6 +20,7 @@
 #include <TypeConstants.h>
 
 #include <AutoDeleter.h>
+#include <util/SinglyLinkedList.h>
 #include <util/DoublyLinkedList.h>
 
 #include "cdda.h"
@@ -41,7 +42,7 @@ struct attr_cookie;
 struct dir_cookie;
 
 typedef DoublyLinkedList<Attribute> AttributeList;
-typedef DoublyLinkedList<attr_cookie> AttrCookieList;
+typedef SinglyLinkedList<attr_cookie> AttrCookieList;
 
 struct riff_header {
 	uint32		magic;
@@ -105,7 +106,7 @@ public:
 			size_t			BufferSize() const { return 32 * kFrameSize; }
 								// TODO: for now
 
-			void			DisableCDDBLookUps();
+			void			SetCDDBLookupsEnabled(bool doLookup);
 
 	static	void			DetermineName(uint32 cddbId, int device, char* name,
 								size_t length);
@@ -129,6 +130,7 @@ private:
 			ino_t			fNextID;
 			char*			fName;
 			off_t			fNumBlocks;
+			bool 			fIgnoreCDDBLookupChanges;
 
 			// root directory contents - we don't support other directories
 			Inode*			fFirstEntry;
@@ -254,7 +256,7 @@ enum {
 	ITERATION_STATE_BEGIN	= ITERATION_STATE_DOT,
 };
 
-struct attr_cookie : DoublyLinkedListLinkImpl<attr_cookie> {
+struct attr_cookie : SinglyLinkedListLinkImpl<attr_cookie> {
 	Attribute*	current;
 };
 
@@ -569,6 +571,7 @@ Volume::Volume(fs_volume* fsVolume)
 	fNextID(1),
 	fName(NULL),
 	fNumBlocks(0),
+	fIgnoreCDDBLookupChanges(false),
 	fFirstEntry(NULL)
 {
 }
@@ -730,16 +733,17 @@ Volume::Mount(const char* device)
 	fRootNode->AddAttribute(kCddbIdAttribute, B_UINT32_TYPE, fDiscID);
 
 	// Add CD:do_lookup attribute.
-	fRootNode->AddAttribute(kDoLookupAttribute, B_BOOL_TYPE, true,
-		(const uint8*)&doLookup, sizeof(bool));
+	SetCDDBLookupsEnabled(true);
 
 	// Add CD:toc attribute.
 	fRootNode->AddAttribute(kTocAttribute, B_RAW_TYPE, true,
 		(const uint8*)toc, B_BENDIAN_TO_HOST_INT16(toc->data_length) + 2);
 
 	_RestoreSharedAttributes();
-	if (fd >= 0)
+	if (fd >= 0) {
 		_RestoreAttributes(fd);
+		close(fd);
+	}
 
 	// determine volume title
 	DetermineName(fDiscID, fDevice, title, sizeof(title));
@@ -805,11 +809,12 @@ Volume::Find(const char* name)
 
 
 void
-Volume::DisableCDDBLookUps()
+Volume::SetCDDBLookupsEnabled(bool doLookup)
 {
-	bool doLookup = false;
-	RootNode().AddAttribute(kDoLookupAttribute, B_BOOL_TYPE, true,
-		(const uint8*)&doLookup, sizeof(bool));
+	if (!fIgnoreCDDBLookupChanges) {
+		fRootNode->AddAttribute(kDoLookupAttribute, B_BOOL_TYPE, true,
+			(const uint8*)&doLookup, sizeof(bool));
+	}
 }
 
 
@@ -958,8 +963,10 @@ Volume::_StoreAttributes()
 void
 Volume::_RestoreSharedAttributes()
 {
-	// device attributes overwrite shared attributes
+	// Don't affect CDDB lookup status while changing shared attributes
+	fIgnoreCDDBLookupChanges = true;
 
+	// device attributes overwrite shared attributes
 	int fd = _OpenAttributes(O_RDONLY, kSharedAttributes);
 	if (fd >= 0) {
 		read_attributes(fd, fRootNode);
@@ -971,6 +978,8 @@ Volume::_RestoreSharedAttributes()
 		read_attributes(fd, fRootNode);
 		close(fd);
 	}
+
+	fIgnoreCDDBLookupChanges = false;
 }
 
 
@@ -1157,9 +1166,7 @@ Inode::Inode(Volume* volume, Inode* parent, const char* name, uint64 start,
 	:
 	fNext(NULL)
 {
-	fName = strdup(name);
-	if (fName == NULL)
-		return;
+	memset(&fWAVHeader, 0, sizeof(wav_header));
 
 	fID = volume->GetNextNodeID();
 	fType = type;
@@ -1170,6 +1177,10 @@ Inode::Inode(Volume* volume, Inode* parent, const char* name, uint64 start,
 	fGroupID = parent ? parent->GroupID() : getegid();
 
 	fCreationTime = fModificationTime = time(NULL);
+
+	fName = strdup(name);
+	if (fName == NULL)
+		return;
 
 	if (frames) {
 		// initialize WAV header
@@ -1362,7 +1373,8 @@ Inode::AddAttrCookie(attr_cookie* cookie)
 void
 Inode::RemoveAttrCookie(attr_cookie* cookie)
 {
-	fAttrCookies.Remove(cookie);
+	if (!fAttrCookies.Remove(cookie))
+		panic("Tried to remove %p which is not in cookie list.", cookie);
 }
 
 
@@ -1540,13 +1552,6 @@ cdda_write_fs_stat(fs_volume* _volume, const struct fs_info* info, uint32 mask)
 
 	if ((mask & FS_WRITE_FSINFO_NAME) != 0) {
 		status = volume->SetName(info->volume_name);
-		if (status == B_OK) {
-			// The volume had its name changed from outside the filesystem
-			// add-on. Disable CDDB lookups. Note this will usually mean that
-			// the user manually renamed the volume or that cddblinkd (or other
-			// program) did this so we do not want to do it again.
-			volume->DisableCDDBLookUps();
-		}
 	}
 
 	return status;
@@ -1811,7 +1816,7 @@ cdda_rename(fs_volume* _volume, fs_vnode* _oldDir, const char* oldName,
 		// add-on. Disable CDDB lookups. Note this will usually mean that the
 		// user manually renamed a track or that cddblinkd (or other program)
 		// did this so we do not want to do it again.
-		volume->DisableCDDBLookUps();
+		volume->SetCDDBLookupsEnabled(false);
 
 		notify_entry_moved(volume->ID(), volume->RootNode().ID(), oldName,
 			volume->RootNode().ID(), newName, inode->ID());

@@ -297,8 +297,14 @@ TextViewFilter(BMessage* message, BHandler**, BMessageFilter* filter)
 	if (message->FindInt8("byte", (int8*)&key) != B_OK)
 		return B_DISPATCH_MESSAGE;
 
-	BPoseView* poseView = dynamic_cast<BContainerWindow*>(
-		filter->Looper())->PoseView();
+	ThrowOnAssert(filter != NULL);
+
+	BContainerWindow* window = dynamic_cast<BContainerWindow*>(
+		filter->Looper());
+	ThrowOnAssert(window != NULL);
+
+	BPoseView* poseView = window->PoseView();
+	ThrowOnAssert(poseView != NULL);
 
 	if (key == B_RETURN || key == B_ESCAPE) {
 		poseView->CommitActivePose(key == B_RETURN);
@@ -447,18 +453,18 @@ BTextWidget::StopEdit(bool saveChanges, BPoint poseLoc, BPoseView* view,
 	// find the text editing view
 	BView* scrollView = view->FindView("BorderView");
 	ASSERT(scrollView);
-	if (!scrollView)
+	if (scrollView == NULL)
 		return;
 
 	BTextView* textView = dynamic_cast<BTextView*>(
 		scrollView->FindView("WidgetTextView"));
-	ASSERT(textView);
-	if (!textView)
+	ASSERT(textView != NULL);
+	if (textView == NULL)
 		return;
 
 	BColumn* column = view->ColumnFor(fAttrHash);
-	ASSERT(column);
-	if (!column)
+	ASSERT(column != NULL);
+	if (column == NULL)
 		return;
 
 	if (saveChanges && fText->CommitEditedText(textView)) {
@@ -505,7 +511,7 @@ BTextWidget::SelectAll(BPoseView* view)
 {
 	BTextView* text = dynamic_cast<BTextView*>(
 		view->FindView("WidgetTextView"));
-	if (text)
+	if (text != NULL)
 		text->SelectAll();
 }
 

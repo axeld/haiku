@@ -6,6 +6,10 @@ AddSubDirSupportedPlatforms libbe_test ;
 UseLibraryHeaders agg ;
 UsePrivateHeaders shared locale ;
 
+if [ Glob $(SUBDIR) : DefaultGeolocationServiceKey.h ] {
+	SubDirC++Flags [ FDefines HAVE_DEFAULT_GEOLOCATION_SERVICE_KEY ] ;
+}
+
 local architectureObject ;
 for architectureObject in [ MultiArchSubDirSetup ] {
 	on $(architectureObject) {
@@ -30,11 +34,14 @@ for architectureObject in [ MultiArchSubDirSetup ] {
 			CommandPipe.cpp
 			DragTrackingFilter.cpp
 			DriverSettingsMessageAdapter.cpp
+			Geolocation.cpp
 			HashString.cpp
 			IconButton.cpp
 			IconView.cpp
+			Json.cpp
 			Keymap.cpp
 			LongAndDragTrackingFilter.cpp
+			MessageBuilder.cpp
 			NaturalCompare.cpp
 			PromptWindow.cpp
 			QueryFile.cpp
@@ -46,6 +53,7 @@ for architectureObject in [ MultiArchSubDirSetup ] {
 			StringForSize.cpp
 			TextTable.cpp
 			Thread.cpp
+			Toolbar.cpp
 			Variant.cpp
 			;
 

@@ -767,12 +767,39 @@ Volume::Initialize(int fd, const char* name, uint32 blockSize,
 			return status;
 	}
 
-	CreateVolumeID(transaction);
-
-	WriteSuperBlock();
-	transaction.Done();
+	status = CreateVolumeID(transaction);
+	if (status < B_OK)
+		return status;
+	
+	status = _EraseUnusedBootBlock();
+	if (status < B_OK)
+		return status;
+	
+	status = WriteSuperBlock();
+	if (status < B_OK)
+		return status;
+		
+	status = transaction.Done();
+	if (status < B_OK)
+		return status;
 
 	Sync();
 	opener.RemoveCache(true);
+	return B_OK;
+}
+
+
+/*!	Erase the first boot block, as we don't use it and there
+ *	might be leftovers from other file systems. This can cause
+ *	confusion for identifying the partition if not erased.
+ */
+status_t
+Volume::_EraseUnusedBootBlock()
+{
+	const int32 blockSize = 512;
+	const char emptySector[blockSize] = { 0 };
+	if (write_pos(fDevice, 0, emptySector, blockSize) != blockSize)
+		return B_IO_ERROR;
+
 	return B_OK;
 }

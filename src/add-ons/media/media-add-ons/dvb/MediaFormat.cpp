@@ -27,10 +27,16 @@
 #include <stdio.h>
 #include "MediaFormat.h"
 
-#define UINT64_C(c) (c ## ULL)
 extern "C" {
   #include "avcodec.h"
-}
+
+#ifdef DEBUG
+  // Needed to fix debug build, otherwise the linker complains about
+  // "undefined reference to `ff_log2_tab'"
+  const uint8_t ff_log2_tab[256] = {0};
+#endif
+
+}  // extern "C"
 
 void
 PrintFormat(const media_format &format)

@@ -13,6 +13,7 @@
 #include <Catalog.h>
 #include <CheckBox.h>
 #include <ControlLook.h>
+#include <DateFormat.h>
 #include <GridLayout.h>
 #include <GridLayoutBuilder.h>
 #include <GroupLayout.h>
@@ -24,6 +25,7 @@
 #include <Menu.h>
 #include <MenuField.h>
 #include <MenuItem.h>
+#include <NumberFormat.h>
 #include <PopUpMenu.h>
 #include <RadioButton.h>
 #include <ScrollView.h>
@@ -33,6 +35,7 @@
 #include <String.h>
 #include <StringView.h>
 #include <TextControl.h>
+#include <TimeFormat.h>
 #include <Window.h>
 
 #include "LocalePreflet.h"
@@ -360,49 +363,55 @@ FormatSettingsView::_UpdateExamples()
 	time_t timeValue = (time_t)time(NULL);
 	BString result;
 
-	BLocale::Default()->FormatDate(&result, timeValue, B_FULL_DATE_FORMAT);
+	// Do NOT make these class members. We do want to recreate it everytime, as
+	// to get the updated settings from the locale roster.
+	BDateFormat dateFormat;
+	BTimeFormat timeFormat;
+	BNumberFormat numberFormat;
+
+	dateFormat.Format(result, timeValue, B_FULL_DATE_FORMAT);
 	fFullDateExampleView->SetText(result);
 
-	BLocale::Default()->FormatDate(&result, timeValue, B_LONG_DATE_FORMAT);
+	dateFormat.Format(result, timeValue, B_LONG_DATE_FORMAT);
 	fLongDateExampleView->SetText(result);
 
-	BLocale::Default()->FormatDate(&result, timeValue, B_MEDIUM_DATE_FORMAT);
+	dateFormat.Format(result, timeValue, B_MEDIUM_DATE_FORMAT);
 	fMediumDateExampleView->SetText(result);
 
-	BLocale::Default()->FormatDate(&result, timeValue, B_SHORT_DATE_FORMAT);
+	dateFormat.Format(result, timeValue, B_SHORT_DATE_FORMAT);
 	fShortDateExampleView->SetText(result);
 
-	BLocale::Default()->FormatTime(&result, timeValue, B_FULL_TIME_FORMAT);
+	timeFormat.Format(result, timeValue, B_FULL_TIME_FORMAT);
 	fFullTimeExampleView->SetText(result);
 
-	BLocale::Default()->FormatTime(&result, timeValue, B_LONG_TIME_FORMAT);
+	timeFormat.Format(result, timeValue, B_LONG_TIME_FORMAT);
 	fLongTimeExampleView->SetText(result);
 
-	BLocale::Default()->FormatTime(&result, timeValue, B_MEDIUM_TIME_FORMAT);
+	timeFormat.Format(result, timeValue, B_MEDIUM_TIME_FORMAT);
 	fMediumTimeExampleView->SetText(result);
 
-	BLocale::Default()->FormatTime(&result, timeValue, B_SHORT_TIME_FORMAT);
+	timeFormat.Format(result, timeValue, B_SHORT_TIME_FORMAT);
 	fShortTimeExampleView->SetText(result);
 
-	status_t status = BLocale::Default()->FormatNumber(&result, 1234.5678);
+	status_t status = numberFormat.Format(result, 1234.5678);
 	if (status == B_OK)
 		fPositiveNumberExampleView->SetText(result);
 	else
 		fPositiveNumberExampleView->SetText("ERROR");
 
-	status = BLocale::Default()->FormatNumber(&result, -1234.5678);
+	status = numberFormat.Format(result, -1234.5678);
 	if (status == B_OK)
 		fNegativeNumberExampleView->SetText(result);
 	else
 		fNegativeNumberExampleView->SetText("ERROR");
 
-	status = BLocale::Default()->FormatMonetary(&result, 1234.56);
+	status = numberFormat.FormatMonetary(result, 1234.56);
 	if (status == B_OK)
 		fPositiveMonetaryExampleView->SetText(result);
 	else
 		fPositiveMonetaryExampleView->SetText("ERROR");
 
-	status = BLocale::Default()->FormatMonetary(&result, -1234.56);
+	status = numberFormat.FormatMonetary(result, -1234.56);
 	if (status == B_OK)
 		fNegativeMonetaryExampleView->SetText(result);
 	else

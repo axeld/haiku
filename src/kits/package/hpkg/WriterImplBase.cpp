@@ -16,6 +16,7 @@
 #include <new>
 
 #include <ByteOrder.h>
+#include <File.h>
 
 #include <AutoDeleter.h>
 #include <ZlibCompressionAlgorithm.h>
@@ -226,7 +227,8 @@ WriterImplBase::WriterImplBase(const char* fileType, BErrorOutput* errorOutput)
 	fErrorOutput(errorOutput),
 	fFileName(NULL),
 	fParameters(),
-	fFD(-1),
+	fFile(NULL),
+	fOwnsFile(false),
 	fFinished(false)
 {
 }
@@ -240,8 +242,8 @@ WriterImplBase::~WriterImplBase()
 	delete fDecompressionAlgorithm;
 	delete fDecompressionParameters;
 
-	if (fFD >= 0)
-		close(fFD);
+	if (fOwnsFile)
+		delete fFile;
 
 	if (!fFinished && fFileName != NULL
 		&& (Flags() & B_HPKG_WRITER_UPDATE_PACKAGE) == 0) {
@@ -251,7 +253,7 @@ WriterImplBase::~WriterImplBase()
 
 
 status_t
-WriterImplBase::Init(const char* fileName, size_t headerSize,
+WriterImplBase::Init(BPositionIO* file, bool keepFile, const char* fileName,
 	const BPackageWriterParameters& parameters)
 {
 	fParameters = parameters;
@@ -259,57 +261,89 @@ WriterImplBase::Init(const char* fileName, size_t headerSize,
 	if (fPackageStringCache.Init() != B_OK)
 		throw std::bad_alloc();
 
-	// open file (don't truncate in update mode)
-	int openMode = O_RDWR;
-	if ((Flags() & B_HPKG_WRITER_UPDATE_PACKAGE) == 0)
-		openMode |= O_CREAT | O_TRUNC;
+	if (file == NULL) {
+		if (fileName == NULL)
+			return B_BAD_VALUE;
 
-	fFD = open(fileName, openMode, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-	if (fFD < 0) {
-		fErrorOutput->PrintError("Failed to open %s file \"%s\": %s\n",
-			fFileType, fileName, strerror(errno));
-		return errno;
+		// open file (don't truncate in update mode)
+		int openMode = O_RDWR;
+		if ((parameters.Flags() & B_HPKG_WRITER_UPDATE_PACKAGE) == 0)
+			openMode |= O_CREAT | O_TRUNC;
+
+		BFile* newFile = new BFile;
+		status_t error = newFile->SetTo(fileName, openMode);
+		if (error != B_OK) {
+			fErrorOutput->PrintError("Failed to open %s file \"%s\": %s\n",
+				fFileType, fileName, strerror(errno));
+			delete newFile;
+			return error;
+		}
+
+		fFile = newFile;
+		fOwnsFile = true;
+	} else {
+		fFile = file;
+		fOwnsFile = keepFile;
 	}
 
 	fFileName = fileName;
 
-	DecompressionAlgorithmOwner* decompressionAlgorithm
-		= DecompressionAlgorithmOwner::Create(
-			new(std::nothrow) BZlibCompressionAlgorithm,
-			new(std::nothrow) BZlibDecompressionParameters);
-	BReference<DecompressionAlgorithmOwner> decompressionAlgorithmReference(
-		decompressionAlgorithm, true);
+	return B_OK;
+}
 
-	if (decompressionAlgorithm == NULL
-		|| decompressionAlgorithm->algorithm == NULL
-		|| decompressionAlgorithm->parameters == NULL) {
-		throw std::bad_alloc();
-	}
 
+status_t
+WriterImplBase::InitHeapReader(size_t headerSize)
+{
+	// allocate the compression/decompression algorithm
 	CompressionAlgorithmOwner* compressionAlgorithm = NULL;
+	BReference<CompressionAlgorithmOwner> compressionAlgorithmReference;
 
-	if (fParameters.CompressionLevel() != B_HPKG_COMPRESSION_LEVEL_NONE) {
-		compressionAlgorithm = CompressionAlgorithmOwner::Create(
-			new(std::nothrow) BZlibCompressionAlgorithm,
-			new(std::nothrow) BZlibCompressionParameters(
-				fParameters.CompressionLevel()));
+	DecompressionAlgorithmOwner* decompressionAlgorithm = NULL;
+	BReference<DecompressionAlgorithmOwner> decompressionAlgorithmReference;
 
-		if (compressionAlgorithm == NULL
-			|| compressionAlgorithm->algorithm == NULL
-			|| compressionAlgorithm->parameters == NULL) {
-			throw std::bad_alloc();
-		}
+	switch (fParameters.Compression()) {
+		case B_HPKG_COMPRESSION_NONE:
+			break;
+		case B_HPKG_COMPRESSION_ZLIB:
+			compressionAlgorithm = CompressionAlgorithmOwner::Create(
+				new(std::nothrow) BZlibCompressionAlgorithm,
+				new(std::nothrow) BZlibCompressionParameters(
+					fParameters.CompressionLevel()));
+			compressionAlgorithmReference.SetTo(compressionAlgorithm, true);
+
+			decompressionAlgorithm = DecompressionAlgorithmOwner::Create(
+				new(std::nothrow) BZlibCompressionAlgorithm,
+				new(std::nothrow) BZlibDecompressionParameters);
+			decompressionAlgorithmReference.SetTo(decompressionAlgorithm, true);
+
+			if (compressionAlgorithm == NULL
+				|| compressionAlgorithm->algorithm == NULL
+				|| compressionAlgorithm->parameters == NULL
+				|| decompressionAlgorithm == NULL
+				|| decompressionAlgorithm->algorithm == NULL
+				|| decompressionAlgorithm->parameters == NULL) {
+				throw std::bad_alloc();
+			}
+			break;
+		default:
+			fErrorOutput->PrintError("Error: Invalid heap compression\n");
+			return B_BAD_VALUE;
 	}
-
-	BReference<CompressionAlgorithmOwner> compressionAlgorithmReference(
-		compressionAlgorithm, true);
 
 	// create heap writer
-	fHeapWriter = new PackageFileHeapWriter(fErrorOutput, FD(), headerSize,
+	fHeapWriter = new PackageFileHeapWriter(fErrorOutput, fFile, headerSize,
 		compressionAlgorithm, decompressionAlgorithm);
 	fHeapWriter->Init();
 
 	return B_OK;
+}
+
+
+void
+WriterImplBase::SetCompression(uint32 compression)
+{
+	fParameters.SetCompression(compression);
 }
 
 
@@ -717,17 +751,12 @@ WriterImplBase::WriteUnsignedLEB128(uint64 value)
 void
 WriterImplBase::RawWriteBuffer(const void* buffer, size_t size, off_t offset)
 {
-	ssize_t bytesWritten = pwrite(fFD, buffer, size, offset);
-	if (bytesWritten < 0) {
+	status_t error = fFile->WriteAtExactly(offset, buffer, size);
+	if (error != B_OK) {
 		fErrorOutput->PrintError(
 			"RawWriteBuffer(%p, %lu) failed to write data: %s\n", buffer, size,
-			strerror(errno));
-		throw status_t(errno);
-	}
-	if ((size_t)bytesWritten != size) {
-		fErrorOutput->PrintError(
-			"RawWriteBuffer(%p, %lu) failed to write all data\n", buffer, size);
-		throw status_t(B_ERROR);
+			strerror(error));
+		throw error;
 	}
 }
 

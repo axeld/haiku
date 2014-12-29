@@ -99,7 +99,11 @@ const struct supported_device {
 	{0x0154, 0x0156, INTEL_TYPE_IVBGM, "IvyBridge Mobile GT1"},
 	{0x0154, 0x0166, INTEL_TYPE_IVBGM, "IvyBridge Mobile GT2"},
 	{0x0158, 0x015a, INTEL_TYPE_IVBGS, "IvyBridge Server GT1"},
-	{0x0158, 0x016a, INTEL_TYPE_IVBGS, "IvyBridge Server GT2"}
+	{0x0158, 0x016a, INTEL_TYPE_IVBGS, "IvyBridge Server GT2"},
+
+	{0x0c00, 0x0412, INTEL_TYPE_IVBG, "Haswell Desktop"},
+	{0x0c04, 0x0416, INTEL_TYPE_IVBGM, "Haswell Mobile"},
+	{0x0d04, 0x0d26, INTEL_TYPE_IVBGM, "Haswell Mobile"},
 };
 
 struct intel_info {

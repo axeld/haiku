@@ -10,14 +10,16 @@
 
 //#define BEOS_R5_COMPATIBLE
 
+#include <MessageFormat.h>
 #include <Slider.h>
+#include <String.h>
 
 
 class StatusSlider: public BSlider {
 public:
 							StatusSlider(const char* name,
 								const char* label,
-								char* statusPrefix, 
+								const char* statusPrefix,
 								BMessage* message,
 								int32 minValue,
 								int32 maxValue);
@@ -25,9 +27,9 @@ public:
 	virtual const char*	UpdateText() const;
 
 private:
-			char*			fStatusPrefix;
-			char*			fTemp;
-			char 			fStr[128];
+	mutable char			fPattern[256];
+	BMessageFormat			fFormat;
+	mutable	BString			fStr;
 };
 
 #endif

@@ -520,7 +520,7 @@ BPartition::GetMountPoint(BPath* mountPoint) const
 	\param parameters File system specific mount parameters.
 	\return \c B_OK, if everything went fine, another error code otherwise.
 */
-dev_t
+status_t
 BPartition::Mount(const char* mountPoint, uint32 mountFlags,
 	const char* parameters)
 {
@@ -570,9 +570,9 @@ BPartition::Mount(const char* mountPoint, uint32 mountFlags,
 
 	// update object, if successful
 	if (device >= 0)
-		error = Device()->Update();
+		return Device()->Update();
 
-	return device;
+	return B_ERROR;
 }
 
 

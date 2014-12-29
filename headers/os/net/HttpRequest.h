@@ -8,18 +8,15 @@
 
 #include <deque>
 
+#include <Certificate.h>
 #include <HttpForm.h>
 #include <HttpHeaders.h>
 #include <HttpResult.h>
-#include <NetBuffer.h>
 #include <NetworkAddress.h>
-#include <UrlRequest.h>
+#include <NetworkRequest.h>
 
 
-class BAbstractSocket;
-
-
-class BHttpRequest : public BUrlRequest {
+class BHttpRequest : public BNetworkRequest {
 public:
 								BHttpRequest(const BUrl& url,
 									bool ssl = false,
@@ -48,7 +45,7 @@ public:
 			void				AdoptPostFields(BHttpForm* const fields);
 			void				AdoptInputData(BDataIO* const data,
 									const ssize_t size = -1);
-            void                AdoptHeaders(BHttpHeaders* const headers);
+			void				AdoptHeaders(BHttpHeaders* const headers);
 
 			status_t			Stop();
 			const BUrlResult&	Result() const;
@@ -63,13 +60,11 @@ public:
 private:
 			void				_ResetOptions();
 			status_t			_ProtocolLoop();
-			bool 				_ResolveHostName();
 			status_t			_MakeRequest();
 
 			void				_SendRequest();
 			void				_SendHeaders();
-
-			status_t			_GetLine(BString& destString);
+			void				_SendPostData();
 
 			void				_ParseStatus();
 			void				_ParseHeaders();
@@ -80,21 +75,25 @@ private:
 			void				_SetResultStatusCode(int32 statusCode);
 			BString&			_ResultStatusText();
 
+	// SSL failure management
+	friend	class				CheckedSecureSocket;
+			bool				_CertificateVerificationFailed(
+									BCertificate& certificate,
+									const char* message);
+
+	// Utility methods
+			bool				_IsDefaultPort();
+
 private:
-			BAbstractSocket*	fSocket;
-			BNetworkAddress		fRemoteAddr;
 			bool				fSSL;
 
 			BString				fRequestMethod;
 			int8				fHttpVersion;
 
-			BNetBuffer			fInputBuffer;
-
 			BHttpHeaders		fHeaders;
 
 	// Request status
 
-			BHttpHeaders		fOutputHeaders;
 			BHttpResult			fResult;
 
 			// Request state/events

@@ -18,8 +18,11 @@
 class entry_ref;
 
 class CpuState;
+class ExpressionInfo;
 class FunctionInstance;
 class Image;
+class LocatableFile;
+class SourceLanguage;
 class StackFrame;
 class Team;
 class TeamUiSettings;
@@ -92,6 +95,8 @@ public:
 	virtual void				SourceEntryLocateRequested(
 									const char* sourcePath,
 									const char* locatedPath) = 0;
+	virtual	void				SourceEntryInvalidateRequested(
+									LocatableFile* sourceFile) = 0;
 	virtual	void				ImageDebugInfoRequested(Image* image) = 0;
 	virtual	void				ValueNodeValueRequested(CpuState* cpuState,
 									ValueNodeContainer* container,
@@ -105,6 +110,11 @@ public:
 	virtual	void				SetBreakpointEnabledRequested(
 									UserBreakpoint* breakpoint,
 									bool enabled) = 0;
+	virtual	void				SetBreakpointConditionRequested(
+									UserBreakpoint* breakpoint,
+									const char* condition) = 0;
+	virtual	void				ClearBreakpointConditionRequested(
+									UserBreakpoint* breakpoint) = 0;
 	virtual	void				ClearBreakpointRequested(
 									target_addr_t address) = 0;
 	virtual	void				ClearBreakpointRequested(
@@ -132,6 +142,12 @@ public:
 	virtual void				InspectRequested(
 									target_addr_t address,
 									TeamMemoryBlock::Listener* listener) = 0;
+
+	virtual	void				ExpressionEvaluationRequested(
+									SourceLanguage* language,
+									ExpressionInfo* info,
+									StackFrame* frame = NULL,
+									Thread* thread = NULL) = 0;
 
 	virtual void				DebugReportRequested(entry_ref* path) = 0;
 

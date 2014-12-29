@@ -1,18 +1,17 @@
-1	japanese	x-vnd.haiku.zip-o-matic	2207848100
-1 file added.	file:ZipOMaticWindow.cpp		ファイルを追加しました。
+1	japanese	x-vnd.haiku.zip-o-matic	2032806096
 Stop	file:ZipOMaticWindow.cpp		中止
 Creating archive: %s	file:ZipOMaticWindow.cpp		アーカイブ %s を作成中
 Continue	file:ZipOMaticWindow.cpp		続ける
 Preparing to archive	file:ZipperThread.cpp		アーカイブを準備中
 Drop files here.	file:ZipOMaticWindow.cpp		ここにファイルをドロップしてください。
 Filename: %s	file:ZipOMaticWindow.cpp		ファイル名: %s
+You have {0, plural, one{# Zip-O-Matic} other{# Zip-O-Matics}} running.\n\n	file:ZipOMatic.cpp		{0, plural, one{# Zip-O-Matic} other{# Zip-O-Matic}} が実行中です。\n\n
 Let them continue	file:ZipOMatic.cpp		これらを続ける
 Do you want to stop them?	file:ZipOMatic.cpp		中止しますか？
 Are you sure you want to stop creating this archive?	file:ZipOMaticWindow.cpp		アーカイブの作成を中止しますか?
-%ld files added.	file:ZipOMaticWindow.cpp		%ld 個のファイルを追加しました。
 Stopped	file:ZipOMaticWindow.cpp		一時停止中
 Archive	file:ZipperThread.cpp		アーカイブ
 Error creating archive	file:ZipOMaticWindow.cpp		アーカイブの作成中にエラーが発生しました。
-You have %ld Zip-O-Matic running.\n\n	file:ZipOMatic.cpp		%ld 個の Zip-O-Matic が動作中です。\n\n
-Archive created OK	file:ZipOMaticWindow.cpp		アーカイブを正常に作成しました。
+{0, plural, one{# file added.} other{# files added.}}	file:ZipOMaticWindow.cpp		{0, plural, one{# 個のファイルが追加されました。} other{# 個のファイルが追加されました。}}
+Archive created OK	file:ZipOMaticWindow.cpp		アーカイブを正しく作成しました。
 Stop them	file:ZipOMatic.cpp		これらを中止

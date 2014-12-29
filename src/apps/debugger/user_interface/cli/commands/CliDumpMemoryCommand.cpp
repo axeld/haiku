@@ -1,7 +1,7 @@
 /*
  * Copyright 2009-2011, Ingo Weinhold, ingo_weinhold@gmx.de.
  * Copyright 2002-2010, Axel Dörfler, axeld@pinc-software.de.
- * Copyright 2012, Rene Gollent, rene@gollent.com.
+ * Copyright 2012-2014, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  *
  * Copyright 2001-2002, Travis Geiselbrecht. All rights reserved.
@@ -15,13 +15,15 @@
 #include <stdio.h>
 
 #include <AutoLocker.h>
-#include <ExpressionParser.h>
 
 #include "CliContext.h"
+#include "CppLanguage.h"
 #include "Team.h"
 #include "TeamMemoryBlock.h"
 #include "UiUtils.h"
 #include "UserInterface.h"
+#include "Value.h"
+#include "Variable.h"
 
 
 CliDumpMemoryCommand::CliDumpMemoryCommand()
@@ -30,6 +32,14 @@ CliDumpMemoryCommand::CliDumpMemoryCommand()
 		"%s [\"]address|expression[\"] [num]\n"
 		"Reads and displays the contents of memory at the target address.")
 {
+	fLanguage = new(std::nothrow) CppLanguage();
+}
+
+
+CliDumpMemoryCommand::~CliDumpMemoryCommand()
+{
+	if (fLanguage != NULL)
+		fLanguage->ReleaseReference();
 }
 
 
@@ -42,14 +52,40 @@ CliDumpMemoryCommand::Execute(int argc, const char* const* argv,
 		return;
 	}
 
-	target_addr_t address;
-	ExpressionParser parser;
-	parser.SetSupportHexInput(true);
+	if (fLanguage == NULL) {
+		printf("Unable to evaluate expression: %s\n", strerror(B_NO_MEMORY));
+		return;
+	}
 
-	try {
-		address = parser.EvaluateToInt64(argv[1]);
-	} catch(...) {
-		printf("Error parsing address/expression.\n");
+	ExpressionInfo* info = context.GetExpressionInfo();
+
+	target_addr_t address = 0;
+	info->SetTo(argv[1]);
+
+	context.GetUserInterfaceListener()->ExpressionEvaluationRequested(
+		fLanguage, info);
+	context.WaitForEvents(CliContext::EVENT_EXPRESSION_EVALUATED);
+	if (context.IsTerminating())
+		return;
+
+	BString errorMessage;
+	ExpressionResult* result = context.GetExpressionValue();
+	if (result != NULL) {
+		if (result->Kind() == EXPRESSION_RESULT_KIND_PRIMITIVE) {
+			Value* value = result->PrimitiveValue();
+			BVariant variantValue;
+			value->ToVariant(variantValue);
+			if (variantValue.Type() == B_STRING_TYPE)
+				errorMessage.SetTo(variantValue.ToString());
+			else
+				address = variantValue.ToUInt64();
+		}
+	} else
+		errorMessage = strerror(context.GetExpressionResult());
+
+	if (!errorMessage.IsEmpty()) {
+		printf("Unable to evaluate expression: %s\n",
+			errorMessage.String());
 		return;
 	}
 

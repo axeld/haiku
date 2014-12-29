@@ -29,6 +29,9 @@
 //#define TRACE(x) printf x
 
 
+using namespace std;
+
+
 static const char *gModuleDirs[] = {
 	"generated/objects/haiku/x86/release/add-ons/userland",
 	"generated/objects/haiku/x86/release/tests/add-ons/kernel",
@@ -361,7 +364,7 @@ ModuleList::AddModule(Module *module)
 	bool result = false;
 	if (module && !FindModule(module->Info()->name))
 		result = fModules.AddItem(module);
-	return module;
+	return result;
 }
 
 // RemoveModule

@@ -46,6 +46,7 @@ public:
 	virtual	void					MessageReceived(BMessage*);
 	virtual	void					WorkspaceActivated(int32, bool);
 	virtual	void					FrameResized(float width, float height);
+	virtual	void					ScreenChanged(BRect frame, color_space mode);
 	virtual	BHandler*				ResolveSpecifier(BMessage*, int32, BMessage*,
 										int32, const char*);
 										
@@ -64,10 +65,9 @@ private:
 
 			void					SetPosition();
 			void					_LoadSettings(bool startMonitor = false);
-			void					_LoadAppFilters(bool startMonitor = false);
-			void					_SaveAppFilters();
-			void					_LoadGeneralSettings(bool startMonitor);
-			void					_LoadDisplaySettings(bool startMonitor);
+			void					_LoadAppFilters(BMessage& settings);
+			void					_LoadGeneralSettings(BMessage& settings);
+			void					_LoadDisplaySettings(BMessage& settings);
 
 			views_t					fViews;
 			appview_t				fAppViews;

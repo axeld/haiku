@@ -9,7 +9,9 @@
 #define _TIME_ZONE_LIST_VIEW_H
 
 
+#include <DateFormat.h>
 #include <OutlineListView.h>
+#include <TimeFormat.h>
 
 
 class TimeZoneListView : public BOutlineListView {
@@ -19,6 +21,10 @@ public:
 
 protected:
 	virtual	bool				GetToolTipAt(BPoint point, BToolTip** _tip);
+
+private:
+	BDateFormat					fDateFormat;
+	BTimeFormat					fTimeFormat;
 };
 
 

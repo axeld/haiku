@@ -21,10 +21,12 @@
 #include <Catalog.h>
 #include <Debug.h>
 #include <Deskbar.h>
+#include <IconUtils.h>
 #include <LayoutBuilder.h>
 #include <Locale.h>
 #include <MediaRoster.h>
 #include <MediaTheme.h>
+#include <Notification.h>
 #include <Resources.h>
 #include <Roster.h>
 #include <Screen.h>
@@ -35,8 +37,9 @@
 #include <String.h>
 #include <TextView.h>
 
+#include "Media.h"
 #include "MediaIcons.h"
-
+#include "MidiSettingsView.h"
 
 #undef B_TRANSLATION_CONTEXT
 #define B_TRANSLATION_CONTEXT "Media Window"
@@ -60,7 +63,7 @@ public:
 
 	virtual	void	Visit(AudioMixerListItem*){}
 	virtual	void	Visit(DeviceListItem*){}
-
+	virtual	void	Visit(MidiListItem*){}
 	virtual void	Visit(NodeListItem* item)
 	{
 		item->Accept(fComparator);
@@ -161,7 +164,6 @@ MediaWindow::MediaWindow(BRect frame)
 	fAudioOutputs(5, true),
 	fVideoInputs(5, true),
 	fVideoOutputs(5, true),
-	fAlert(NULL),
 	fInitCheck(B_OK)
 {
 	_InitWindow();
@@ -229,6 +231,14 @@ MediaWindow::SelectAudioMixer(const char* title)
 	roster->GetAudioMixer(&mixerNode);
 	fCurrentNode.SetTo(mixerNode);
 	_MakeParamView();
+	fTitleView->SetLabel(title);
+}
+
+
+void
+MediaWindow::SelectMidiSettings(const char* title)
+{
+	fContentLayout->SetVisibleItem(fContentLayout->IndexOfView(fMidiView));
 	fTitleView->SetLabel(title);
 }
 
@@ -306,17 +316,13 @@ MediaWindow::MessageReceived(BMessage* message)
 		case B_SOME_APP_LAUNCHED:
 		{
 			PRINT_OBJECT(*message);
-			if (fAlert == NULL)
-				break;
 
 			BString mimeSig;
 			if (message->FindString("be:signature", &mimeSig) == B_OK
 				&& (mimeSig == "application/x-vnd.Be.addon-host"
 					|| mimeSig == "application/x-vnd.Be.media-server")) {
-				fAlert->Lock();
-				fAlert->TextView()->SetText(
-					B_TRANSLATE("Starting media server" B_UTF8_ELLIPSIS));
-				fAlert->Unlock();
+				_Notify(0.75, B_TRANSLATE("Starting media server"
+					B_UTF8_ELLIPSIS));
 			}
 			break;
 		}
@@ -371,6 +377,9 @@ MediaWindow::_InitWindow()
 	fVideoView = new VideoSettingsView();
 	fContentLayout->AddView(fVideoView);
 
+	fMidiView = new MidiSettingsView();
+	fContentLayout->AddView(fMidiView);
+
 	// Layout all views
 	BLayoutBuilder::Group<>(this, B_HORIZONTAL)
 		.SetInsets(B_USE_DEFAULT_SPACING, B_USE_DEFAULT_SPACING,
@@ -407,10 +416,7 @@ MediaWindow::_InitMedia(bool first)
 		if (alert->Go() == 0)
 			return B_ERROR;
 
-		fAlert = new MediaAlert(BRect(0, 0, 300, 60), "restart_alert",
-			B_TRANSLATE("Restarting media services\nStarting media server"
-				B_UTF8_ELLIPSIS "\n"));
-		fAlert->Show();
+		_Notify(0, B_TRANSLATE("Starting media server" B_UTF8_ELLIPSIS));
 
 		Show();
 
@@ -424,12 +430,8 @@ MediaWindow::_InitMedia(bool first)
 		&& fListView->ItemAt(0)->IsSelected())
 		isVideoSelected = false;
 
-	if ((!first || (first && err) ) && fAlert) {
-		BAutolock locker(fAlert);
-		if (locker.IsLocked())
-			fAlert->TextView()->SetText(
-				B_TRANSLATE("Ready for use" B_UTF8_ELLIPSIS));
-	}
+	if (!first || (first && err) )
+		_Notify(1, B_TRANSLATE("Ready for use" B_UTF8_ELLIPSIS));
 
 	while (fListView->CountItems() > 0)
 		delete fListView->RemoveItem((int32)0);
@@ -454,6 +456,9 @@ MediaWindow::_InitMedia(bool first)
 	DeviceListItem* audio = new DeviceListItem(B_TRANSLATE("Audio settings"),
 		MediaListItem::AUDIO_TYPE);
 	fListView->AddItem(audio);
+
+	MidiListItem* midi = new MidiListItem(B_TRANSLATE("MIDI Settings"));
+	fListView->AddItem(midi);
 
 	MediaListItem* video = new DeviceListItem(B_TRANSLATE("Video settings"),
 		MediaListItem::VIDEO_TYPE);
@@ -502,12 +507,6 @@ MediaWindow::_InitMedia(bool first)
 		fListView->Select(fListView->IndexOf(video));
 	else
 		fListView->Select(fListView->IndexOf(audio));
-
-	if (fAlert != NULL) {
-		snooze(800000);
-		fAlert->PostMessage(B_QUIT_REQUESTED);
-	}
-	fAlert = NULL;
 
 	Unlock();
 
@@ -634,21 +633,10 @@ status_t
 MediaWindow::_RestartMediaServices(void* data)
 {
 	MediaWindow* window = (MediaWindow*)data;
-	window->fAlert = new MediaAlert(BRect(0, 0, 300, 60),
-		"restart_alert", B_TRANSLATE(
-		"Restarting media services\nShutting down media server\n"));
-
-	window->fAlert->Show();
-
+	
 	shutdown_media_server(B_INFINITE_TIMEOUT, MediaWindow::_UpdateProgress,
-		window->fAlert);
+		data);
 
-	{
-		BAutolock locker(window->fAlert);
-		if (locker.IsLocked())
-			window->fAlert->TextView()->SetText(
-				B_TRANSLATE("Starting media server" B_UTF8_ELLIPSIS));
-	}
 	launch_media_server();
 
 	return window->PostMessage(ML_INIT_MEDIA);
@@ -658,7 +646,9 @@ MediaWindow::_RestartMediaServices(void* data)
 bool
 MediaWindow::_UpdateProgress(int stage, const char* message, void* cookie)
 {
-	MediaAlert* alert = static_cast<MediaAlert*>(cookie);
+	// parameter "message" is no longer used. It is kept for compatibility with
+	// BeOS as this is used as a shutdown_media_server callback.
+
 	PRINT(("stage : %i\n", stage));
 	const char* string = "Unknown stage";
 	switch (stage) {
@@ -679,10 +669,29 @@ MediaWindow::_UpdateProgress(int stage, const char* message, void* cookie)
 			break;
 	}
 
-	BAutolock locker(alert);
-	if (locker.IsLocked())
-		alert->TextView()->SetText(string);
+	((MediaWindow*)cookie)->_Notify(stage / 150.0, string);
+
 	return true;
+}
+
+
+void
+MediaWindow::_Notify(float progress, const char* message)
+{
+	BNotification notification(B_PROGRESS_NOTIFICATION);
+	notification.SetMessageID(MEDIA_SERVICE_NOTIFICATION_ID);
+	notification.SetProgress(progress);
+	notification.SetGroup(B_TRANSLATE("Media Service"));
+	notification.SetContent(message);
+
+	app_info info;
+	be_roster->GetAppInfo(kApplicationSignature, &info);
+	BBitmap icon(BRect(0, 0, 32, 32), B_RGBA32);
+	BNode node(&info.ref);
+	BIconUtils::GetVectorIcon(&node, "BEOS:ICON", &icon);
+	notification.SetIcon(&icon);
+
+	notification.Send();
 }
 
 
@@ -694,7 +703,7 @@ MediaWindow::_ClearParamView()
 		return;
 
 	BView* view = item->View();
-	if (view != fVideoView && view != fAudioView) {
+	if (view != fVideoView && view != fAudioView && view != fMidiView) {
 		fContentLayout->RemoveItem(item);
 		delete item;
 		delete view;

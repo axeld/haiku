@@ -296,13 +296,15 @@ ReplaceChange::Merge(DataChange *_change)
 	if (change == NULL)
 		return false;
 
-	if (change->fOffset + change->fSize == fOffset + fSize && change->fSize == 1) {
+	if (change->fOffset + change->fSize == fOffset + fSize
+		&& change->fSize == 1) {
 		// this is a special case - the new change changed the last byte of
 		// the old change: we do this since the same byte is changed twice
 		// in hex mode editing.
 		fNewData[fSize - 1] = change->fNewData[0];
 #ifdef TRACE_DATA_EDITOR
-		printf("Merge one byte %p (offset = %Ld, size = %lu):\n", this, fOffset, fSize);
+		printf("Merge one byte %p (offset = %Ld, size = %lu):\n", this, fOffset,
+			fSize);
 		dump_block(fOldData, fSize, "old:");
 		dump_block(fNewData, fSize, "new:");
 #endif
@@ -368,33 +370,42 @@ ReplaceChange::GetRange(off_t /*fileSize*/, off_t &_offset, off_t &_size)
 
 
 DataEditor::DataEditor()
-	: BLocker("data view")
+	:
+	BLocker("data view"),
+	fAttribute(NULL)
 {
 }
 
 
 DataEditor::DataEditor(entry_ref &ref, const char *attribute)
-	: BLocker("data view")
+	:
+	BLocker("data view"),
+	fAttribute(NULL)
 {
 	SetTo(ref, attribute);
 }
 
 
 DataEditor::DataEditor(BEntry &entry, const char *attribute)
-	: BLocker("data view")
+	:
+	BLocker("data view"),
+	fAttribute(NULL)
 {
 	SetTo(entry, attribute);
 }
 
 
 DataEditor::DataEditor(const DataEditor &editor)
-	: BLocker("data view")
+	:
+	BLocker("data view"),
+	fAttribute(NULL)
 {
 }
 
 
 DataEditor::~DataEditor()
 {
+	free((void*)fAttribute);
 }
 
 
@@ -424,6 +435,12 @@ DataEditor::SetTo(BEntry &entry, const char *attribute)
 	fRealViewOffset = 0;
 	fViewOffset = 0;
 	fRealViewSize = fViewSize = fBlockSize = 512;
+
+	free((void*)fAttribute);
+	if (attribute != NULL)
+		fAttribute = strdup(attribute);
+	else
+		fAttribute = NULL;
 
 	struct stat stat;
 	status_t status = entry.GetStat(&stat);
@@ -467,11 +484,6 @@ DataEditor::SetTo(BEntry &entry, const char *attribute)
 
 	entry.GetRef(&fRef);
 	fIsDevice = S_ISBLK(stat.st_mode) || S_ISCHR(stat.st_mode);
-
-	if (attribute != NULL)
-		fAttribute = strdup(attribute);
-	else
-		fAttribute = NULL;
 
 	if (IsAttribute()) {
 		BNode node(&fAttributeRef);
@@ -616,12 +628,14 @@ DataEditor::ApplyChanges()
 	if (fLastChange == NULL && fFirstChange == NULL)
 		return;
 
-	int32 firstIndex = fFirstChange != NULL ? fChanges.IndexOf(fFirstChange) + 1 : 0;
+	int32 firstIndex = fFirstChange != NULL ? fChanges.IndexOf(fFirstChange) + 1
+		: 0;
 	int32 lastIndex = fChanges.IndexOf(fLastChange);
 
 	if (fChangesFromSaved >= 0) {
 		// ascend changes
-		TRACE(("ApplyChanges(): ascend from %ld to %ld\n", firstIndex, lastIndex));
+		TRACE(("ApplyChanges(): ascend from %ld to %ld\n", firstIndex,
+			lastIndex));
 
 		for (int32 i = firstIndex; i <= lastIndex; i++) {
 			DataChange *change = fChanges.ItemAt(i);
@@ -629,7 +643,8 @@ DataEditor::ApplyChanges()
 		}
 	} else {
 		// descend changes
-		TRACE(("ApplyChanges(): descend from %ld to %ld\n", firstIndex - 1, lastIndex));
+		TRACE(("ApplyChanges(): descend from %ld to %ld\n", firstIndex - 1,
+			lastIndex));
 
 		for (int32 i = firstIndex - 1; i > lastIndex; i--) {
 			DataChange *change = fChanges.ItemAt(i);
@@ -651,7 +666,8 @@ DataEditor::Save()
 
 	// Do we need to ascend or descend the list of changes?
 
-	int32 firstIndex = fFirstChange != NULL ? fChanges.IndexOf(fFirstChange) + 1 : 0;
+	int32 firstIndex = fFirstChange != NULL ? fChanges.IndexOf(fFirstChange) + 1
+		: 0;
 	int32 lastIndex = fChanges.IndexOf(fLastChange);
 	if (fChangesFromSaved < 0 && firstIndex != lastIndex) {
 		// swap indices
@@ -713,9 +729,10 @@ DataEditor::Save()
 			size = fSize - fRealViewOffset;
 
 		ssize_t bytesWritten;
-		if (IsAttribute())
-			bytesWritten = fFile.WriteAttr(fAttribute, fType, fRealViewOffset, fView, size);
-		else
+		if (IsAttribute()) {
+			bytesWritten = fFile.WriteAttr(fAttribute, fType, fRealViewOffset,
+				fView, size);
+		} else
 			bytesWritten = fFile.WriteAt(fRealViewOffset, fView, size);
 
 		if (bytesWritten < B_OK)
@@ -942,7 +959,8 @@ DataEditor::Update()
 	ssize_t bytesRead;
 	if (IsAttribute()) {
 		BNode node(&fAttributeRef);
-		bytesRead = node.ReadAttr(fAttribute, fType, fRealViewOffset, fView, fRealViewSize);
+		bytesRead = node.ReadAttr(fAttribute, fType, fRealViewOffset, fView,
+			fRealViewSize);
 	} else
 		bytesRead = fFile.ReadAt(fRealViewOffset, fView, fRealViewSize);
 
@@ -1119,7 +1137,8 @@ DataEditor::Find(off_t startPosition, const uint8 *data, size_t dataSize,
 		if (matchLastOffset != 0) {
 			// we had a partial match in the previous block, let's
 			// check if it is a whole match
-			if (!compareFunc(fView, data + matchLastOffset, dataSize - matchLastOffset)) {
+			if (!compareFunc(fView, data + matchLastOffset,
+					dataSize - matchLastOffset)) {
 				matchLastOffset = 0;
 				break;
 			}

@@ -110,7 +110,7 @@ platform_init_video(void)
 		gFramebuffer = arch_get_fb_arm_920(0x88000000);
 	#elif defined(BOARD_CPU_OMAP3)
 		extern ArchFramebuffer *arch_get_fb_arm_omap3(addr_t base);
-		gFramebuffer = arch_get_fb_arm_omap3(0x88000000);
+		gFramebuffer = arch_get_fb_arm_omap3(FB_BASE);
 	#elif defined(BOARD_CPU_PXA270)
 		ArchFramebuffer *arch_get_fb_arm_pxa270(addr_t base);
 		gFramebuffer = arch_get_fb_arm_pxa270(0xA3000000);

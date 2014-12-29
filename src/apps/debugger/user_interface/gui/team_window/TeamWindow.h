@@ -1,6 +1,6 @@
 /*
  * Copyright 2009, Ingo Weinhold, ingo_weinhold@gmx.de.
- * Copyright 2010-2013, Rene Gollent, rene@gollent.com.
+ * Copyright 2010-2014, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 #ifndef TEAM_WINDOW_H
@@ -33,11 +33,15 @@ class BStringView;
 class BTabView;
 class ConsoleOutputView;
 class BreakConditionConfigWindow;
+class BreakpointEditWindow;
+class ExpressionPromptWindow;
 class Image;
 class InspectorWindow;
 class RegistersView;
 class SourceCode;
+class SourceLanguage;
 class StackFrame;
+class Type;
 class UserBreakpoint;
 class UserInterfaceListener;
 class VariablesView;
@@ -122,6 +126,10 @@ private:
 	virtual	void				ValueNodeValueRequested(CpuState* cpuState,
 									ValueNodeContainer* container,
 									ValueNode* valueNode);
+	virtual	void				ExpressionEvaluationRequested(
+									ExpressionInfo* info,
+									StackFrame* frame,
+									::Thread* thread);
 
 	// Team::Listener
 	virtual	void				ThreadStateChanged(
@@ -140,6 +148,7 @@ private:
 									const Team::WatchpointEvent& event);
 	virtual void				DebugReportChanged(
 									const Team::DebugReportEvent& event);
+
 
 	// Function::Listener
 	virtual	void				FunctionSourceCodeChanged(Function* function);
@@ -180,6 +189,10 @@ private:
 
 			status_t			_SaveInspectorSettings(
 									const BMessage* settings);
+
+			status_t			_GetActiveSourceLanguage(
+									SourceLanguage*& _language);
+
 private:
 			::Team*				fTeam;
 			::Thread*			fActiveThread;
@@ -215,7 +228,9 @@ private:
 			BSplitView*			fThreadSplitView;
 			BSplitView*			fConsoleSplitView;
 			BreakConditionConfigWindow* fBreakConditionConfigWindow;
+			BreakpointEditWindow* fBreakpointEditWindow;
 			InspectorWindow*	fInspectorWindow;
+			ExpressionPromptWindow* fExpressionPromptWindow;
 			GuiTeamUiSettings	fUiSettings;
 			BFilePanel*			fFilePanel;
 			thread_id			fActiveSourceWorker;

@@ -23,11 +23,12 @@ namespace BHPKG {
 namespace BPrivate {
 
 
-PackageFileHeapReader::PackageFileHeapReader(BErrorOutput* errorOutput, int fd,
-	off_t heapOffset, off_t compressedHeapSize, uint64 uncompressedHeapSize,
+PackageFileHeapReader::PackageFileHeapReader(BErrorOutput* errorOutput,
+	BPositionIO* file, off_t heapOffset, off_t compressedHeapSize,
+	uint64 uncompressedHeapSize,
 	DecompressionAlgorithmOwner* decompressionAlgorithm)
 	:
-	PackageFileHeapAccessorBase(errorOutput, fd, heapOffset,
+	PackageFileHeapAccessorBase(errorOutput, file, heapOffset,
 		decompressionAlgorithm),
 	fOffsets()
 {
@@ -44,17 +45,49 @@ PackageFileHeapReader::~PackageFileHeapReader()
 status_t
 PackageFileHeapReader::Init()
 {
-	if (fUncompressedHeapSize == 0)
+	if (fUncompressedHeapSize == 0) {
+		if (fCompressedHeapSize != 0) {
+			fErrorOutput->PrintError(
+				"Invalid total compressed heap size (!= 0, empty heap)\n");
+			return B_BAD_DATA;
+		}
 		return B_OK;
+	}
 
 	// Determine number of chunks and adjust the compressed heap size (subtract
 	// the size of the chunk size array at the end). Note that the size of the
-	// last chunk has not been saved, since it size is implied.
+	// last chunk has not been saved, since its size is implied.
 	ssize_t chunkCount = (fUncompressedHeapSize + kChunkSize - 1) / kChunkSize;
-	if (chunkCount <= 0)
+	if (chunkCount == 0)
 		return B_OK;
 
-	fCompressedHeapSize -= (chunkCount - 1) * 2;
+	// If no compression is used at all, the chunk size table is omitted. Handle
+	// this case.
+	if (fDecompressionAlgorithm == NULL) {
+		if (fUncompressedHeapSize != fCompressedHeapSize) {
+			fErrorOutput->PrintError(
+				"Compressed and uncompressed heap sizes (%" B_PRIu64 " vs. "
+				"%" B_PRIu64 ") don't match for uncompressed heap.\n",
+				fCompressedHeapSize, fUncompressedHeapSize);
+			return B_BAD_DATA;
+		}
+
+		if (!fOffsets.InitUncompressedChunksOffsets(chunkCount))
+			return B_NO_MEMORY;
+
+		return B_OK;
+	}
+
+	size_t chunkSizeTableSize = (chunkCount - 1) * 2; 
+	if (fCompressedHeapSize <= chunkSizeTableSize) {
+		fErrorOutput->PrintError(
+			"Invalid total compressed heap size (%" B_PRIu64 ", "
+			"uncompressed %" B_PRIu64 ")\n", fCompressedHeapSize,
+			fUncompressedHeapSize);
+		return B_BAD_DATA;
+	}
+
+	fCompressedHeapSize -= chunkSizeTableSize;
 
 	// allocate a buffer
 	uint16* buffer = (uint16*)malloc(kChunkSize);
@@ -80,6 +113,21 @@ PackageFileHeapReader::Init()
 		offset += toRead * 2;
 	}
 
+	// Sanity check: The sum of the chunk sizes must match the compressed heap
+	// size. The information aren't stored redundantly, so we check, if things
+	// look at least plausible.
+	uint64 lastChunkOffset = fOffsets[chunkCount - 1];
+	if (lastChunkOffset >= fCompressedHeapSize
+			|| fCompressedHeapSize - lastChunkOffset > kChunkSize
+			|| fCompressedHeapSize - lastChunkOffset
+				> fUncompressedHeapSize - (chunkCount - 1) * kChunkSize) {
+		fErrorOutput->PrintError(
+			"Invalid total compressed heap size (%" B_PRIu64 ", uncompressed: "
+			"%" B_PRIu64 ", last chunk offset: %" B_PRIu64 ")\n",
+			fCompressedHeapSize, fUncompressedHeapSize, lastChunkOffset);
+		return B_BAD_DATA;
+	}
+
 	return B_OK;
 }
 
@@ -88,7 +136,7 @@ PackageFileHeapReader*
 PackageFileHeapReader::Clone() const
 {
 	PackageFileHeapReader* clone = new(std::nothrow) PackageFileHeapReader(
-		fErrorOutput, fFD, fHeapOffset, fCompressedHeapSize,
+		fErrorOutput, fFile, fHeapOffset, fCompressedHeapSize,
 		fUncompressedHeapSize, fDecompressionAlgorithm);
 	if (clone == NULL)
 		return NULL;

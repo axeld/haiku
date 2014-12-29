@@ -1,5 +1,5 @@
 /*
- * Copyright 2012, Rene Gollent, rene@gollent.com.
+ * Copyright 2012-2014, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 #ifndef WATCH_PROMPT_WINDOW_H
@@ -8,17 +8,19 @@
 
 #include <Window.h>
 
+#include "ExpressionInfo.h"
 #include "types/Types.h"
 
 
 class Architecture;
-class BTextControl;
-class Watchpoint;
 class BMenuField;
+class BTextControl;
+class SourceLanguage;
+class Watchpoint;
 class UserInterfaceListener;
 
 
-class WatchPromptWindow : public BWindow
+class WatchPromptWindow : public BWindow, private ExpressionInfo::Listener
 {
 public:
 								WatchPromptWindow(Architecture* architecture,
@@ -39,6 +41,10 @@ public:
 
 	virtual	void				Show();
 
+	// ExpressionInfo::Listener
+	virtual	void				ExpressionEvaluated(ExpressionInfo* info,
+									status_t result, ExpressionResult* value);
+
 private:
 			void	 			_Init();
 
@@ -48,12 +54,17 @@ private:
 			uint32				fInitialType;
 			int32				fInitialLength;
 			Architecture*		fArchitecture;
+			target_addr_t		fRequestedAddress;
+			int32				fRequestedLength;
 			BTextControl*		fAddressInput;
 			BTextControl*		fLengthInput;
+			ExpressionInfo*		fAddressExpressionInfo;
+			ExpressionInfo*		fLengthExpressionInfo;
 			BMenuField*			fTypeField;
 			UserInterfaceListener* fListener;
 			BButton*			fWatchButton;
 			BButton*			fCancelButton;
+			SourceLanguage*		fLanguage;
 };
 
 #endif // WATCH_PROMPT_WINDOW_H

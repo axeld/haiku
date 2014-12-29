@@ -1,6 +1,6 @@
 /*
  * Copyright 2009-2012, Ingo Weinhold, ingo_weinhold@gmx.de.
- * Copyright 2009-2013, Rene Gollent, rene@gollent.com.
+ * Copyright 2009-2014, Rene Gollent, rene@gollent.com.
  * Distributed under the terms of the MIT License.
  */
 
@@ -41,6 +41,7 @@
 #include "SourceLanguage.h"
 #include "StackTrace.h"
 #include "Statement.h"
+#include "SyntaxHighlighter.h"
 #include "Team.h"
 #include "Tracing.h"
 
@@ -49,6 +50,9 @@ static const int32 kLeftTextMargin = 3;
 static const float kMinViewHeight = 80.0f;
 static const int32 kSpacesPerTab = 4;
 	// TODO: Should be settable!
+
+static const int32 kMaxHighlightsPerLine = 64;
+
 static const bigtime_t kScrollTimer = 10000LL;
 
 static const char* kClearBreakpointMessage = "Click to clear breakpoint at "
@@ -62,6 +66,21 @@ static const uint32 MSG_OPEN_SOURCE_FILE = 'mosf';
 static const uint32 MSG_SWITCH_DISASSEMBLY_STATE = 'msds';
 
 static const char* kTrackerSignature = "application/x-vnd.Be-TRAK";
+
+
+// TODO: make configurable.
+// Current values taken from Pe's defaults.
+static rgb_color kSyntaxColors[] = {
+	{0, 0, 0, 255}, 			// SYNTAX_HIGHLIGHT_NONE
+	{0x39, 0x74, 0x79, 255},	// SYNTAX_HIGHLIGHT_KEYWORD
+	{0, 0x64, 0, 255},			// SYNTAX_HIGHLIGHT_PREPROCESSOR_KEYWORD
+	{0, 0, 0, 255},				// SYNTAX_HIGHLIGHT_IDENTIFIER
+	{0x44, 0x8a, 0, 255},		// SYNTAX_HIGHLIGHT_OPERATOR
+	{0, 0, 0, 255}, 			// SYNTAX_HIGHLIGHT_TYPE
+	{0x85, 0x19, 0x19, 255},	// SYNTAX_HIGHLIGHT_NUMERIC_LITERAL
+	{0x3f, 0x48, 0x84, 255},	// SYNTAX_HIGHLIGHT_STRING_LITERAL
+	{0xa1, 0x64, 0xe, 255},		// SYNTAX_HIGHLIGHT_COMMENT
+};
 
 
 class SourceView::BaseView : public BView {
@@ -223,16 +242,23 @@ private:
 
 struct SourceView::MarkerManager::BreakpointMarker : Marker {
 								BreakpointMarker(uint32 line,
-									target_addr_t address, bool enabled);
+									target_addr_t address,
+									UserBreakpoint* breakpoint);
+								~BreakpointMarker();
 
 			target_addr_t		Address() const		{ return fAddress; }
-			bool				IsEnabled() const	{ return fEnabled; }
+			bool				IsEnabled() const
+									{ return fBreakpoint->IsEnabled(); }
+			bool				HasCondition() const
+									{ return fBreakpoint->HasCondition(); }
+			UserBreakpoint*		Breakpoint() const
+									{ return fBreakpoint; }
 
 	virtual	void				Draw(BView* view, BRect rect);
 
 private:
 			target_addr_t		fAddress;
-			bool				fEnabled;
+			UserBreakpoint*		fBreakpoint;
 };
 
 
@@ -304,8 +330,11 @@ private:
 			};
 
 			float				_MaxLineWidth();
-			void				_FormatLine(const char* line,
-									BString& formattedLine);
+			void				_DrawLineSyntaxSection(const char* line,
+									int32 length, int32& _column,
+									BPoint& _offset);
+	inline	void				_DrawLineSegment(const char* line,
+									int32 length, BPoint& _offset);
 	inline 	int32				_NextTabStop(int32 column) const;
 			float				_FormattedPosition(int32 line,
 									int32 offset) const;
@@ -527,12 +556,19 @@ SourceView::MarkerManager::InstructionPointerMarker::_DrawArrow(BView* view,
 
 
 SourceView::MarkerManager::BreakpointMarker::BreakpointMarker(uint32 line,
-	target_addr_t address, bool enabled)
+	target_addr_t address, UserBreakpoint* breakpoint)
 	:
 	Marker(line),
 	fAddress(address),
-	fEnabled(enabled)
+	fBreakpoint(breakpoint)
 {
+	fBreakpoint->AcquireReference();
+}
+
+
+SourceView::MarkerManager::BreakpointMarker::~BreakpointMarker()
+{
+	fBreakpoint->ReleaseReference();
 }
 
 
@@ -540,8 +576,12 @@ void
 SourceView::MarkerManager::BreakpointMarker::Draw(BView* view, BRect rect)
 {
 	float y = (rect.top + rect.bottom) / 2;
-	view->SetHighColor((rgb_color){255, 0, 0, 255});
-	if (fEnabled)
+	if (fBreakpoint->HasCondition())
+		view->SetHighColor((rgb_color){0, 192, 0, 255});
+	else
+		view->SetHighColor((rgb_color){255,0,0,255});
+
+	if (fBreakpoint->IsEnabled())
 		view->FillEllipse(BPoint(rect.right - 8, y), 4, 4);
 	else
 		view->StrokeEllipse(BPoint(rect.right - 8, y), 3.5f, 3.5f);
@@ -716,7 +756,7 @@ SourceView::MarkerManager::_UpdateBreakpointMarkers()
 			}
 
 			BreakpointMarker* marker = new(std::nothrow) BreakpointMarker(
-				line, breakpointInstance->Address(), breakpoint->IsEnabled());
+				line, breakpointInstance->Address(), breakpoint);
 			if (marker == NULL || !fBreakpointMarkers.AddItem(marker)) {
 				delete marker;
 				break;
@@ -963,24 +1003,35 @@ SourceView::MarkerView::MouseDown(BPoint where)
 	BReference<Statement> statementReference(statement, true);
 
 	int32 modifiers;
-	if (Looper()->CurrentMessage()->FindInt32("modifiers", &modifiers) != B_OK)
+	int32 buttons;
+	BMessage* message = Looper()->CurrentMessage();
+	if (message->FindInt32("modifiers", &modifiers) != B_OK)
 		modifiers = 0;
+	if (message->FindInt32("buttons", &buttons) != B_OK)
+		buttons = B_PRIMARY_MOUSE_BUTTON;
 
 	SourceView::MarkerManager::BreakpointMarker* marker =
 		fMarkerManager->BreakpointMarkerAtLine(line);
 	target_addr_t address = marker != NULL
 		? marker->Address() : statement->CoveringAddressRange().Start();
 
-	if ((modifiers & B_SHIFT_KEY) != 0) {
-		if (marker != NULL && !marker->IsEnabled())
-			fListener->ClearBreakpointRequested(address);
-		else
-			fListener->SetBreakpointRequested(address, false);
-	} else {
-		if (marker != NULL && marker->IsEnabled())
-			fListener->ClearBreakpointRequested(address);
-		else
-			fListener->SetBreakpointRequested(address, true);
+	if ((buttons & B_PRIMARY_MOUSE_BUTTON) != 0) {
+		if ((modifiers & B_SHIFT_KEY) != 0) {
+			if (marker != NULL && !marker->IsEnabled())
+				fListener->ClearBreakpointRequested(address);
+			else
+				fListener->SetBreakpointRequested(address, false);
+		} else {
+			if (marker != NULL && marker->IsEnabled())
+				fListener->ClearBreakpointRequested(address);
+			else
+				fListener->SetBreakpointRequested(address, true);
+		}
+	} else if (marker != NULL && (buttons & B_SECONDARY_MOUSE_BUTTON) != 0) {
+		UserBreakpoint* breakpoint = marker->Breakpoint();
+		BMessage message(MSG_SHOW_BREAKPOINT_EDIT_WINDOW);
+		message.AddPointer("breakpoint", breakpoint);
+		Looper()->PostMessage(&message);
 	}
 }
 
@@ -1115,11 +1166,21 @@ SourceView::TextView::Draw(BRect updateRect)
 	SourceView::MarkerManager::InstructionPointerMarker* ipMarker;
 	int32 markerIndex = 0;
 	float y;
+
+	// syntax line data
+	int32 columns[kMaxHighlightsPerLine];
+	syntax_highlight_type types[kMaxHighlightsPerLine];
+	SyntaxHighlightInfo* info = fSourceView->fCurrentSyntaxInfo;
+
 	for (int32 i = minLine; i <= maxLine; i++) {
+		int32 syntaxCount = 0;
+		if (info != NULL) {
+			syntaxCount = info->GetLineHighlightRanges(i, columns, types,
+				kMaxHighlightsPerLine);
+		}
+
 		SetLowColor(ui_color(B_DOCUMENT_BACKGROUND_COLOR));
 		y = i * fFontInfo->lineHeight;
-		BString lineString;
-		_FormatLine(fSourceCode->LineAt(i), lineString);
 
 		FillRect(BRect(0.0, y, kLeftTextMargin, y + fFontInfo->lineHeight),
 			B_SOLID_LOW);
@@ -1147,8 +1208,30 @@ SourceView::TextView::Draw(BRect updateRect)
 
 		FillRect(BRect(kLeftTextMargin, y, Bounds().right,
 			y + fFontInfo->lineHeight - 1), B_SOLID_LOW);
-		DrawString(lineString,
-			BPoint(kLeftTextMargin, y + fFontInfo->fontHeight.ascent));
+
+		syntax_highlight_type currentHighlight = SYNTAX_HIGHLIGHT_NONE;
+		SetHighColor(kSyntaxColors[currentHighlight]);
+		const char* lineData = fSourceCode->LineAt(i);
+		int32 lineLength = fSourceCode->LineLengthAt(i);
+		BPoint linePoint(kLeftTextMargin, y + fFontInfo->fontHeight.ascent);
+		int32 lineOffset = 0;
+		int32 currentColumn = 0;
+		for (int32 j = 0; j < syntaxCount; j++) {
+			int32 length = columns[j] - lineOffset;
+			if (length != 0) {
+				_DrawLineSyntaxSection(lineData + lineOffset, length,
+					currentColumn, linePoint);
+				lineOffset += length;
+			}
+			currentHighlight = types[j];
+			SetHighColor(kSyntaxColors[currentHighlight]);
+		}
+
+		// draw remainder, if any.
+		if (lineOffset < lineLength) {
+			_DrawLineSyntaxSection(lineData + lineOffset,
+				lineLength - lineOffset, currentColumn, linePoint);
+		}
 	}
 
 	y = (maxLine + 1) * fFontInfo->lineHeight;
@@ -1451,20 +1534,40 @@ SourceView::TextView::_MaxLineWidth()
 
 
 void
-SourceView::TextView::_FormatLine(const char* line, BString& formattedLine)
+SourceView::TextView::_DrawLineSyntaxSection(const char* line, int32 length,
+	int32& _column, BPoint& _offset)
 {
-	int32 column = 0;
-	for (; *line != '\0'; line++) {
-		// TODO: That's probably not very efficient!
-		if (*line == '\t') {
-			int32 nextTabStop = _NextTabStop(column);
-			for (; column < nextTabStop; column++)
-				formattedLine << ' ';
-		} else {
-			formattedLine << *line;
-			column++;
-		}
+	int32 start = 0;
+	int32 currentLength = 0;
+	for (int32 i = 0; i < length; i++) {
+		if (line[i] == '\t') {
+			currentLength = i - start;
+			if (currentLength != 0)
+				_DrawLineSegment(line + start, currentLength, _offset);
+
+			// set new starting offset to the position after this tab
+			start = i + 1;
+			int32 nextTabStop = _NextTabStop(_column);
+			int32 diff = nextTabStop - _column;
+			_column = nextTabStop;
+			_offset.x += diff * fCharacterWidth;
+		} else
+			_column++;
 	}
+
+	// draw last segment
+	currentLength = length - start;
+	if (currentLength > 0)
+		_DrawLineSegment(line + start, currentLength, _offset);
+}
+
+
+void
+SourceView::TextView::_DrawLineSegment(const char* line, int32 length,
+	BPoint& _offset)
+{
+	DrawString(line, length, _offset);
+	_offset.x += fCharacterWidth * length;
 }
 
 
@@ -1916,7 +2019,8 @@ SourceView::SourceView(Team* team, Listener* listener)
 	fSourceCode(NULL),
 	fMarkerView(NULL),
 	fTextView(NULL),
-	fListener(listener)
+	fListener(listener),
+	fCurrentSyntaxInfo(NULL)
 {
 	// init font info
 	fFontInfo.font = *be_fixed_font;
@@ -2119,12 +2223,25 @@ SourceView::SetSourceCode(SourceCode* sourceCode)
 		fTextView->SetSourceCode(NULL);
 		fMarkerView->SetSourceCode(NULL);
 		fSourceCode->ReleaseReference();
+		delete fCurrentSyntaxInfo;
+		fCurrentSyntaxInfo = NULL;
 	}
 
 	fSourceCode = sourceCode;
 
-	if (fSourceCode != NULL)
+	if (fSourceCode != NULL) {
 		fSourceCode->AcquireReference();
+
+		SourceLanguage* language = fSourceCode->GetSourceLanguage();
+		if (language != NULL) {
+			SyntaxHighlighter* highlighter = language->GetSyntaxHighlighter();
+			if (highlighter != NULL) {
+				BReference<SyntaxHighlighter> syntaxReference(highlighter,
+					true);
+				highlighter->ParseText(fSourceCode, fCurrentSyntaxInfo);
+			}
+		}
+	}
 
 	fMarkerManager->SetSourceCode(fSourceCode);
 	fTextView->SetSourceCode(fSourceCode);

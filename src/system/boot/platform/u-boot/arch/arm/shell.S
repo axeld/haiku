@@ -2,8 +2,6 @@
 
 #include <asm_defs.h>
 
-#include <board_config.h>
-
 	.text
 
 /*
@@ -32,6 +30,14 @@ SYMBOL(_start_netbsd):
 	b	_start_common
 SYMBOL_END(_start_netbsd)
 
+/*
+ * called from bootm with linux loader compatible args
+ */
+SYMBOL(_start_linux):
+	mov	r4,#2
+	b	_start_common
+SYMBOL_END(_start_linux)
+
 
 
 SYMBOL(_start_common):
@@ -59,15 +65,14 @@ SYMBOL(_start_common):
 	mov	r4, r4
 	mov	r4, r4
 
-
-
-
-	ldr	sp,=SDRAM_BASE + 0x2000000
+	ldr	sp,=__stack_top
 	ldrb	r4,gUBootOS
 	cmp	r4,#0
 	beq	start_raw
 	cmp	r4,#1
 	beq	start_netbsd
+	cmp	r4,#2
+	beq	start_linux
 	mov	pc,lr
 SYMBOL_END(_start_common)
 
@@ -75,20 +80,15 @@ SYMBOL_END(_start_common)
 //XXX: doesn't seem to work
 //.data
 
+.global __stack_end, __stack_start
 
 SYMBOL(gUBootGlobalData):
 	.long   0
 SYMBOL_END(gUBootGlobalData)
-SYMBOL(gUImage):
-	.long   0
-SYMBOL_END(gUImage)
 SYMBOL(gUBootOS):
 //XXX: bug? Using .byte makes the next asm symbol
 // to be at the same address
 //	.byte	0
 	.long   0
 SYMBOL_END(gUBootOS)
-SYMBOL(gFDT):
-	.long   0
-SYMBOL_END(gFDT)
 

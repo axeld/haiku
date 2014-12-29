@@ -25,6 +25,7 @@ TextDocumentView::TextDocumentView(const char* name)
 	fInsetBottom(0.0f),
 
 	fCaretBounds(),
+	fSelectionEnabled(true),
 	fShowCaret(false),
 	fMouseDown(false)
 {
@@ -52,6 +53,9 @@ TextDocumentView::MessageReceived(BMessage* message)
 		case B_COPY:
 			Copy(be_clipboard);
 			break;
+		case B_SELECT_ALL:
+			SelectAll();
+			break;
 
 		default:
 			BView::MessageReceived(message);
@@ -67,7 +71,7 @@ TextDocumentView::Draw(BRect updateRect)
 	fTextDocumentLayout.SetWidth(_TextLayoutWidth(Bounds().Width()));
 	fTextDocumentLayout.Draw(this, BPoint(fInsetLeft, fInsetTop), updateRect);
 
-	if (fTextEditor.Get() == NULL)
+	if (!fSelectionEnabled || fTextEditor.Get() == NULL)
 		return;
 
 	bool isCaret = fTextEditor->SelectionLength() == 0;
@@ -84,7 +88,7 @@ TextDocumentView::Draw(BRect updateRect)
 void
 TextDocumentView::Pulse()
 {
-	if (fTextEditor.Get() == NULL)
+	if (!fSelectionEnabled || fTextEditor.Get() == NULL)
 		return;
 
 	// Blink cursor
@@ -130,6 +134,9 @@ TextDocumentView::MakeFocus(bool focus)
 void
 TextDocumentView::MouseDown(BPoint where)
 {
+	if (!fSelectionEnabled)
+		return;
+
 	MakeFocus();
 
 	int32 modifiers = 0;
@@ -155,6 +162,9 @@ void
 TextDocumentView::MouseMoved(BPoint where, uint32 transit,
 	const BMessage* dragMessage)
 {
+	if (!fSelectionEnabled)
+		return;
+
 	BCursor iBeamCursor(B_CURSOR_ID_I_BEAM);
 	SetViewCursor(&iBeamCursor);
 
@@ -320,9 +330,20 @@ TextDocumentView::SetInsets(float left, float top, float right, float bottom)
 
 
 void
+TextDocumentView::SetSelectionEnabled(bool enabled)
+{
+	if (fSelectionEnabled == enabled)
+		return;
+	fSelectionEnabled = enabled;
+	Invalidate();
+	// TODO: Deselect
+}
+
+
+void
 TextDocumentView::SetCaret(BPoint location, bool extendSelection)
 {
-	if (fTextEditor.Get() == NULL)
+	if (!fSelectionEnabled || fTextEditor.Get() == NULL)
 		return;
 
 	location.x -= fInsetLeft;
@@ -330,6 +351,18 @@ TextDocumentView::SetCaret(BPoint location, bool extendSelection)
 
 	fTextEditor->SetCaret(location, extendSelection);
 	fShowCaret = !extendSelection;
+	Invalidate();
+}
+
+
+void
+TextDocumentView::SelectAll()
+{
+	if (!fSelectionEnabled || fTextEditor.Get() == NULL)
+		return;
+
+	fTextEditor->SelectAll();
+	fShowCaret = false;
 	Invalidate();
 }
 
@@ -344,7 +377,7 @@ TextDocumentView::HasSelection() const
 void
 TextDocumentView::GetSelection(int32& start, int32& end) const
 {
-	if (fTextEditor.Get()) {
+	if (fTextEditor.Get() != NULL) {
 		start = fTextEditor->SelectionStart();
 		end = fTextEditor->SelectionEnd();
 	}

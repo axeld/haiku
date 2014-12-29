@@ -383,36 +383,19 @@ TTimeView::ShowCalendar(BPoint where)
 void
 TTimeView::GetCurrentTime()
 {
-	ssize_t offset_dow = 0;
-	ssize_t offset_time = 0;
+	int32 fields = B_DATE_ELEMENT_HOUR | B_DATE_ELEMENT_MINUTE;
+	if (fShowSeconds)
+		fields |= B_DATE_ELEMENT_SECOND;
+	if (fShowDayOfWeek)
+		fields |= B_DATE_ELEMENT_WEEKDAY;
+	if (fShowTimeZone)
+		fields |= B_DATE_ELEMENT_TIMEZONE;
 
-	// ToDo: Check to see if we should write day of week after time for locale
+	BDateTimeFormat format(&fLocale);
+	format.SetDateTimeFormat(B_SHORT_DATE_FORMAT, B_SHORT_TIME_FORMAT, fields);
 
-	if (fShowDayOfWeek) {
-		BString timeFormat("eee ");
-		offset_dow = fLocale.FormatTime(fCurrentTimeStr,
-			sizeof(fCurrentTimeStr), fCurrentTime, timeFormat);
-
-		if (offset_dow < 0) {
-			// error occured, attempt to overwrite with current time
-			// (this should not ever happen)
-			fLocale.FormatTime(fCurrentTimeStr, sizeof(fCurrentTimeStr),
-				fCurrentTime,
-				fShowSeconds ? B_MEDIUM_TIME_FORMAT : B_SHORT_TIME_FORMAT);
-			return;
-		}
-	}
-
-	offset_time = fLocale.FormatTime(fCurrentTimeStr + offset_dow,
-		sizeof(fCurrentTimeStr) - offset_dow, fCurrentTime,
-		fShowSeconds ? B_MEDIUM_TIME_FORMAT : B_SHORT_TIME_FORMAT);
-
-	if (fShowTimeZone) {
-		BString timeFormat(" V");
-		ssize_t offset = offset_dow + offset_time;
-		fLocale.FormatTime(fCurrentTimeStr + offset,
-			sizeof(fCurrentTimeStr) - offset, fCurrentTime, timeFormat);
-	}
+	format.Format(fCurrentTimeStr, sizeof(fCurrentTimeStr), fCurrentTime,
+		B_SHORT_DATE_FORMAT, B_SHORT_TIME_FORMAT);
 }
 
 
@@ -421,7 +404,8 @@ TTimeView::GetCurrentDate()
 {
 	char tmp[sizeof(fCurrentDateStr)];
 
-	fLocale.FormatDate(tmp, sizeof(fCurrentDateStr), fCurrentTime,
+	BDateFormat format(&fLocale);
+	format.Format(tmp, sizeof(fCurrentDateStr), fCurrentTime,
 		B_FULL_DATE_FORMAT);
 
 	// remove leading 0 from date when month is less than 10 (MM/DD/YY)

@@ -28,6 +28,7 @@
 #include "CpuState.h"
 #include "DebuggerInterface.h"
 #include "DebugReportGenerator.h"
+#include "ExpressionInfo.h"
 #include "FileManager.h"
 #include "Function.h"
 #include "FunctionID.h"
@@ -40,6 +41,7 @@
 #include "MessageCodes.h"
 #include "SettingsManager.h"
 #include "SourceCode.h"
+#include "SourceLanguage.h"
 #include "SpecificImageDebugInfo.h"
 #include "SpecificImageDebugInfoLoadingState.h"
 #include "StackFrame.h"
@@ -581,9 +583,10 @@ TeamDebugger::MessageReceived(BMessage* message)
 			BReference<UserBreakpoint> breakpointReference;
 			uint64 address = 0;
 
-			if (message->FindPointer("breakpoint", (void**)&breakpoint) == B_OK)
+			if (message->FindPointer("breakpoint", (void**)&breakpoint)
+				== B_OK) {
 				breakpointReference.SetTo(breakpoint, true);
-			else if (message->FindUInt64("address", &address) != B_OK)
+			} else if (message->FindUInt64("address", &address) != B_OK)
 				break;
 
 			if (message->what == MSG_SET_BREAKPOINT) {
@@ -605,6 +608,45 @@ TeamDebugger::MessageReceived(BMessage* message)
 				else
 					_HandleClearUserBreakpoint(address);
 			}
+
+			break;
+		}
+
+		case MSG_SET_BREAKPOINT_CONDITION:
+		{
+			UserBreakpoint* breakpoint = NULL;
+			BReference<UserBreakpoint> breakpointReference;
+			if (message->FindPointer("breakpoint", (void**)&breakpoint)
+				!= B_OK) {
+				break;
+			}
+
+			breakpointReference.SetTo(breakpoint, true);
+
+			const char* condition;
+			if (message->FindString("condition", &condition) != B_OK)
+				break;
+
+			AutoLocker< ::Team> teamLocker(fTeam);
+			breakpoint->SetCondition(condition);
+			fTeam->NotifyUserBreakpointChanged(breakpoint);
+
+			break;
+		}
+
+		case MSG_CLEAR_BREAKPOINT_CONDITION:
+		{
+			UserBreakpoint* breakpoint = NULL;
+			BReference<UserBreakpoint> breakpointReference;
+			if (message->FindPointer("breakpoint", (void**)&breakpoint)
+				!= B_OK)
+				break;
+
+			breakpointReference.SetTo(breakpoint, true);
+
+			AutoLocker< ::Team> teamLocker(fTeam);
+			breakpoint->SetCondition(NULL);
+			fTeam->NotifyUserBreakpointChanged(breakpoint);
 
 			break;
 		}
@@ -698,6 +740,46 @@ TeamDebugger::MessageReceived(BMessage* message)
 				&address) == B_OK) {
 				_HandleInspectAddress(address, listener);
 			}
+			break;
+		}
+
+		case MSG_EVALUATE_EXPRESSION:
+		{
+			SourceLanguage* language;
+			if (message->FindPointer("language",
+				reinterpret_cast<void**>(&language)) != B_OK) {
+				break;
+			}
+
+			// ExpressionEvaluationRequested() acquires a reference
+			// to both the language and the expression info on our behalf.
+			BReference<SourceLanguage> reference(language, true);
+
+			ExpressionInfo* info;
+			if (message->FindPointer("info",
+				reinterpret_cast<void**>(&info)) != B_OK) {
+				break;
+			}
+
+			BReference<ExpressionInfo> infoReference(info, true);
+
+			StackFrame* frame;
+			if (message->FindPointer("frame",
+				reinterpret_cast<void**>(&frame)) != B_OK) {
+				// the stack frame isn't needed, unless variable
+				// evaluation is desired.
+				frame = NULL;
+			}
+
+			::Thread* thread;
+			if (message->FindPointer("thread",
+				reinterpret_cast<void**>(&thread)) != B_OK) {
+				// the thread isn't needed, unless variable
+				// evaluation is desired.
+				thread = NULL;
+			}
+
+			_HandleEvaluateExpression(language, info, frame, thread);
 			break;
 		}
 
@@ -821,6 +903,15 @@ TeamDebugger::SourceEntryLocateRequested(const char* sourcePath,
 
 
 void
+TeamDebugger::SourceEntryInvalidateRequested(LocatableFile* sourceFile)
+{
+	AutoLocker< ::Team> locker(fTeam);
+
+	fTeam->DebugInfo()->ClearSourceCode(sourceFile);
+}
+
+
+void
 TeamDebugger::FunctionSourceCodeRequested(FunctionInstance* functionInstance,
 	bool forceDisassembly)
 {
@@ -934,6 +1025,32 @@ TeamDebugger::SetBreakpointEnabledRequested(UserBreakpoint* breakpoint,
 
 
 void
+TeamDebugger::SetBreakpointConditionRequested(UserBreakpoint* breakpoint,
+	const char* condition)
+{
+	BMessage message(MSG_SET_BREAKPOINT_CONDITION);
+	BReference<UserBreakpoint> breakpointReference(breakpoint);
+	if (message.AddPointer("breakpoint", breakpoint) == B_OK
+		&& message.AddString("condition", condition) == B_OK
+		&& PostMessage(&message) == B_OK) {
+		breakpointReference.Detach();
+	}
+}
+
+
+void
+TeamDebugger::ClearBreakpointConditionRequested(UserBreakpoint* breakpoint)
+{
+	BMessage message(MSG_CLEAR_BREAKPOINT_CONDITION);
+	BReference<UserBreakpoint> breakpointReference(breakpoint);
+	if (message.AddPointer("breakpoint", breakpoint) == B_OK
+		&& PostMessage(&message) == B_OK) {
+		breakpointReference.Detach();
+	}
+}
+
+
+void
 TeamDebugger::ClearBreakpointRequested(target_addr_t address)
 {
 	BMessage message(MSG_CLEAR_BREAKPOINT);
@@ -1038,6 +1155,27 @@ TeamDebugger::InspectRequested(target_addr_t address,
 	message.AddUInt64("address", address);
 	message.AddPointer("listener", listener);
 	PostMessage(&message);
+}
+
+
+void
+TeamDebugger::ExpressionEvaluationRequested(SourceLanguage* language,
+	ExpressionInfo* info, StackFrame* frame, ::Thread* thread)
+{
+	BMessage message(MSG_EVALUATE_EXPRESSION);
+	message.AddPointer("language", language);
+	message.AddPointer("info", info);
+	if (frame != NULL)
+		message.AddPointer("frame", frame);
+	if (thread != NULL)
+		message.AddPointer("thread", thread);
+
+	BReference<SourceLanguage> languageReference(language);
+	BReference<ExpressionInfo> infoReference(info);
+	if (PostMessage(&message) == B_OK) {
+		languageReference.Detach();
+		infoReference.Detach();
+	}
 }
 
 
@@ -1919,6 +2057,20 @@ TeamDebugger::_HandleInspectAddress(target_addr_t address,
 }
 
 
+void
+TeamDebugger::_HandleEvaluateExpression(SourceLanguage* language,
+	ExpressionInfo* info, StackFrame* frame, ::Thread* thread)
+{
+	status_t result = fWorker->ScheduleJob(
+		new(std::nothrow) ExpressionEvaluationJob(fTeam, fDebuggerInterface,
+			language, info, frame, thread));
+	if (result != B_OK) {
+		_NotifyUser("Evaluate Expression", "Failed to evaluate expression: %s",
+			strerror(result));
+	}
+}
+
+
 status_t
 TeamDebugger::_HandleSetArguments(int argc, const char* const* argv)
 {
@@ -2034,6 +2186,7 @@ TeamDebugger::_LoadSettings()
 		BReference<UserBreakpoint> breakpointReference(breakpoint, true);
 
 		breakpoint->SetHidden(breakpointSetting->IsHidden());
+		breakpoint->SetCondition(breakpointSetting->Condition());
 
 		// install it
 		fBreakpointManager->InstallUserBreakpoint(breakpoint,

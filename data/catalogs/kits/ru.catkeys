@@ -1,4 +1,4 @@
-1	russian	x-vnd.Haiku-libbe	3504008668
+1	russian	x-vnd.Haiku-libbe	1743278280
 gamma	AboutWindow		гамма
 beta	AboutWindow		бета
 %3.2f GiB	StringForSize		%3.2f ГБ
@@ -9,23 +9,23 @@ Version	AboutWindow		Версия
 Cannot create the replicant for \"%description\".\n%error	ZombieReplicantView		Невозможно удалить репликант \"%description\".\n%error
 Copy	TextView		Копировать
 %3.2f KiB	StringForSize		%3.2f КБ
-%d bytes	StringForSize		%d байт
 alpha	AboutWindow		альфа
 Error	PrintJob		Ошибка
-No Pages to print!	PrintJob		Нет страниц для печати
 All Rights Reserved.	AboutWindow		Все права защищены.
 About %app%	AboutWindow		О программе…
+No pages to print!	PrintJob		Нет страниц для печати!
 OK	Dragger		ОК
 OK	PrintJob		ОК
 Green:	ColorControl		Зеленый:
-Ok	AboutWindow		Ок
 Version history:	AboutWindow		История версий:
 Remove replicant	Dragger		Удалить репликант
+OK	AboutWindow		ОК
 OK	ZombieReplicantView		ОК
 Print Server is not responding.	PrintJob		Сервер печати не отвечает.
 Paste	TextView		Вставить
 Special Thanks:	AboutWindow		Особые благодарности:
 %.2f TiB	StringForSize		%.2f ТБ
+{0, plural, one{# byte} other{# bytes}	StringForSize		{0, plural, one{# байт} few{# байта} other{# байтов}}
 Cannot locate the application for the replicant. No application signature supplied.\n%error	ZombieReplicantView		Не удалось найти приложение этого репликанта. Не указана сигнатура приложения.\n%error
 Redo	TextView		Повторить
 <empty>	Menu		<пусто>

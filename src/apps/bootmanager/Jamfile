@@ -1,6 +1,7 @@
 SubDir HAIKU_TOP src apps bootmanager ;
 
 UsePrivateHeaders shared storage tracker ;
+UsePrivateHeaders interface ;
 
 local cataloguedSources =
 	BootDrive.cpp
@@ -22,7 +23,7 @@ Application BootManager :
 	WizardController.cpp
 	WizardPageView.cpp
 
-	: be textencoding tracker localestub $(TARGET_LIBSUPC++)
+	: be textencoding tracker localestub [ TargetLibsupc++ ]
 	: BootManager.rdef
 ;
 

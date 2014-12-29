@@ -231,7 +231,6 @@ const struct supported_device {
 	{0x6778, 5, 0, RADEON_CAICOS, CHIP_STD, "Radeon HD Caicos"},
 	{0x6779, 5, 0, RADEON_CAICOS, CHIP_STD, "Radeon HD 6450"},
 	{0x68fa, 5, 0, RADEON_CAICOS, CHIP_STD, "Radeon HD 7350"},
-	{0x68f9, 5, 0, RADEON_CAICOS, CHIP_STD, "Radeon HD 7350"},
 	{0x677b, 5, 0, RADEON_CAICOS, CHIP_STD, "Radeon HD 7400"},
 	{0x6772, 5, 0, RADEON_CAICOS, CHIP_APU, "Radeon HD 7400A"},
 	//  Turks
@@ -346,7 +345,10 @@ const struct supported_device {
 	{0x9990, 6, 1, RADEON_ARUBA, CHIP_APU, "Radeon HD 7920"},
 	{0x9991, 6, 1, RADEON_ARUBA, CHIP_APU, "Radeon HD 7540"},
 	{0x9992, 6, 1, RADEON_ARUBA, CHIP_APU, "Radeon HD 7420"},
+#if 0
+	// Known not to work: https://dev.haiku-os.org/ticket/10606
 	{0x9993, 6, 1, RADEON_ARUBA, CHIP_APU, "Radeon HD 7480"},
+#endif
 	{0x9994, 6, 1, RADEON_ARUBA, CHIP_APU, "Radeon HD 7400"},
 	{0x9995, 6, 1, RADEON_ARUBA, CHIP_APU, "Radeon HD 8450"},
 	{0x9996, 6, 1, RADEON_ARUBA, CHIP_APU, "Radeon HD 8470"},

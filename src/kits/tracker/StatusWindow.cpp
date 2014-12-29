@@ -47,6 +47,7 @@ All rights reserved.
 #include <MessageFilter.h>
 #include <StringView.h>
 #include <String.h>
+#include <TimeFormat.h>
 
 #include <string.h>
 
@@ -115,6 +116,7 @@ BStatusMouseFilter::Filter(BMessage* message, BHandler** target)
 		BView* view = dynamic_cast<BView*>(*target);
 		if (view != NULL)
 			view = view->Parent();
+
 		if (view != NULL)
 			*target = view;
 	}
@@ -254,8 +256,9 @@ BStatusWindow::CreateStatusItem(thread_id thread, StatusWindowState type)
 		AutoLock<BLooper> lock(be_app);
 		int32 count = be_app->CountWindows();
 		for (int32 index = 0; index < count; index++) {
-			if (dynamic_cast<BDeskWindow*>(be_app->WindowAt(index))
-				&& be_app->WindowAt(index)->IsActive()) {
+			BWindow* window = be_app->WindowAt(index);
+			if (dynamic_cast<BDeskWindow*>(window) != NULL
+				&& window->IsActive()) {
 				desktopActive = true;
 				break;
 			}
@@ -432,8 +435,11 @@ BStatusWindow::WindowActivated(bool state)
 BStatusView::BStatusView(BRect bounds, thread_id thread, StatusWindowState type)
 	:
 	BView(bounds, "StatusView", B_FOLLOW_NONE, B_WILL_DRAW),
+	fStatusBar(NULL),
 	fType(type),
 	fBitmap(NULL),
+	fStopButton(NULL),
+	fPauseButton(NULL),
 	fThread(thread)
 {
 	Init();
@@ -549,23 +555,20 @@ BStatusView::~BStatusView()
 void
 BStatusView::Init()
 {
-	fDestDir = "";
+	fTotalSize = fItemSize = fSizeProcessed = fLastSpeedReferenceSize
+		= fEstimatedFinishReferenceSize = 0;
 	fCurItem = 0;
-	fPendingStatusString[0] = '\0';
-	fWasCanceled = false;
-	fIsPaused = false;
-	fLastUpdateTime = 0;
-	fBytesPerSecond = 0.0;
+	fLastUpdateTime = fLastSpeedReferenceTime = fProcessStartTime
+		= fLastSpeedUpdateTime = fEstimatedFinishReferenceTime
+		= system_time();
+	fCurrentBytesPerSecondSlot = 0;
 	for (size_t i = 0; i < kBytesPerSecondSlots; i++)
 		fBytesPerSecondSlot[i] = 0.0;
-	fCurrentBytesPerSecondSlot = 0;
-	fItemSize = 0;
-	fSizeProcessed = 0;
-	fLastSpeedReferenceSize = 0;
-	fEstimatedFinishReferenceSize = 0;
 
-	fProcessStartTime = fLastSpeedReferenceTime
-		= fEstimatedFinishReferenceTime = system_time();
+	fBytesPerSecond = 0.0;
+	fShowCount = fWasCanceled = fIsPaused = false;
+	fDestDir.SetTo("");
+	fPendingStatusString[0] = '\0';
 }
 
 
@@ -579,9 +582,9 @@ BStatusView::InitStatus(int32 totalItems, off_t totalSize,
 
 	BEntry entry;
 	char name[B_FILE_NAME_LENGTH];
-	if (destDir && (entry.SetTo(destDir) == B_OK)) {
+	if (destDir != NULL && entry.SetTo(destDir) == B_OK) {
 		entry.GetName(name);
-		fDestDir = name;
+		fDestDir.SetTo(name);
 	}
 
 	BString buffer;
@@ -630,7 +633,7 @@ BStatusView::InitStatus(int32 totalItems, off_t totalSize,
 void
 BStatusView::Draw(BRect updateRect)
 {
-	if (fBitmap) {
+	if (fBitmap != NULL) {
 		BPoint location;
 		location.x = (fStatusBar->Frame().left
 			- fBitmap->Bounds().Width()) / 2;
@@ -793,12 +796,11 @@ BStatusView::_TimeStatusString(float availableSpace, float* _width)
 	time_t finishTime = (time_t)(now + secondsRemaining);
 
 	char timeText[32];
-	const BLocale* locale = BLocale::Default();
 	if (finishTime - now > kSecondsPerDay) {
-		locale->FormatDateTime(timeText, sizeof(timeText), finishTime,
+		BDateTimeFormat().Format(timeText, sizeof(timeText), finishTime,
 			B_MEDIUM_DATE_FORMAT, B_MEDIUM_TIME_FORMAT);
 	} else {
-		locale->FormatTime(timeText, sizeof(timeText), finishTime,
+		BTimeFormat().Format(timeText, sizeof(timeText), finishTime,
 			B_MEDIUM_TIME_FORMAT);
 	}
 
@@ -838,10 +840,10 @@ BStatusView::_FullTimeRemainingString(time_t now, time_t finishTime,
 	BString finishStr;
 	if (finishTime - now > 60 * 60) {
 		buffer.SetTo(B_TRANSLATE("Finish: %time - Over %finishtime left"));
-		formatter.Format(now * 1000000LL, finishTime * 1000000LL, &finishStr);
+		formatter.Format(finishStr, now * 1000000LL, finishTime * 1000000LL);
 	} else {
 		buffer.SetTo(B_TRANSLATE("Finish: %time - %finishtime left"));
-		formatter.Format(now * 1000000LL, finishTime * 1000000LL, &finishStr);
+		formatter.Format(finishStr, now * 1000000LL, finishTime * 1000000LL);
 	}
 
 	buffer.ReplaceFirst("%time", timeText);

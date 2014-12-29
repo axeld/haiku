@@ -1,4 +1,4 @@
-1	slovak	x-vnd.Haiku-PoorMan	1267330937
+1	slovak	x-vnd.Haiku-PoorMan	3296382959
 Website location	PoorMan		Umiestnenie webstránky
 Error Server	PoorMan		Chybový server
 Settings…	PoorMan		Nastavenia…
@@ -6,7 +6,6 @@ Create PoorMan log	PoorMan		Vytvoriť záznam PoorMan
 Shutting down.\n	PoorMan		Vypína sa.\n
 Hits: %lu	PoorMan		Zásahov: %lu
 Web folder:	PoorMan		Webový priečinok:
-Default	PoorMan		Predvolené
 Save log console selection	PoorMan		Uložiť záznam výberu konzoly
 Run server	PoorMan		Spustiť server
 PoorMan settings	PoorMan		Nastavenia PoorMan
@@ -36,7 +35,6 @@ Please choose the folder to publish on the web.\n\nYou can have PoorMan create a
 Log To Console	PoorMan		Záznam na konzolu
 Connections	PoorMan		Spojenia
 Status: Running	PoorMan		Stav: Beží
-connections	PoorMan		spojení
 Controls	PoorMan		Ovládacie prvky
 Send file listing if there's no start page	PoorMan		Poslať výpis súborov ak úvodná stránka neexistuje
 Error Dir	PoorMan		Chybový adresár

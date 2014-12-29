@@ -15,7 +15,7 @@ SYSTEM_BIN += [ FFilterByBuildFeatures
 ] ;
 
 SYSTEM_APPS += [ FFilterByBuildFeatures
-	CDPlayer CodyCam
+	CodyCam
 	GLInfo@mesa
 	HaikuDepot
 	Icon-O-Matic Installer LaunchBox
@@ -28,12 +28,12 @@ SYSTEM_APPS += [ FFilterByBuildFeatures
 ] ;
 
 DESKBAR_APPLICATIONS +=
-	CodyCam CDPlayer
+	CodyCam
 	HaikuDepot
 	Icon-O-Matic Installer
 	Magnify Mail MediaConverter MediaPlayer MidiPlayer
 	People PoorMan
-	SoundRecorder
+	SerialConnect SoundRecorder
 	TV
 ;
 
@@ -51,7 +51,7 @@ SYSTEM_PREFERENCES += [ FFilterByBuildFeatures
 ] ;
 
 SYSTEM_DEMOS += [ FFilterByBuildFeatures
-	BSnow Chart Clock Cortex FontDemo GLTeapot@mesa
+	Chart Clock Cortex FontDemo GLTeapot@mesa
 	$(HAIKU_INCLUDE_TRADEMARKS)Haiku3d@mesa Mandelbrot OverlayImage Pairs
 	PatchBay Playground Pulse Sudoku
 ] ;
@@ -62,8 +62,7 @@ rule HaikuImageGetSystemLibs
 	return
 		# libs with special grist
 		[ MultiArchDefaultGristFiles libroot.so : revisioned ]
-		$(HAIKU_SHARED_LIBSTDC++_$(TARGET_PACKAGING_ARCH))
-		$(HAIKU_SHARED_LIBSUPC++_$(TARGET_PACKAGING_ARCH))
+		[ Libstdc++ForImage ]
 		# libs with standard grist
 		[ MultiArchDefaultGristFiles [ FFilterByBuildFeatures
 			libalm.so
@@ -117,13 +116,13 @@ SYSTEM_ADD_ONS_TRANSLATORS += [ FFilterByBuildFeatures
 	EXRTranslator
 	GIFTranslator
 	HVIFTranslator
-	ICOTranslator ICNSTranslator
-	JPEGTranslator	JPEG2000Translator
-	PCXTranslator PNGTranslator PPMTranslator PSDTranslator
+	ICOTranslator ICNSTranslator@libicns
+	JPEGTranslator@jpeg	JPEG2000Translator@jasper
+	PCXTranslator PNGTranslator@libpng PPMTranslator PSDTranslator
 	RAWTranslator RTFTranslator
 	SGITranslator
 	TGATranslator TIFFTranslator@tiff
-	WebPTranslator WonderBrushTranslator
+	WebPTranslator@libwebp WonderBrushTranslator
 ] ;
 
 SYSTEM_ADD_ONS_MEDIA += [ FFilterByBuildFeatures
@@ -142,6 +141,7 @@ SYSTEM_ADD_ONS_MEDIA += [ FFilterByBuildFeatures
 ] ;
 
 SYSTEM_ADD_ONS_MEDIA_PLUGINS += [ FFilterByBuildFeatures
+	ape_reader@x86
 	ffmpeg@ffmpeg
 	raw_decoder
 ] ;
@@ -219,7 +219,7 @@ SYSTEM_ADD_ONS_DRIVERS_POWER += [ FFilterByBuildFeatures
 
 SYSTEM_ADD_ONS_FILE_SYSTEMS +=
 	cdda
-	googlefs
+	#googlefs
 	nfs nfs4
 ;
 
@@ -240,7 +240,7 @@ AddFilesToHaikuImage home config settings Tracker "Tracker New Templates"
 	:
 	"<tracker-new-templates>C++ header"
 	"<tracker-new-templates>C++ source"
-	"<tracker-new-templates>makefile"
+	"<tracker-new-templates>Makefile"
 	"<tracker-new-templates>text file"
 ;
 
@@ -271,12 +271,8 @@ CopyDirectoryToHaikuImage home config settings Media
 	: dvb : -x Jamfile ;
 
 # repository config and cache files
-local repositories = $(HAIKU_REPOSITORIES) ;
-if $(HAIKU_ADD_HAIKU_REPOSITORY_CONFIG) {
-	repositories += <repository>haiku ;
-}
 local repository ;
-for repository in $(repositories) {
+for repository in $(HAIKU_REPOSITORIES) {
 	local config = [ on $(repository) return $(HAIKU_REPOSITORY_CONFIG_FILE) ] ;
 	local cache = [ on $(repository) return $(HAIKU_REPOSITORY_CACHE_FILE) ] ;
 	if $(HAIKU_UPDATE_ALL_PACKAGES) {

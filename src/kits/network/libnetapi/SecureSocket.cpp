@@ -1,6 +1,6 @@
 /*
  * Copyright 2014 Haiku, Inc.
- * Copyright 2011-2013, Axel Dörfler, axeld@pinc-software.de.
+ * Copyright 2011-2014, Axel Dörfler, axeld@pinc-software.de.
  * Copyright 2010, Clemens Zeidler <haiku@clemens-zeidler.de>
  * Distributed under the terms of the MIT License.
  */
@@ -120,6 +120,9 @@ BSecureSocket::Private::CreateContext()
 {
 	sContext = SSL_CTX_new(SSLv23_method());
 
+	// Disable legacy protocols. They have known vulnerabilities.
+	SSL_CTX_set_options(sContext, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
+
 	// Setup certificate verification
 	BPath certificateStore;
 	find_directory(B_SYSTEM_DATA_DIRECTORY, &certificateStore);
@@ -179,9 +182,12 @@ BSecureSocket::Private::VerifyCallback(int ok, X509_STORE_CTX* ctx)
 	if (certificate == NULL)
 		return 0;
 
+	int error = X509_STORE_CTX_get_error(ctx);
+	const char* message = X509_verify_cert_error_string(error);
+
 	// Let the BSecureSocket (or subclass) decide if we should continue anyway.
 	BCertificate failedCertificate(certificate);
-	return socket->CertificateVerificationFailed(failedCertificate);
+	return socket->CertificateVerificationFailed(failedCertificate, message);
 }
 
 
@@ -296,12 +302,12 @@ BSecureSocket::WaitForReadable(bigtime_t timeout) const
 
 
 bool
-BSecureSocket::CertificateVerificationFailed(BCertificate& certificate)
+BSecureSocket::CertificateVerificationFailed(BCertificate& /*certificate*/,
+	const char* /*message*/)
 {
 	// Until apps actually make use of the certificate API, let's keep the old
 	// behavior and accept all connections, even if the certificate validation
 	// didn't work.
-	(void)certificate;
 	return true;
 }
 
@@ -367,7 +373,8 @@ BSecureSocket::~BSecureSocket()
 
 
 bool
-BSecureSocket::CertificateVerificationFailed(BCertificate& /*certificate*/)
+BSecureSocket::CertificateVerificationFailed(BCertificate& /*certificate*/,
+	const char* /*message*/)
 {
 	return false;
 }

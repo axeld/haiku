@@ -55,7 +55,7 @@ All rights reserved.
 
 #include <stdlib.h>
 #include <stdio.h>
-#include <string.h>
+#include <strings.h>
 
 
 const char* kDefaultOpenWithTemplate = "OpenWithSettings";
@@ -184,7 +184,7 @@ OpenWithContainerWindow::NewPoseView(Model*, BRect rect, uint32)
 OpenWithPoseView*
 OpenWithContainerWindow::PoseView() const
 {
-	ASSERT(dynamic_cast<OpenWithPoseView*>(fPoseView));
+	ASSERT(dynamic_cast<OpenWithPoseView*>(fPoseView) != NULL);
 
 	return static_cast<OpenWithPoseView*>(fPoseView);
 }
@@ -540,7 +540,7 @@ OpenWithContainerWindow::SetCanOpen(bool on)
 
 OpenWithPoseView::OpenWithPoseView(BRect frame, uint32 resizeMask)
 	:
-	BPoseView(0, frame, kListMode, resizeMask),
+	BPoseView(new Model(), frame, kListMode, resizeMask),
 	fHaveCommonPreferredApp(false),
 	fIterator(NULL)
 {
@@ -553,8 +553,11 @@ OpenWithPoseView::OpenWithPoseView(BRect frame, uint32 resizeMask)
 OpenWithContainerWindow*
 OpenWithPoseView::ContainerWindow() const
 {
-	ASSERT(dynamic_cast<OpenWithContainerWindow*>(Window()));
-	return static_cast<OpenWithContainerWindow*>(Window());
+	OpenWithContainerWindow* window
+		= dynamic_cast<OpenWithContainerWindow*>(Window());
+	ASSERT(window != NULL);
+
+	return window;
 }
 
 
@@ -562,6 +565,7 @@ void
 OpenWithPoseView::AttachedToWindow()
 {
 	_inherited::AttachedToWindow();
+
 	SetViewColor(kOpenWithDefaultColor);
 	SetLowColor(kOpenWithDefaultColor);
 }
@@ -686,7 +690,7 @@ OpenWithPoseView::OpenSelection(BPose* pose, int32*)
 	if (pose == NULL)
 		pose = fSelectionList->FirstItem();
 
-	ASSERT(pose);
+	ASSERT(pose != NULL);
 
 	BEntry entry(pose->TargetModel()->EntryRef());
 	if (entry.InitCheck() != B_OK) {
@@ -1556,6 +1560,8 @@ bool
 SearchForSignatureEntryList::CanOpenWithFilter(const Model* appModel,
 	const BMessage* entriesToOpen, const entry_ref* preferredApp)
 {
+	ThrowOnAssert(appModel != NULL);
+
 	if (!appModel->IsExecutable() || !appModel->Node()) {
 		// weed out non-executable
 #if xDEBUG
@@ -1572,31 +1578,31 @@ SearchForSignatureEntryList::CanOpenWithFilter(const Model* appModel,
 		return false;
 	}
 
-	ASSERT(dynamic_cast<BFile*>(appModel->Node()));
-	char signature[B_MIME_TYPE_LENGTH];
-	status_t result = GetAppSignatureFromAttr(
-		dynamic_cast<BFile*>(appModel->Node()), signature);
+	BFile* file = dynamic_cast<BFile*>(appModel->Node());
+	ASSERT(file != NULL);
 
-	if (result == B_OK && strcasecmp(signature, kTrackerSignature) == 0) {
+	char signature[B_MIME_TYPE_LENGTH];
+	if (GetAppSignatureFromAttr(file, signature) == B_OK
+		&& strcasecmp(signature, kTrackerSignature) == 0) {
 		// special case the Tracker - make sure only the running copy is
 		// in the list
 		app_info trackerInfo;
-		result = be_roster->GetActiveAppInfo(&trackerInfo);
 		if (*appModel->EntryRef() != trackerInfo.ref) {
 			// this is an inactive copy of the Tracker, remove it
 
 #if xDEBUG
-			BPath path, path2;
+			BPath path1;
+			BPath path2;
 			BEntry entry(appModel->EntryRef());
-			entry.GetPath(&path);
+			entry.GetPath(&path1);
 
 			BEntry entry2(&trackerInfo.ref);
 			entry2.GetPath(&path2);
 
-			PRINT(
-				("filtering out %s, sig %s, active Tracker at %s, "
-				 "result %s, refName %s\n",
-				path.Path(), signature, path2.Path(), strerror(result),
+			PRINT(("filtering out %s, sig %s, active Tracker at %s, "
+				   "result %s, refName %s\n",
+				path1.Path(), signature, path2.Path(),
+				strerror(be_roster->GetActiveAppInfo(&trackerInfo)),
 				trackerInfo.ref.name));
 #endif
 			return false;

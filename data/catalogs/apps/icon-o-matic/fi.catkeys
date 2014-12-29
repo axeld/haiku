@@ -1,4 +1,4 @@
-1	finnish	x-vnd.haiku-icon_o_matic	28048799
+1	finnish	x-vnd.haiku-icon_o_matic	3554185674
 Select All	Icon-O-Matic-PathManipulator		Valitse kaikki
 Add Style	Icon-O-Matic-AddStylesCmd		Lisää tyyli
 Color (#%02x%02x%02x)	Style name after dropping a color		Väri (#%02x%02x%02x)
@@ -67,6 +67,7 @@ HVIF Source Code	Icon-O-Matic-SavePanel		HVIF-lähdekoodi
 Reset Transformations	Icon-O-Matic-ResetTransformationCmd		Nollaa muuntimet
 Settings	Icon-O-Matic-Menus		Asetukset
 All	Icon-O-Matic-Properties		Kaikki
+The text you are trying to import is quite long, are you sure?	Icon-O-Matic-StyledTextImport		Teksti, jota yrität tuoda, on aika pitkä. Oletko varma?
 Multi Paste Properties	Icon-O-Matic-Properties		Useita liittämisominaisuuksia
 Undo	Icon-O-Matic-Main		Peru
 Click on a shape above	Empty transformers list - 1st line		Napsauta yllä olevaa hahmoa
@@ -106,7 +107,6 @@ Unassign Path	Icon-O-Matic-UnassignPathCmd		Liittämätön polku
 load error	Icon-O-Matic-SVGImport		lataa virhe
 Move Shapes	Icon-O-Matic-MoveShapesCommand		Siirrä hahmoja
 Remove Styles	Icon-O-Matic-RemoveStylesCmd		Poista tyylejä
-The text you are trying to import is quite long,are you sure?	Icon-O-Matic-StyledTextImport		Teksti, jota yrität tuoda, on aika pitkä. Oletko varma?
 Add	Icon-O-Matic-TransformersList		Lisää
 Color	Icon-O-Matic-StyleTypes		Väri
 Settings…	Icon-O-Matic-SavePanel		Asetukset...
@@ -169,7 +169,6 @@ Caps	Icon-O-Matic-PropertyNames		Isot kirjaimet
 Transform	Icon-O-Matic-PathManipulator		Muunna
 Add Paths	Icon-O-Matic-AddPathsCmd		Lisää polut
 Style type	Icon-O-Matic-StyleTypes		Tyylityyppi
-too big	Icon-O-Matic-StyledTextImport		liian iso
 Assign Style	Icon-O-Matic-AssignStyleCmd		Lisää tyyli
 Add Path	Icon-O-Matic-AddPathsCmd		Lisää polku
 Color	Icon-O-Matic-PropertyNames		Väri
@@ -188,6 +187,7 @@ Save	Icon-O-Matic-Menu-File		Tallenna
 Append…	Icon-O-Matic-Menu-File		Liitä...
 Move Path	Icon-O-Matic-MovePathsCmd		Siirrä polku
 Overwrite	Icon-O-Matic-SVGExport		Korvaa
+Text too long	Icon-O-Matic-StyledTextImport		Teksti on liian pitkä
 Freeze Shapes	Icon-O-Matic-FreezeTransformationCmd		Jähmetä hahmot
 Split Control Point	Icon-O-Matic-SplitPointsCmd		Halkaise ohjauspiste
 Open…	Icon-O-Matic-Menu-File		Avaa...

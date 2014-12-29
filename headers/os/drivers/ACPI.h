@@ -180,6 +180,8 @@ struct acpi_module_info {
 
 	status_t	(*get_handle)(acpi_handle parent, const char *pathname,
 					acpi_handle *retHandle);
+	status_t 	(*get_name)(acpi_handle handle, uint32 nameType,
+					char* returnedName, size_t bufferLength);
 
 	/* Global Lock */
 
@@ -236,6 +238,8 @@ struct acpi_module_info {
 
 	status_t	(*get_next_entry)(uint32 objectType, const char *base,
 					char *result, size_t length, void **_counter);
+	status_t	(*get_next_object)(uint32 objectType, acpi_handle parent,
+					acpi_handle* currentChild);
 	status_t	(*get_device)(const char *hid, uint32 index, char *result,
 					size_t resultLength);
 

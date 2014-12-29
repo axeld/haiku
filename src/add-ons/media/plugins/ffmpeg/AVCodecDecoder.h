@@ -28,46 +28,64 @@ extern "C" {
 
 class AVCodecDecoder : public Decoder {
 public:
-								AVCodecDecoder();
+						AVCodecDecoder();
 
-	virtual						~AVCodecDecoder();
+	virtual				~AVCodecDecoder();
 
-	virtual	void				GetCodecInfo(media_codec_info* mci);
+	virtual	void		GetCodecInfo(media_codec_info* mci);
 
-	virtual	status_t			Setup(media_format* ioEncodedFormat,
-								   const void* infoBuffer, size_t infoSize);
+	virtual	status_t	Setup(media_format* ioEncodedFormat,
+							const void* infoBuffer, size_t infoSize);
 
-	virtual	status_t			NegotiateOutputFormat(
-									media_format* inOutFormat);
+	virtual	status_t	NegotiateOutputFormat(media_format* inOutFormat);
 
-	virtual	status_t			Decode(void* outBuffer, int64* outFrameCount,
-									media_header* mediaHeader,
-									media_decode_info* info);
+	virtual	status_t	Decode(void* outBuffer, int64* outFrameCount,
+							media_header* mediaHeader,
+							media_decode_info* info);
 
-	virtual	status_t			SeekedTo(int64 trame, bigtime_t time);
+	virtual	status_t	SeekedTo(int64 trame, bigtime_t time);
 
 
 private:
-			status_t			_NegotiateAudioOutputFormat(
-									media_format* inOutFormat);
+			void		_ResetTempPacket();
 
-			status_t			_NegotiateVideoOutputFormat(
-									media_format* inOutFormat);
+			status_t	_NegotiateAudioOutputFormat(media_format* inOutFormat);
 
-			status_t			_DecodeAudio(void* outBuffer,
-									int64* outFrameCount,
-									media_header* mediaHeader,
-									media_decode_info* info);
+			status_t	_NegotiateVideoOutputFormat(media_format* inOutFormat);
 
-			status_t			_DecodeVideo(void* outBuffer,
-									int64* outFrameCount,
-									media_header* mediaHeader,
-									media_decode_info* info);
+			status_t	_DecodeAudio(void* outBuffer, int64* outFrameCount,
+							media_header* mediaHeader,
+							media_decode_info* info);
+
+			status_t	_DecodeVideo(void* outBuffer, int64* outFrameCount,
+							media_header* mediaHeader,
+							media_decode_info* info);
+
+			status_t	_DecodeNextAudioFrame();
+			void		_ApplyEssentialAudioContainerPropertiesToContext();
+			status_t	_ResetRawDecodedAudio();
+			void		_CheckAndFixConditionsThatHintAtBrokenAudioCodeBelow();
+			void		_MoveAudioFramesToRawDecodedAudioAndUpdateStartTimes();
+			status_t	_DecodeNextAudioFrameChunk();
+			status_t	_DecodeSomeAudioFramesIntoEmptyDecodedDataBuffer();
+			void		_UpdateMediaHeaderForAudioFrame();
+
+			status_t	_DecodeNextVideoFrame();
+			void		_ApplyEssentialVideoContainerPropertiesToContext();
+			status_t	_LoadNextChunkIfNeededAndAssignStartTime();
+			status_t	_CopyChunkToChunkBufferAndAddPadding(const void* chunk,
+							size_t chunkSize);
+			status_t	_HandleNewVideoFrameAndUpdateSystemState();
+			status_t	_FlushOneVideoFrameFromDecoderBuffer();
+			void		_UpdateMediaHeaderForVideoFrame();
+			status_t	_DeinterlaceAndColorConvertVideoFrame();
 
 
 			media_header		fHeader;
+									// Contains the properties of the current
+									// decoded audio / video frame
+
 			media_format		fInputFormat;
-			media_raw_video_format fOutputVideoFormat;
 
 			int64				fFrame;
 			bool				fIsAudio;
@@ -75,8 +93,11 @@ private:
 			// FFmpeg related members
 			AVCodec*			fCodec;
 			AVCodecContext*		fContext;
-			AVFrame*			fInputPicture;
-			AVFrame*			fOutputPicture;
+			uint8_t*			fDecodedData;
+			size_t				fDecodedDataSizeInBytes;
+			AVFrame*			fPostProcessedDecodedPicture;
+			AVFrame*			fRawDecodedPicture;
+			AVFrame*			fRawDecodedAudio;
 
 			bool 				fCodecInitDone;
 
@@ -87,20 +108,19 @@ private:
 			int					fExtraDataSize;
 			int					fBlockAlign;
 
-			bigtime_t			fStartTime;
+			color_space			fOutputColorSpace;
 			int32				fOutputFrameCount;
 			float				fOutputFrameRate;
 			int					fOutputFrameSize;
 									// sample size * channel count
 
-			const void*			fChunkBuffer;
-			int32				fChunkBufferOffset;
+			uint8_t*			fChunkBuffer;
 			size_t				fChunkBufferSize;
 			bool				fAudioDecodeError;
 
-			AVFrame*			fOutputFrame;
-			int32				fOutputBufferOffset;
-			int32				fOutputBufferSize;
+			AVFrame*			fDecodedDataBuffer;
+			int32				fDecodedDataBufferOffset;
+			int32				fDecodedDataBufferSize;
 
 			AVPacket			fTempPacket;
 };

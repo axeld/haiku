@@ -12,6 +12,7 @@
 #include <new>
 
 #include <Catalog.h>
+#include <DateFormat.h>
 #include <Locale.h>
 #include <String.h>
 #include <TimeZone.h>
@@ -46,11 +47,11 @@ TimeZoneListView::GetToolTipAt(BPoint point, BToolTip** _tip)
 
 	BString nowInTimeZone;
 	time_t now = time(NULL);
-	BLocale::Default()->FormatTime(&nowInTimeZone, now, B_SHORT_TIME_FORMAT,
+	fTimeFormat.Format(nowInTimeZone, now, B_SHORT_TIME_FORMAT,
 		&item->TimeZone());
 
 	BString dateInTimeZone;
-	BLocale::Default()->FormatDate(&dateInTimeZone, now, B_SHORT_DATE_FORMAT,
+	fDateFormat.Format(dateInTimeZone, now, B_SHORT_DATE_FORMAT,
 		&item->TimeZone());
 
 	BString toolTip = item->Text();

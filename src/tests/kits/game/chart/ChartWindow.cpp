@@ -1504,6 +1504,13 @@ ChartWindow::ChangeSetting(setting new_set)
 			/* this need to be atomic in regard of DirectConnected */
 			while (acquire_sem(fDrawingLock) == B_INTERRUPTED)
 				;
+
+			// Clear the non-direct view, which may still be drawn
+			fChartView->LockLooper();
+			fChartView->SetHighColor(fCurrentSettings.back_color);
+			fChartView->FillRect(fChartView->Bounds());
+			fChartView->UnlockLooper();
+
 			/* synchronise the camera geometry and the direct buffer geometry */
 			SetGeometry(fDirectBuffer.buffer_width, fDirectBuffer.buffer_height);
 			/* cancel erasing of stars not in visible part of the direct window */
@@ -2099,9 +2106,9 @@ ChartWindow::SetColorSpace(buffer *buf, color_space depth)
 	if (swap_needed) {
 		col = buf->colors[0];
 		for (i = 0; i < 7*8; i++) {
-			B_SWAP_INT32(col[i]);
+			col[i] = B_SWAP_INT32(col[i]);
 		}
-		B_SWAP_INT32(buf->back_color);
+		buf->back_color = B_SWAP_INT32(buf->back_color);
 	}
 }
 

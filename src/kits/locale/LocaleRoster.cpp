@@ -174,6 +174,7 @@ BLocaleRoster::GetDefaultLocale() const
 	return &fData->fDefaultLocale;
 }
 
+
 status_t
 BLocaleRoster::GetLanguage(const char* languageCode,
 	BLanguage** _language) const

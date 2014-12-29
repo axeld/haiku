@@ -6,6 +6,7 @@
 #ifndef JOBS_H
 #define JOBS_H
 
+#include <String.h>
 
 #include "ImageDebugInfoLoadingState.h"
 #include "ImageDebugInfoProvider.h"
@@ -17,9 +18,12 @@ class Architecture;
 class BVariant;
 class CpuState;
 class DebuggerInterface;
+class ExpressionInfo;
+class ExpressionResult;
 class Function;
 class FunctionInstance;
 class Image;
+class SourceLanguage;
 class StackFrame;
 class StackFrameValues;
 class Team;
@@ -29,10 +33,12 @@ class TeamTypeInformation;
 class Thread;
 class Type;
 class TypeComponentPath;
+class Value;
 class ValueLocation;
 class ValueNode;
 class ValueNodeChild;
 class ValueNodeContainer;
+class ValueNodeManager;
 class Variable;
 
 
@@ -45,7 +51,8 @@ enum {
 	JOB_TYPE_LOAD_SOURCE_CODE,
 	JOB_TYPE_GET_STACK_FRAME_VALUE,
 	JOB_TYPE_RESOLVE_VALUE_NODE_VALUE,
-	JOB_TYPE_GET_MEMORY_BLOCK
+	JOB_TYPE_GET_MEMORY_BLOCK,
+	JOB_TYPE_EVALUATE_EXPRESSION
 };
 
 
@@ -223,6 +230,39 @@ private:
 			Team*				fTeam;
 			TeamMemory*			fTeamMemory;
 			TeamMemoryBlock*	fMemoryBlock;
+};
+
+
+class ExpressionEvaluationJob : public Job {
+public:
+								ExpressionEvaluationJob(Team* team,
+									DebuggerInterface* debuggerInterface,
+									SourceLanguage* language,
+									ExpressionInfo* info,
+									StackFrame* frame,
+									Thread* thread);
+	virtual						~ExpressionEvaluationJob();
+
+	virtual	const JobKey&		Key() const;
+	virtual	status_t			Do();
+
+			ExpressionResult*	GetResult() const { return fResultValue; }
+
+private:
+			status_t			ResolveNodeValue(ValueNode* node);
+
+private:
+			SimpleJobKey		fKey;
+			Team*				fTeam;
+			DebuggerInterface*	fDebuggerInterface;
+			Architecture*		fArchitecture;
+			TeamTypeInformation* fTypeInformation;
+			SourceLanguage*		fLanguage;
+			ExpressionInfo*		fExpressionInfo;
+			StackFrame*			fFrame;
+			Thread*				fThread;
+			ValueNodeManager*	fManager;
+			ExpressionResult*	fResultValue;
 };
 
 

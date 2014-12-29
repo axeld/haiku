@@ -35,10 +35,14 @@ their respective holders. All rights reserved.
 //	NavMenu is a hierarchical menu of volumes, folders, files and queries
 //	displays icons, uses the SlowMenu API for full interruptability
 
-#include <string.h>
-#include <stdlib.h>
 
 #include "NavMenu.h"
+
+#include <algorithm>
+
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
 
 #include <Application.h>
 #include <Catalog.h>
@@ -267,6 +271,7 @@ BNavMenu::BNavMenu(const char* title, uint32 message, const BHandler* target,
 	fFlags(0),
 	fItemList(NULL),
 	fContainer(NULL),
+	fIteratingDesktop(false),
 	fTypesList(new BObjectList<BString>(10, true))
 {
 	if (list != NULL)
@@ -301,6 +306,7 @@ BNavMenu::BNavMenu(const char* title, uint32 message,
 	fFlags(0),
 	fItemList(NULL),
 	fContainer(NULL),
+	fIteratingDesktop(false),
 	fTypesList(new BObjectList<BString>(10, true))
 {
 	if (list != NULL)
@@ -452,13 +458,22 @@ BNavMenu::StartBuildingItemList()
 			BDirectory trashDir;
 
 			if (FSGetTrashDir(&trashDir, volume.Device()) == B_OK) {
-				dynamic_cast<EntryIteratorList*>(fContainer)->
-					AddItem(new DirectoryEntryList(trashDir));
+				EntryIteratorList* iteratorList
+					= dynamic_cast<EntryIteratorList*>(fContainer);
+
+				ASSERT(iteratorList != NULL);
+
+				if (iteratorList != NULL)
+					iteratorList->AddItem(new DirectoryEntryList(trashDir));
 			}
 		}
 	} else {
-		fContainer = new DirectoryEntryList(*dynamic_cast<BDirectory*>(
-			startModel.Node()));
+		BDirectory* directory = dynamic_cast<BDirectory*>(startModel.Node());
+
+		ASSERT(directory != NULL);
+
+		if (directory != NULL)
+			fContainer = new DirectoryEntryList(*directory);
 	}
 
 	if (fContainer == NULL || fContainer->InitCheck() != B_OK)
@@ -531,7 +546,7 @@ BNavMenu::AddNextItem()
 
 	QueryEntryListCollection* queryContainer
 		= dynamic_cast<QueryEntryListCollection*>(fContainer);
-	if (queryContainer && !queryContainer->ShowResultsFromTrash()
+	if (queryContainer != NULL && !queryContainer->ShowResultsFromTrash()
 		&& FSInTrashDir(model.EntryRef())) {
 		// query entry is in trash and shall not be shown
 		return true;
@@ -686,7 +701,7 @@ BNavMenu::BuildVolumeMenu()
 
 			menu->SetNavDir(model->EntryRef());
 
-			ASSERT(menu->Name());
+			ASSERT(menu->Name() != NULL);
 
 			ModelMenuItem* item = new ModelMenuItem(model, menu);
 			BMessage* message = new BMessage(fMessage);
@@ -704,6 +719,8 @@ BNavMenu::BuildVolumeMenu()
 int
 BNavMenu::CompareFolderNamesFirstOne(const BMenuItem* i1, const BMenuItem* i2)
 {
+	ThrowOnAssert(i1 != NULL && i2 != NULL);
+
 	const ModelMenuItem* item1 = dynamic_cast<const ModelMenuItem*>(i1);
 	const ModelMenuItem* item2 = dynamic_cast<const ModelMenuItem*>(i2);
 
@@ -719,6 +736,8 @@ BNavMenu::CompareFolderNamesFirstOne(const BMenuItem* i1, const BMenuItem* i2)
 int
 BNavMenu::CompareOne(const BMenuItem* i1, const BMenuItem* i2)
 {
+	ThrowOnAssert(i1 != NULL && i2 != NULL);
+
 	return strcasecmp(i1->Label(), i2->Label());
 }
 
@@ -766,8 +785,7 @@ BNavMenu::DoneBuildingItemList()
 int32
 BNavMenu::GetMaxMenuWidth(void)
 {
-	int32 width = (int32)(BScreen().Frame().Width() / 4);
-	return (width < kMinMenuWidth) ? kMinMenuWidth : width;
+	return std::max((int32)(BScreen().Frame().Width() / 4), kMinMenuWidth);
 }
 
 

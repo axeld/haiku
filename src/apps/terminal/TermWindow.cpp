@@ -18,7 +18,7 @@
 #include <new>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+#include <strings.h>
 #include <time.h>
 
 #include <Alert.h>
@@ -223,9 +223,14 @@ TermWindow::TermWindow(const BString& title, Arguments* args)
 	BRect frame;
 	uint32 workspaces;
 	if (_LoadWindowPosition(&frame, &workspaces) == B_OK) {
-		// apply
-		MoveTo(frame.LeftTop());
-		ResizeTo(frame.Width(), frame.Height());
+		// make sure the window is still on screen
+		// (for example if there was a resolution change)
+		if (frame.Intersects(BScreen(this).Frame())) {
+			MoveTo(frame.LeftTop());
+			ResizeTo(frame.Width(), frame.Height());
+		} else
+			CenterOnScreen();
+
 		SetWorkspaces(workspaces);
 	} else {
 		// use computed defaults
@@ -420,14 +425,9 @@ TermWindow::MenusBeginning()
 }
 
 
-/* static */
-BMenu*
-TermWindow::_MakeEncodingMenu()
+/* static */ void
+TermWindow::MakeEncodingMenu(BMenu* menu)
 {
-	BMenu* menu = new (std::nothrow) BMenu(B_TRANSLATE("Text encoding"));
-	if (menu == NULL)
-		return NULL;
-
 	BCharacterSetRoster roster;
 	BCharacterSet charset;
 	while (roster.GetNextCharacterSet(&charset) == B_OK) {
@@ -452,8 +452,6 @@ TermWindow::_MakeEncodingMenu()
 	}
 
 	menu->SetRadioMode(true);
-
-	return menu;
 }
 
 
@@ -469,6 +467,18 @@ TermWindow::_SetupMenu()
 	fFontSizeMenu->AddSeparatorItem();
 	fFontSizeMenu->AddItem(fIncreaseFontSizeMenuItem);
 	fFontSizeMenu->AddItem(fDecreaseFontSizeMenuItem);
+
+	BMenu* windowSize = new(std::nothrow) BMenu(B_TRANSLATE("Window size"));
+	if (windowSize != NULL) {
+		MakeWindowSizeMenu(windowSize);
+		windowSize->AddSeparatorItem();
+		windowSize->AddItem(new BMenuItem(B_TRANSLATE("Full screen"),
+			new BMessage(FULLSCREEN), B_ENTER));
+	}
+
+	fEncodingMenu = new(std::nothrow) BMenu(B_TRANSLATE("Text encoding"));
+	if (fEncodingMenu != NULL)
+		MakeEncodingMenu(fEncodingMenu);
 
 	BLayoutBuilder::Menu<>(fMenuBar = new BMenuBar(Bounds(), "mbar"))
 		// Terminal
@@ -504,20 +514,17 @@ TermWindow::_SetupMenu()
 			.AddItem(B_TRANSLATE("Find next"), MENU_FIND_NEXT, 'G')
 				.GetItem(fFindNextMenuItem)
 				.SetEnabled(false)
-			.AddSeparator()
-			.AddItem(B_TRANSLATE("Window title" B_UTF8_ELLIPSIS),
-				kEditWindowTitle)
 		.End()
 
 		// Settings
 		.AddMenu(B_TRANSLATE("Settings"))
-			.AddItem(_MakeWindowSizeMenu())
-			.AddItem(fEncodingMenu = _MakeEncodingMenu())
+			.AddItem(B_TRANSLATE("Window title" B_UTF8_ELLIPSIS),
+				kEditWindowTitle)
+			.AddItem(windowSize)
+			.AddItem(fEncodingMenu)
 			.AddItem(fFontSizeMenu)
 			.AddSeparator()
 			.AddItem(B_TRANSLATE("Settings" B_UTF8_ELLIPSIS), MENU_PREF_OPEN)
-			.AddSeparator()
-			.AddItem(B_TRANSLATE("Save as default"), SAVE_AS_DEFAULT)
 		.End()
 	;
 
@@ -929,14 +936,6 @@ TermWindow::MessageReceived(BMessage *message)
 			break;
 		}
 
-		case SAVE_AS_DEFAULT:
-		{
-			BPath path;
-			if (PrefHandler::GetDefaultPath(path) == B_OK)
-				PrefHandler::Default()->SaveAsText(path.Path(),
-					PREFFILE_MIMETYPE);
-			break;
-		}
 		case MENU_PAGE_SETUP:
 			_DoPageSetup();
 			break;
@@ -1659,13 +1658,9 @@ TermWindow::_ResizeView(TermView *view)
 }
 
 
-/* static */ BMenu*
-TermWindow::_MakeWindowSizeMenu()
+/* static */ void
+TermWindow::MakeWindowSizeMenu(BMenu* menu)
 {
-	BMenu* menu = new (std::nothrow) BMenu(B_TRANSLATE("Window size"));
-	if (menu == NULL)
-		return NULL;
-
 	const int32 windowSizes[4][2] = {
 		{ 80, 25 },
 		{ 80, 40 },
@@ -1678,18 +1673,13 @@ TermWindow::_MakeWindowSizeMenu()
 		char label[32];
 		int32 columns = windowSizes[i][0];
 		int32 rows = windowSizes[i][1];
-		snprintf(label, sizeof(label), "%" B_PRId32 "x%" B_PRId32, columns, rows);
+		snprintf(label, sizeof(label), "%" B_PRId32 "x%" B_PRId32, columns,
+			rows);
 		BMessage* message = new BMessage(MSG_COLS_CHANGED);
 		message->AddInt32("columns", columns);
 		message->AddInt32("rows", rows);
 		menu->AddItem(new BMenuItem(label, message));
 	}
-
-	menu->AddSeparatorItem();
-	menu->AddItem(new BMenuItem(B_TRANSLATE("Full screen"),
-		new BMessage(FULLSCREEN), B_ENTER));
-
-	return menu;
 }
 
 

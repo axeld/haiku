@@ -13,8 +13,6 @@
 #	FFMpeg					- audio/video library
 #	FFMpeg-devel			- FFMpeg development files
 #	Git						- the distributed version control system
-#	NetFS					- the native networked file system components
-#	UserlandFS				- aids native file system development (like FUSE)
 #	WebPositive				- native, WebKit-based web browser
 #	Welcome					- introductory documentation to Haiku
 #	WifiFirmwareScriptData	- data files needed by install-wifi-firmwares.sh
@@ -103,7 +101,7 @@ if [ IsOptionalHaikuImagePackageAdded Development ] {
 	for architectureObject in [ MultiArchSubDirSetup ] {
 		on $(architectureObject) {
 			AddHaikuImagePackages curl_devel ffmpeg_devel freetype_devel
-				glu_devel jpeg_devel libpng_devel zlib_devel ;
+				glu_devel jpeg_devel libpng16_devel zlib_devel ;
 		}
 	}
 }
@@ -178,92 +176,13 @@ if [ IsOptionalHaikuImagePackageAdded FFMpeg-devel ] {
 
 # Git
 if [ IsOptionalHaikuImagePackageAdded Git ] {
-	AddHaikuImagePackages git git_arch git_cvs git_daemon git_email git_svn ;
-}
+	AddHaikuImagePackages git git_arch git_daemon git_email git_svn ;
 
-
-# NetFS network file system
-if [ IsOptionalHaikuImagePackageAdded NetFS ] {
-# TODO: Make this an actual package!
-# 	# userlandfs module
-# 	AddFilesToHaikuImage home config add-ons userlandfs
-# 		: netfs ;
-#
-# 	# servers
-# 	AddFilesToHaikuImage system servers : netfs_server ;
-# 	AddFilesToHaikuImage system servers
-# 		: authentication_server ;
-#
-# 	# tools
-# 	AddFilesToHaikuImage system bin : netfs_config ;
-# 	AddFilesToHaikuImage system bin : netfs_server_prefs ;
-#
-# 	#example settings for netfs_server
-# 	local netfsServerSettingsFiles = <driver-settings>netfs-server ;
-# 	SEARCH on $(netfsServerSettingsFiles)
-# 		= [ FDirName $(HAIKU_TOP) src add-ons kernel file_systems netfs ] ;
-# 	AddFilesToHaikuImage home config settings kernel drivers
-# 	: $(netfsServerSettingsFiles) ;
-#
-# 	#userlandfs settings are needed for netfs_config to work (ioctls)
-# 	local userlandfsServerSettingsFiles = <driver-settings>userlandfs ;
-# 	SEARCH on $(userlandfsServerSettingsFiles)
-# 		= [ FDirName $(HAIKU_TOP) src add-ons kernel file_systems userlandfs ] ;
-# 	AddFilesToHaikuImage home config settings kernel drivers
-# 		: $(userlandfsServerSettingsFiles) ;
-}
-
-
-# UserlandFS
-if [ IsOptionalHaikuImagePackageAdded UserlandFS ] {
-# TODO: Make this an actual package!
-# 	local arch = $(TARGET_ARCH) ;
-# 	local abi = gcc$(TARGET_GCC_VERSION_$(TARGET_PACKAGING_ARCH)[1]) ;
-#
-# 	# kernel module
-# 	AddFilesToHaikuImage system add-ons kernel file_systems
-# 		: userlandfs ;
-#
-# 	# server
-# 	AddFilesToHaikuImage system servers : userlandfs_server ;
-#
-# 	# libs
-# 	local userlandfsLibs =
-# 		libuserlandfs_beos_kernel.so
-# 		libuserlandfs_haiku_kernel.so
-# 		libuserlandfs_fuse.so
-# 	;
-# 	AddFilesToHaikuImage system lib : $(userlandfsLibs) ;
-#
-# 	# development goodies
-# 	if [ IsOptionalHaikuImagePackageAdded DevelopmentMin ] {
-# 		if ! ( $(TARGET_GCC_VERSION_$(TARGET_PACKAGING_ARCH)[1]) in 2 4 ) {
-# 			Exit "Optional package UserlandFS: Unsupported GCC version:"
-# 				$(TARGET_GCC_VERSION_$(TARGET_PACKAGING_ARCH)[1]) ;
-# 		}
-#
-# 		# library symlinks
-# 		local lib ;
-# 		for lib in $(userlandfsLibs) {
-# 			AddSymlinkToHaikuImage develop abi $(arch) $(abi) lib
-# 				: /system/lib/$(lib:BS) ;
-# 		}
-#
-# 		# FUSE headers
-# 		local fuseHeaders =
-# 			fuse_common_compat.h
-# 			fuse_common.h
-# 			fuse_compat.h
-# 			fuse.h
-# 			fuse_lowlevel_compat.h
-# 			fuse_lowlevel.h
-# 			fuse_opt.h
-# 		;
-# 		fuseHeaders = $(fuseHeaders:G=userlandfs!fuse) ;
-# 		SEARCH on $(fuseHeaders)
-# 			= [ FDirName $(HAIKU_TOP) headers private userlandfs fuse ] ;
-# 		AddFilesToHaikuImage develop headers userlandfs fuse : $(fuseHeaders) ;
-# 	}
+	# git_cvs depends on cvsps, which does not build with gcc2. So it is not
+	# available on gcc2-only builds.
+	if $(TARGET_PACKAGING_ARCHS) != x86_gcc2 {
+		AddHaikuImagePackages git_cvs ;
+	}
 }
 
 
@@ -276,7 +195,7 @@ if [ IsOptionalHaikuImagePackageAdded WebPositive ] {
 				AddPackageFilesToHaikuImage system : webpositive.hpkg
 					: nameFromMetaInfo ;
 				InstallOptionalHaikuImagePackage
-					$(baseURL)/WebPositiveBookmarks-2014-01-01.zip
+					$(baseURL)/WebPositiveBookmarks-2014-07-21.zip
 					: home config settings WebPositive ;
 				break ;
 			}

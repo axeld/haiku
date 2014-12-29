@@ -43,8 +43,8 @@ Quit	Keymap window		Poistu
 Dutch	Keyboard Layout View		hollantilainen
 Switch shortcut keys to Haiku mode	Keymap window		Vaihda pikanäppäimet Haiku-tilaan
 Circumflex trigger	Keymap window		Sirkumfleksiliipaisin
-ISO-9995	Keyboard Layout View		ISO-9995
 Hebrew	Keyboard Layout View		heprealainen
+ISO-9995	Keyboard Layout View		ISO-9995
 Diaeresis trigger	Keymap window		Treemaliipaisin
 Disabled	Modifier keys window	Do nothing	Poissa käytöstä
 Belarusian (Latin)	Keyboard Layout View		valkovenäläinen (latinalainen)
@@ -90,7 +90,7 @@ Alt/Opt key	Modifier keys window	Label of Alt key (PC)/Option key (Mac)	Alt/Opt-
 Layout	Keymap window		Ulkoasu
 Switch shortcut keys to Windows/Linux mode	Keymap window		Vaihda pikanäppäimet Windows/Linux -tilaan
 Albanian	Keyboard Layout View		albanialainen
-Right command	Keyboard Layout View		Oikea command-näppäin
+Right command	Keyboard Layout View		Oikea komentonäppäin
 Revert	Keymap window		Palauta
 Command:	Modifier keys window	Command key role name	Komento:
 Latin-American	Keyboard Layout View		latinalaisamerikkalainen

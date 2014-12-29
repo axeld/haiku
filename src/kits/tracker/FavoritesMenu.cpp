@@ -74,7 +74,12 @@ FavoritesMenu::FavoritesMenu(const char* title, BMessage* openFolderMessage,
 	fOpenFolderMessage(openFolderMessage),
 	fOpenFileMessage(openFileMessage),
 	fTarget(target),
+	fState(kStart),
+	fIndex(-1),
+	fSectionItemCount(-1),
+	fAddedSeparatorForSection(false),
 	fContainer(NULL),
+	fItemList(NULL),
 	fInitialItemCount(0),
 	fIsSavePanel(isSavePanel),
 	fRefFilter(filter)
@@ -148,12 +153,14 @@ FavoritesMenu::AddNextItem()
 			else if (startModel.IsVirtualDirectory())
 				fContainer = new VirtualDirectoryEntryList(&startModel);
 			else {
-				fContainer = new DirectoryEntryList(*dynamic_cast<BDirectory*>
-					(startModel.Node()));
+				BDirectory* directory
+					= dynamic_cast<BDirectory*>(startModel.Node());
+				if (directory != NULL)
+					fContainer = new DirectoryEntryList(*directory);
 			}
 
 			ThrowOnInitCheckError(fContainer);
-			ThrowOnError( fContainer->Rewind() );
+			ThrowOnError(fContainer->Rewind());
 		} catch (...) {
 			delete fContainer;
 			fContainer = NULL;

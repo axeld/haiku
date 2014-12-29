@@ -1,4 +1,4 @@
-1	polish	x-vnd.Haiku-CharacterMap	2745781253
+1	polish	x-vnd.Haiku-CharacterMap	1534181938
 Enclosed alphanumerics	UnicodeBlocks		Otoczone symbole alfanumeryczne
 Basic Latin	UnicodeBlocks		Podstawowy łaciński
 View	CharacterWindow		Widok
@@ -25,7 +25,7 @@ Ol Chiki	UnicodeBlocks		Ol Chiki
 Arabic	UnicodeBlocks		Arabski
 Ethiopic extended	UnicodeBlocks		Rozszerzony etiopski
 Arrows	UnicodeBlocks		Strzałki
-Font	CharacterWindow		Czcionka
+Font	CharacterWindow		Font
 Variation selectors supplement	UnicodeBlocks		Dodatkowe przełączniki wariantów glifów
 Gujarati	UnicodeBlocks		Gudżarati
 Cuneiform	UnicodeBlocks		Pismo klinowe
@@ -68,10 +68,8 @@ Combining diacritical marks for symbols	UnicodeBlocks		Składające znaki diakry
 Syloti Nagri	UnicodeBlocks		Syloti Nagri
 Arabic supplement	UnicodeBlocks		Uzupełnienie arabskiego
 Latin extended C	UnicodeBlocks		Rozszerzony łaciński C
-Ancient smbols	UnicodeBlocks		Symbole starożytne
 Bopomofo extended	UnicodeBlocks		Rozszerzone bopomofo
 Lycian	UnicodeBlocks		Licyjsjki
-Font size:	CharacterWindow		Rozmiar czcionki:
 Osmanya	UnicodeBlocks		Osmanya
 Ethiopic	UnicodeBlocks		Etiopski
 Bengali	UnicodeBlocks		Bengalski
@@ -124,7 +122,8 @@ Ancient Greek numbers	UnicodeBlocks		Starożytne liczby greckie
 Vai	UnicodeBlocks		Wai
 Yi Radicals	UnicodeBlocks		Radykały Yi
 Cyrillic extended B	UnicodeBlocks		Rozszerzona cyrylica B
-Quit	CharacterWindow		Wyjdź
+Quit	CharacterWindow		Zakończ
+Ancient symbols	UnicodeBlocks		Symbole starożytne
 Braille patterns	UnicodeBlocks		Pismo Braille'a
 New Tai Lue	UnicodeBlocks		Nowy tai le
 Runic	UnicodeBlocks		Runiczny

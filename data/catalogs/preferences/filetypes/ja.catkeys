@@ -1,4 +1,4 @@
-1	japanese	x-vnd.Haiku-FileTypes	133192727
+1	japanese	x-vnd.Haiku-FileTypes	734679611
 Application types…	FileTypes Window		アプリケーションタイプ…
 Description:	Application Types Window		説明:
 Args only	Application Type Window		引数のみ
@@ -52,6 +52,7 @@ Set preferred application	Preferred App Menu		優先アプリケーションを�
 Don't save	Application Type Window		保存しない
 Save changes before closing?	Application Type Window		閉じる前に変更を保存しますか?
 File	Application Type Window		ファイル
+{0, plural, one{# Application type could be removed} other{# Application types could be removed}}	Application Types Window		{0, plural, one{# 個のアプリケーションタイプが削除される可能性があります} other{# 個のアプリケーションタイプが削除される可能性があります}}
 Version:	Application Type Window		バージョン:
 Select…	FileTypes Window		選択…
 FileTypes request	FileTypes		ファイルタイプの登録
@@ -130,7 +131,6 @@ Display as:	Attribute Window	Tracker offers different display modes for attribut
 This file type already exists	New File Type Window		このファイルタイプはすでに存在します。
 Same as…	FileTypes Window		このタイプと同様…
 Exclusive launch	Application Type Window		排他的起動
-%ld Application type%s could be removed.	Application Types Window		%ld 個のアプリケーションタイプ %s が削除できませんでした。
 FileTypes	System name		FileTypes
 Application types	Application Types Window		アプリケーションタイプ
 Could not remove file type: %s\n	FileTypes Window		ファイルタイプ %s を削除できません\n

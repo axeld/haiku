@@ -50,14 +50,6 @@ All rights reserved.
 
 #define kPropertyPath "Path"
 
-#ifndef _SCRIPTING_ONLY
-	#if _SUPPORTS_FEATURE_SCRIPTING
-		#define _SCRIPTING_ONLY(x) x
-	#else
-		#define _SCRIPTING_ONLY(x)
-	#endif
-#endif
-
 // notes on PoseView scripting interface:
 // Indices and entry_refs are used to specify poses; In the case of indices
 // and previous/next specifiers the current PoseView sort order is used.
@@ -94,8 +86,6 @@ doo Tracker delete Selection 'test/EL34' of Poses of Window test
 //				- pose location
 //				- pose text widgets
 
-
-#if _SUPPORTS_FEATURE_SCRIPTING
 
 const property_info kPosesPropertyList[] = {
 	{	kPropertyPath,
@@ -203,29 +193,22 @@ const property_info kPosesPropertyList[] = {
 	}
 };
 
-#endif
-
 
 status_t
-BPoseView::GetSupportedSuites(BMessage* _SCRIPTING_ONLY(data))
+BPoseView::GetSupportedSuites(BMessage* data)
 {
-#if _SUPPORTS_FEATURE_SCRIPTING
 	data->AddString("suites", kPosesSuites);
 	BPropertyInfo propertyInfo(
 		const_cast<property_info*>(kPosesPropertyList));
 	data->AddFlat("messages", &propertyInfo);
 
 	return _inherited::GetSupportedSuites(data);
-#else
-	return B_UNSUPPORTED;
-#endif
 }
 
 
 bool
-BPoseView::HandleScriptingMessage(BMessage* _SCRIPTING_ONLY(message))
+BPoseView::HandleScriptingMessage(BMessage* message)
 {
-#if _SUPPORTS_FEATURE_SCRIPTING
 	if (message->what != B_GET_PROPERTY
 		&& message->what != B_SET_PROPERTY
 		&& message->what != B_CREATE_PROPERTY
@@ -285,18 +268,13 @@ BPoseView::HandleScriptingMessage(BMessage* _SCRIPTING_ONLY(message))
 	}
 
 	return handled;
-#else
-	return false;
-#endif
 }
 
 
 bool
-BPoseView::ExecuteProperty(BMessage* _SCRIPTING_ONLY(specifier),
-	int32 _SCRIPTING_ONLY(form), const char* _SCRIPTING_ONLY(property),
-	BMessage* _SCRIPTING_ONLY(reply))
+BPoseView::ExecuteProperty(BMessage* specifier, int32 form,
+	const char* property, BMessage* reply)
 {
-#if _SUPPORTS_FEATURE_SCRIPTING
 	status_t result = B_OK;
 	bool handled = false;
 	if (strcmp(property, kPropertyEntry) == 0) {
@@ -340,18 +318,13 @@ BPoseView::ExecuteProperty(BMessage* _SCRIPTING_ONLY(specifier),
 		reply->AddInt32("error", result);
 
 	return handled;
-#else
-	return false;
-#endif
 }
 
 
 bool
-BPoseView::CreateProperty(BMessage* _SCRIPTING_ONLY(specifier), BMessage*,
-	int32 _SCRIPTING_ONLY(form), const char* _SCRIPTING_ONLY(property),
-	BMessage* _SCRIPTING_ONLY(reply))
+BPoseView::CreateProperty(BMessage* specifier, BMessage*, int32 form,
+	const char* property, BMessage* reply)
 {
-#if _SUPPORTS_FEATURE_SCRIPTING
 	status_t result = B_OK;
 	bool handled = false;
 	if (strcmp(property, kPropertySelection) == 0) {
@@ -401,18 +374,13 @@ BPoseView::CreateProperty(BMessage* _SCRIPTING_ONLY(specifier), BMessage*,
 		reply->AddInt32("error", result);
 
 	return handled;
-#else
-	return false;
-#endif
 }
 
 
 bool
-BPoseView::DeleteProperty(BMessage* _SCRIPTING_ONLY(specifier),
-	int32 _SCRIPTING_ONLY(form), const char* _SCRIPTING_ONLY(property),
-	BMessage* _SCRIPTING_ONLY(reply))
+BPoseView::DeleteProperty(BMessage* specifier, int32 form,
+	const char* property, BMessage* reply)
 {
-#if _SUPPORTS_FEATURE_SCRIPTING
 	status_t result = B_OK;
 	bool handled = false;
 
@@ -484,8 +452,10 @@ BPoseView::DeleteProperty(BMessage* _SCRIPTING_ONLY(specifier),
 				entryList->AddItem(
 					new entry_ref(*pose->TargetModel()->EntryRef()));
 			}
-		} else
+		} else {
+			delete entryList;
 			return false;
+		}
 
 		if (result == B_OK) {
 			TrackerSettings settings;
@@ -495,6 +465,10 @@ BPoseView::DeleteProperty(BMessage* _SCRIPTING_ONLY(specifier),
 				MoveListToTrash(entryList, false, false);
 			} else
 				Delete(entryList, false, settings.AskBeforeDeleteFile());
+		} else {
+			for (int i = entryList->CountItems() - 1; i >= 0; i--)
+				delete entryList->ItemAt(i);
+			delete entryList;
 		}
 
 		handled = true;
@@ -504,18 +478,13 @@ BPoseView::DeleteProperty(BMessage* _SCRIPTING_ONLY(specifier),
 		reply->AddInt32("error", result);
 
 	return handled;
-#else
-	return false;
-#endif
 }
 
 
 bool
-BPoseView::CountProperty(BMessage*, int32,
-	const char* _SCRIPTING_ONLY(property),
-	BMessage* _SCRIPTING_ONLY(reply))
+BPoseView::CountProperty(BMessage*, int32, const char* property,
+	BMessage* reply)
 {
-#if _SUPPORTS_FEATURE_SCRIPTING
 	bool handled = false;
 	//PRINT(("BPoseView::CountProperty, %s\n", property));
 
@@ -529,18 +498,13 @@ BPoseView::CountProperty(BMessage*, int32,
 	}
 
 	return handled;
-#else
-	return false;
-#endif
 }
 
 
 bool
-BPoseView::GetProperty(BMessage* _SCRIPTING_ONLY(specifier),
-	int32 _SCRIPTING_ONLY(form), const char* _SCRIPTING_ONLY(property),
-	BMessage* _SCRIPTING_ONLY(reply))
+BPoseView::GetProperty(BMessage* specifier, int32 form,
+	const char* property, BMessage* reply)
 {
-#if _SUPPORTS_FEATURE_SCRIPTING
 //	PRINT(("GetProperty %s\n", property));
 	bool handled = false;
 	status_t result = B_OK;
@@ -666,18 +630,13 @@ BPoseView::GetProperty(BMessage* _SCRIPTING_ONLY(specifier),
 		reply->AddInt32("error", result);
 
 	return handled;
-#else
-	return false;
-#endif
 }
 
 
 bool
-BPoseView::SetProperty(BMessage* _SCRIPTING_ONLY(message), BMessage*,
-	int32 _SCRIPTING_ONLY(form), const char* _SCRIPTING_ONLY(property),
-	BMessage* _SCRIPTING_ONLY(reply))
+BPoseView::SetProperty(BMessage* message, BMessage*, int32 form,
+	const char* property, BMessage* reply)
 {
-#if _SUPPORTS_FEATURE_SCRIPTING
 	status_t result = B_OK;
 	bool handled = false;
 
@@ -739,18 +698,13 @@ BPoseView::SetProperty(BMessage* _SCRIPTING_ONLY(message), BMessage*,
 		reply->AddInt32("error", result);
 
 	return handled;
-#else
-	return false;
-#endif
 }
 
 
 BHandler*
-BPoseView::ResolveSpecifier(BMessage* _SCRIPTING_ONLY(message),
-	int32 _SCRIPTING_ONLY(index), BMessage* _SCRIPTING_ONLY(specifier),
-	int32 _SCRIPTING_ONLY(form), const char* _SCRIPTING_ONLY(property))
+BPoseView::ResolveSpecifier(BMessage* message, int32 index,
+	BMessage* specifier, int32 form, const char* property)
 {
-#if _SUPPORTS_FEATURE_SCRIPTING
 	BPropertyInfo propertyInfo(
 		const_cast<property_info*>(kPosesPropertyList));
 
@@ -763,17 +717,13 @@ BPoseView::ResolveSpecifier(BMessage* _SCRIPTING_ONLY(message),
 	}
 
 	return this;
-#else
-	return NULL;
-#endif
 }
 
 
 BPose*
-BPoseView::FindPose(const entry_ref* _SCRIPTING_ONLY(ref),
-	int32 _SCRIPTING_ONLY(specifierForm), int32* _SCRIPTING_ONLY(index)) const
+BPoseView::FindPose(const entry_ref* ref, int32 specifierForm,
+	int32* index) const
 {
-#if _SUPPORTS_FEATURE_SCRIPTING
 	// flavor of FindPose, used by previous/next specifiers
 
 	BPose* pose = FindPose(ref, index);
@@ -784,7 +734,4 @@ BPoseView::FindPose(const entry_ref* _SCRIPTING_ONLY(ref),
 		return PoseAtIndex(++*index);
 	else
 		return pose;
-#else
-	return NULL;
-#endif
 }

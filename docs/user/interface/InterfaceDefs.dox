@@ -124,10 +124,9 @@
 /*!
 	\var button_width B_WIDTH_FROM_LABEL
 
-	Set the width of each button to accomidate the width of the button's
-	label.
+	Set the width of each button to accommodate the label.
 
-	\since BeOS R3
+	\since BeOS R5
 */
 
 

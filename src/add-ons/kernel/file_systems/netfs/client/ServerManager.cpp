@@ -138,7 +138,7 @@ private:
 	ServerManager*		fServerManager;
 	ExtendedServerInfo*	fOldServerInfo;
 	ExtendedServerInfo*	fServerInfo;
-	vint32				fFD;
+	int32				fFD;
 	bool				fUpdate;
 	bool				fSuccess;
 };
@@ -323,8 +323,8 @@ ServerManager::_BroadcastListener()
 		if (message.protocolVersion
 			!= (int32)B_HOST_TO_BENDIAN_INT32(NETFS_PROTOCOL_VERSION)) {
 			PRINT("ServerManager::_BroadcastListener(): protocol "
-				"version does not match: %lu vs. %d.\n",
-				B_BENDIAN_TO_HOST_INT32(
+				"version does not match: %" B_PRId32 " vs. %d.\n",
+				(int32)B_BENDIAN_TO_HOST_INT32(
 					message.protocolVersion),
 				NETFS_PROTOCOL_VERSION);
 			continue;

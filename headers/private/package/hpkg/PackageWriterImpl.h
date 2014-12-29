@@ -48,10 +48,15 @@ public:
 
 			status_t			Init(const char* fileName,
 									const BPackageWriterParameters& parameters);
+			status_t			Init(BPositionIO* file, bool keepFile,
+									const BPackageWriterParameters& parameters);
 			status_t			SetInstallPath(const char* installPath);
 			void				SetCheckLicenses(bool checkLicenses);
 			status_t			AddEntry(const char* fileName, int fd = -1);
 			status_t			Finish();
+
+			status_t			Recompress(BPositionIO* inputFile);
+									// to be called after Init(); no Finish()
 
 private:
 			struct Attribute;
@@ -63,9 +68,12 @@ private:
 			typedef DoublyLinkedList<Entry> EntryList;
 
 private:
-			status_t			_Init(const char* fileName,
+			status_t			_Init(BPositionIO* file, bool keepFile,
+									const char* fileName,
 									const BPackageWriterParameters& parameters);
 			status_t			_Finish();
+
+			status_t			_Recompress(BPositionIO* inputFile);
 
 			status_t			_RegisterEntry(const char* fileName, int fd);
 			Entry*				_RegisterEntry(Entry* parent,

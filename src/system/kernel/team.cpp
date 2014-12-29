@@ -924,7 +924,7 @@ Team::DeactivateCPUTimeUserTimers()
 	\return The team's current total CPU time.
 */
 bigtime_t
-Team::CPUTime(bool ignoreCurrentRun) const
+Team::CPUTime(bool ignoreCurrentRun, Thread* lockedThread) const
 {
 	bigtime_t time = cpu_clock_offset + dead_threads_kernel_time
 		+ dead_threads_user_time;
@@ -934,13 +934,17 @@ Team::CPUTime(bool ignoreCurrentRun) const
 
 	for (Thread* thread = thread_list; thread != NULL;
 			thread = thread->team_next) {
-		SpinLocker threadTimeLocker(thread->time_lock);
+		bool alreadyLocked = thread == lockedThread;
+		SpinLocker threadTimeLocker(thread->time_lock, alreadyLocked);
 		time += thread->kernel_time + thread->user_time;
 
 		if (thread->last_time != 0) {
 			if (!ignoreCurrentRun || thread != currentThread)
 				time += now - thread->last_time;
 		}
+
+		if (alreadyLocked)
+			threadTimeLocker.Detach();
 	}
 
 	return time;
@@ -2788,6 +2792,9 @@ team_init(kernel_args* args)
 	sKernelTeam->io_context = vfs_new_io_context(NULL, false);
 	if (sKernelTeam->io_context == NULL)
 		panic("could not create io_context for kernel team!\n");
+
+	if (vfs_resize_fd_table(sKernelTeam->io_context, 4096) != B_OK)
+		dprintf("Failed to resize FD table for kernel team!\n");
 
 	// stick it in the team hash
 	sTeamHash.Insert(sKernelTeam);

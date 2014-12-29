@@ -9,6 +9,7 @@
 #include <malloc.h>
 #include <string.h>
 #include <KernelExport.h>
+#include <SupportDefs.h>
 #include <util/kernel_cpp.h>
 #include "BeOSCompatibility.h"
 #include "PhysicalMemoryAllocator.h"
@@ -69,7 +70,7 @@ PhysicalMemoryAllocator::PhysicalMemoryAllocator(const char *name,
 	size_t roundedSize = biggestSize * minCountPerBlock;
 #ifdef HAIKU_TARGET_PLATFORM_HAIKU
 	fDebugBase = roundedSize;
-	fDebugChunkSize = 64;
+	fDebugChunkSize = 128;
 	fDebugUseMap = 0;
 	roundedSize += sizeof(fDebugUseMap) * 8 * fDebugChunkSize;
 #endif
@@ -133,7 +134,14 @@ PhysicalMemoryAllocator::Allocate(size_t size, void **logicalAddress,
 {
 #ifdef HAIKU_TARGET_PLATFORM_HAIKU
 	if (debug_debugger_running()) {
-		for (int32 i = 0; i < 64; i++) {
+		if (size > fDebugChunkSize) {
+			kprintf("usb allocation of %" B_PRIuSIZE
+				" does not fit debug chunk size %" B_PRIu32 "!\n",
+				size, fDebugChunkSize);
+			return B_NO_MEMORY;
+		}
+
+		for (size_t i = 0; i < sizeof(fDebugUseMap) * 8; i++) {
 			uint64 mask = 1LL << i;
 			if ((fDebugUseMap & mask) == 0) {
 				fDebugUseMap |= mask;

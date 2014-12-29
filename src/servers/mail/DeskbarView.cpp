@@ -24,6 +24,7 @@
 #include <kernel/fs_info.h>
 #include <kernel/fs_index.h>
 #include <MenuItem.h>
+#include <MessageFormat.h>
 #include <Messenger.h>
 #include <NodeInfo.h>
 #include <NodeMonitor.h>
@@ -528,7 +529,7 @@ DeskbarView::_BuildMenu()
 				item = new BMenuItem(path.Leaf(), msg);
 
 			menu->AddItem(item);
-			if(entry.InitCheck() != B_OK)
+			if (entry.InitCheck() != B_OK)
 				item->SetEnabled(false);
 		}
 		if (count > 0)
@@ -544,14 +545,10 @@ DeskbarView::_BuildMenu()
 	// The New E-mail query
 
 	if (fNewMessages > 0) {
-		BString string, numString;
-		if (fNewMessages != 1)
-			string << B_TRANSLATE("%num new messages");
-		else
-			string << B_TRANSLATE("%num new message");
-
-		numString << fNewMessages;
-		string.ReplaceFirst("%num", numString);
+		static BMessageFormat format(B_TRANSLATE(
+			"{0, plural, one{# new message} other{# new messages}}"));
+		BString string;
+		format.Format(string, fNewMessages);
 
 		_GetNewQueryRef(ref);
 

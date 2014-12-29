@@ -1,4 +1,4 @@
-1	russian	x-vnd.Haiku-CharacterMap	2745781253
+1	russian	x-vnd.Haiku-CharacterMap	1534181938
 Enclosed alphanumerics	UnicodeBlocks		Вложенные буквы и цифры
 Basic Latin	UnicodeBlocks		Основная латиница
 View	CharacterWindow		Вид
@@ -39,7 +39,7 @@ Khmer symbols	UnicodeBlocks		Кхмерские символы
 Tagbanwa	UnicodeBlocks		Тагбанва
 Kanbun	UnicodeBlocks		Канбун
 Syriac	UnicodeBlocks		Сирийский
-CJK compatibility ideographs Supplement	UnicodeBlocks		Дополнение CJK совместимых иероглифов
+CJK compatibility ideographs Supplement	UnicodeBlocks		Дополнительные CJK совместимые иероглифы
 Musical symbols	UnicodeBlocks		Музыкальные символы
 Hangul syllables	UnicodeBlocks		Хангулийские слоги
 Coptic	UnicodeBlocks		Коптский
@@ -68,10 +68,8 @@ Combining diacritical marks for symbols	UnicodeBlocks		Комбинируемы�
 Syloti Nagri	UnicodeBlocks		Силоти Нагри
 Arabic supplement	UnicodeBlocks		Арабский дополнительные
 Latin extended C	UnicodeBlocks		Латинский расширение C
-Ancient smbols	UnicodeBlocks		Древние символы
 Bopomofo extended	UnicodeBlocks		Расширенный бопомото
 Lycian	UnicodeBlocks		Ликийский
-Font size:	CharacterWindow		Размер шрифта:
 Osmanya	UnicodeBlocks		Сомалийский
 Ethiopic	UnicodeBlocks		Эфиопский
 Bengali	UnicodeBlocks		Бенгали
@@ -125,6 +123,7 @@ Vai	UnicodeBlocks		Ваи
 Yi Radicals	UnicodeBlocks		Корни Юи
 Cyrillic extended B	UnicodeBlocks		Кириллица расширение B
 Quit	CharacterWindow		Выход
+Ancient symbols	UnicodeBlocks		Древние символы
 Braille patterns	UnicodeBlocks		Шрифт Брейля
 New Tai Lue	UnicodeBlocks		Новый тай лю
 Runic	UnicodeBlocks		Рунический

@@ -22,6 +22,7 @@
 
 #include <Alert.h>
 #include <Deskbar.h>
+#include <InterfaceDefs.h>
 #include <MenuItem.h>
 #include <PopUpMenu.h>
 #include <String.h>
@@ -34,17 +35,12 @@
 #define B_TRANSLATION_CONTEXT "WatchView"
 
 
-const rgb_color COLOR_FOREGROUND = { 0, 0, 0 };
-
-///////////////////////////////////////////////////////////////////////////////
-
 WatchView::WatchView()
 	:
 	BView(BRect(0, 0, 1, 1), 0, 0, 0)
 {
 }
 
-///////////////////////////////////////////////////////////////////////////////
 
 WatchView::WatchView(BMessage* message)
 	: BView(
@@ -66,7 +62,6 @@ WatchView::WatchView(BMessage* message)
 	SetViewColor(B_TRANSPARENT_COLOR);
 }
 
-///////////////////////////////////////////////////////////////////////////////
 
 WatchView* WatchView::Instantiate(BMessage* archive)
 {
@@ -78,7 +73,6 @@ WatchView* WatchView::Instantiate(BMessage* archive)
 	return NULL;
 }
 
-///////////////////////////////////////////////////////////////////////////////
 
 status_t WatchView::Archive(BMessage* archive, bool deep) const
 {
@@ -90,7 +84,6 @@ status_t WatchView::Archive(BMessage* archive, bool deep) const
 	return B_OK;
 }
 
-///////////////////////////////////////////////////////////////////////////////
 
 void WatchView::Draw(BRect updateRect)
 {
@@ -111,12 +104,11 @@ void WatchView::Draw(BRect updateRect)
 	FillRect(updateRect);
 
 	SetLowColor(Parent()->ViewColor());
-	SetHighColor(COLOR_FOREGROUND);
+	SetHighColor(ui_color(B_MENU_ITEM_TEXT_COLOR));
 	SetDrawingMode(B_OP_OVER);
 	DrawString(string, BPoint(x, y));
 }
 
-///////////////////////////////////////////////////////////////////////////////
 
 void WatchView::MouseDown(BPoint point) 
 {
@@ -137,7 +129,6 @@ void WatchView::MouseDown(BPoint point)
 	delete menu;
 }
 
-///////////////////////////////////////////////////////////////////////////////
 
 void WatchView::MessageReceived(BMessage* msg)
 {
@@ -149,7 +140,6 @@ void WatchView::MessageReceived(BMessage* msg)
 	}
 }
 
-///////////////////////////////////////////////////////////////////////////////
 
 void WatchView::OnAboutRequested()
 {
@@ -164,7 +154,6 @@ void WatchView::OnAboutRequested()
 	alert->Go(NULL);
 }
 
-///////////////////////////////////////////////////////////////////////////////
 
 void WatchView::OnQuitRequested()
 {
@@ -177,7 +166,6 @@ void WatchView::OnQuitRequested()
 	deskbar.RemoveItem(DESKBAR_ITEM_NAME);
 }
 
-///////////////////////////////////////////////////////////////////////////////
 
 void WatchView::Pulse()
 {
@@ -189,7 +177,6 @@ void WatchView::Pulse()
 	}
 }
 
-///////////////////////////////////////////////////////////////////////////////
 
 int32 WatchView::GetInternetTime()
 {
@@ -202,4 +189,3 @@ int32 WatchView::GetInternetTime()
 	return (int32) (((real_time_clock() + 3600) % 86400) / 86.4);
 }
 
-///////////////////////////////////////////////////////////////////////////////

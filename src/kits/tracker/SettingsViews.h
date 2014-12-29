@@ -90,8 +90,6 @@ private:
 	BRadioButton*	fShowDisksIconRadioButton;
 	BRadioButton*	fMountVolumesOntoDesktopRadioButton;
 	BCheckBox*		fMountSharedVolumesOntoDesktopCheckBox;
-	BCheckBox*		fIntegrateNonBootBeOSDesktopsCheckBox;
-	BButton*		fMountButton;
 
 	bool fShowDisksIcon;
 	bool fMountVolumesOntoDesktop;
@@ -121,7 +119,6 @@ private:
 	BCheckBox* fShowFullPathInTitleBarCheckBox;
 	BCheckBox* fSingleWindowBrowseCheckBox;
 	BCheckBox* fShowNavigatorCheckBox;
-	BCheckBox* fShowSelectionWhenInactiveCheckBox;
 	BCheckBox* fOutlineSelectionCheckBox;
 	BCheckBox* fSortFolderNamesFirstCheckBox;
 	BCheckBox* fTypeAheadFilteringCheckBox;
@@ -165,6 +162,47 @@ private:
 
 	typedef SettingsView _inherited;
 };
+
+
+class AutomountSettingsPanel : public SettingsView {
+public:
+								AutomountSettingsPanel();
+	virtual						~AutomountSettingsPanel();
+
+	virtual	bool				IsDefaultable() const;
+	virtual	void				Revert();
+	virtual	void				ShowCurrentSettings();
+	virtual void				RecordRevertSettings();
+	virtual	bool				IsRevertable() const;
+
+protected:
+	virtual	void				MessageReceived(BMessage* message);
+	virtual	void				AttachedToWindow();
+
+private:
+			void				_SendSettings(bool rescan);
+			void				_GetSettings(BMessage* reply) const;
+			void				_ParseSettings(const BMessage& settings);
+
+			BRadioButton*		fInitialDontMountCheck;
+			BRadioButton*		fInitialMountAllBFSCheck;
+			BRadioButton*		fInitialMountAllCheck;
+			BRadioButton*		fInitialMountRestoreCheck;
+
+			BRadioButton*		fScanningDisabledCheck;
+			BRadioButton*		fAutoMountAllBFSCheck;
+			BRadioButton*		fAutoMountAllCheck;
+
+			BCheckBox*			fEjectWhenUnmountingCheckBox;
+
+			BButton*			fMountAllNow;
+
+			BMessenger			fTarget;
+			BMessage			fInitialSettings;
+
+			typedef SettingsView _inherited;
+};
+
 
 } // namespace BPrivate
 

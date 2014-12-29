@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include <OS.h>
 
@@ -1013,11 +1014,16 @@ parsedate_etc(const char* dateString, time_t now, int* _flags)
 							dateMask.Set(TYPE_HOUR);
 							break;
 						case 'M':
+							if (element->value > 59)
+								goto next_format;
+
 							dateMask.Set(TYPE_MINUTE);
+							break;
 						case 'S':
 							if (element->value > 59)
 								goto next_format;
 
+							dateMask.Set(TYPE_SECOND);
 							break;
 						case 'y':
 						case 'Y':

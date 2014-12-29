@@ -1,4 +1,4 @@
-1	russian	x-vnd.Haiku-PoorMan	1267330937
+1	russian	x-vnd.Haiku-PoorMan	1829050509
 Website location	PoorMan		Расположение сайта
 Error Server	PoorMan		Ошибка сервера
 Settings…	PoorMan		Настройки…
@@ -6,13 +6,13 @@ Create PoorMan log	PoorMan		Создать log PoorMan
 Shutting down.\n	PoorMan		Выключение.\n
 Hits: %lu	PoorMan		Посещений: %lu
 Web folder:	PoorMan		Веб-папка:
-Default	PoorMan		По умолчанию
 Save log console selection	PoorMan		Сохранить выделенную часть лога консоли
 Run server	PoorMan		Запустить сервер
 PoorMan settings	PoorMan		Настройки PoorMan
 Clear hit counter	PoorMan		Очистить счетчик посещений
 Copy	PoorMan		Копировать
 Max. simultaneous connections:	PoorMan		Максимум одновременных соединений:
+Create public_html	PoorMan		Создать public_html
 Start page:	PoorMan		Начальная страница:
 done.\n	PoorMan		готово.\n
 Create	PoorMan		Создать
@@ -34,9 +34,9 @@ Log to console	PoorMan		Выводить лог в консоль
 Directory: (none)	PoorMan		Директория: (отсутствует)
 Please choose the folder to publish on the web.\n\nYou can have PoorMan create a default \"public_html\" in your home folder.\nOr you select one of your own folders instead.	PoorMan		Пожалуйста, выберите папку для публикации.\n\nPoorMan может создать папку по умолчанию public_html в вашей домашней папке.\nИли вы можете выбрать любую другую папку.
 Log To Console	PoorMan		Выводить лог в консоль
+{0, plural, one{# connection} other{# connections}}	PoorMan		{0, plural, one{# соединение} few{# соединения} other{# соединений}}
 Connections	PoorMan		Соединения
 Status: Running	PoorMan		Статус: работает
-connections	PoorMan		соединения
 Controls	PoorMan		Управление
 Send file listing if there's no start page	PoorMan		Отобразить список файлов, если нет стартовой страницы
 Error Dir	PoorMan		Ошибка директории

@@ -23,7 +23,6 @@ provides {
 	cmd:arp
 	cmd:base64
 	cmd:basename
-	cmd:bash
 	cmd:bc
 	cmd:cat
 	cmd:chgrp
@@ -67,6 +66,7 @@ provides {
 	cmd:gzip
 	cmd:hd
 	cmd:head
+	cmd:hey
 	cmd:hostname
 	cmd:id
 	cmd:install
@@ -109,7 +109,6 @@ provides {
 	cmd:rmdir
 	cmd:sdiff
 	cmd:seq
-	cmd:sh
 	cmd:sha1sum
 	cmd:sha256sum
 	cmd:shred
@@ -170,12 +169,17 @@ provides {
 }
 
 requires {
+	cmd:sh
 	lib:libfreetype
+	lib:libgcc_s
 #ifdef HAIKU_REGULAR_BUILD
 	lib:libjpeg
 	lib:libpng
 #endif
 	lib:libsolv
 	lib:libsolvext
+	lib:libstdc++
+	lib:libsupc++
 	lib:libz
+	vl_gothic
 }

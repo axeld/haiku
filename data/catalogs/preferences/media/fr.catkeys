@@ -1,10 +1,11 @@
-1	french	x-vnd.Haiku-Media	1376555819
+1	french	x-vnd.Haiku-Media	2338820526
 Couldn't add volume control in Deskbar: %s\n	Media views		Impossible d'insérer le contrôle du volume dans la Deskbar : %s\n
 Ready for use…	Media Window		Prêt à servir…
 Video input:	Media views		Entrée vidéo :
 Waiting for media_server to quit.	Media Window		Attente de la fin du serveur de médias.
 Cleaning up.	Media Window		Nettoyage.
 Defaults	Media views		Par défaut
+MIDI Settings	Media Window		Réglages MIDI
 Stopping media server…	Media Window		Arrêt du serveur de médias…
 Quit	Media Window		Quitter
 Starting media server…	Media Window		Démarrage du serveur de médias…
@@ -19,10 +20,8 @@ Telling media_addon_server to quit.	Media Window		Demande au serveur des extensi
 Audio mixer	Media Window		Mélangeur audio
 This hardware has no controls.	Media Window		Ce matériel n'a pas de contrôles.
 Audio output:	Media views		Sortie audio :
-Restarting media services\nStarting media server…\n	Media Window		Redémarrage des services médias\nDémarrage du serveur de médias…\n
 Audio settings	Media Window		Réglages audio
 Start media server	Media Window		Démarrer le serveur media
-Restarting media services\nShutting down media server\n	Media Window		Redémarrage des services médias\nArrêt du serveur de médias\n
 <none>	Media views		<aucun>
 Channel:	Media views		Canal :
 Show volume control on Deskbar	Media views		Afficher le contrôle de volume dans la Deskbar

@@ -16,10 +16,10 @@
 #include <ScrollView.h>
 #include <TextControl.h>
 
-#include <ExpressionParser.h>
-
 #include "Architecture.h"
+#include "CppLanguage.h"
 #include "GuiTeamUiSettings.h"
+#include "IntegerValue.h"
 #include "MemoryView.h"
 #include "MessageCodes.h"
 #include "Team.h"
@@ -29,7 +29,7 @@
 enum {
 	MSG_NAVIGATE_PREVIOUS_BLOCK 		= 'npbl',
 	MSG_NAVIGATE_NEXT_BLOCK				= 'npnl',
-	MSG_MEMORY_BLOCK_RETRIEVED			= 'mbre',
+	MSG_MEMORY_BLOCK_RETRIEVED			= 'mbre'
 };
 
 
@@ -46,17 +46,29 @@ InspectorWindow::InspectorWindow(::Team* team, UserInterfaceListener* listener,
 	fCurrentBlock(NULL),
 	fCurrentAddress(0LL),
 	fTeam(team),
+	fLanguage(NULL),
+	fExpressionInfo(NULL),
 	fTarget(target)
 {
+	AutoLocker< ::Team> teamLocker(fTeam);
+	fTeam->AddListener(this);
 }
 
 
 InspectorWindow::~InspectorWindow()
 {
-	if (fCurrentBlock != NULL) {
-		fCurrentBlock->RemoveListener(this);
-		fCurrentBlock->ReleaseReference();
+	_SetCurrentBlock(NULL);
+
+	if (fLanguage != NULL)
+		fLanguage->ReleaseReference();
+
+	if (fExpressionInfo != NULL) {
+		fExpressionInfo->RemoveListener(this);
+		fExpressionInfo->ReleaseReference();
 	}
+
+	AutoLocker< ::Team> teamLocker(fTeam);
+	fTeam->RemoveListener(this);
 }
 
 
@@ -80,6 +92,10 @@ InspectorWindow::Create(::Team* team, UserInterfaceListener* listener,
 void
 InspectorWindow::_Init()
 {
+	fLanguage = new CppLanguage();
+	fExpressionInfo = new ExpressionInfo();
+	fExpressionInfo->AddListener(this);
+
 	BScrollView* scrollView;
 
 	BMenu* hexMenu = new BMenu("Hex Mode");
@@ -189,51 +205,74 @@ InspectorWindow::_Init()
 }
 
 
-
 void
 InspectorWindow::MessageReceived(BMessage* message)
 {
 	switch (message->what) {
-		case MSG_INSPECT_ADDRESS:
+		case MSG_THREAD_STATE_CHANGED:
 		{
-			target_addr_t address = 0;
-			bool addressValid = false;
-			if (message->FindUInt64("address", &address) != B_OK) {
-				ExpressionParser parser;
-				parser.SetSupportHexInput(true);
-				const char* addressExpression = fAddressInput->Text();
-				BString errorMessage;
-				try {
-					address = parser.EvaluateToInt64(addressExpression);
-				} catch(ParseException parseError) {
-					errorMessage.SetToFormat("Failed to parse address: %s",
-						parseError.message.String());
-				} catch(...) {
-					errorMessage.SetToFormat(
-						"Unknown error while parsing address");
-				}
-
-				if (errorMessage.Length() > 0) {
-					BAlert* alert = new(std::nothrow) BAlert("Inspect Address",
-						errorMessage.String(), "Close");
-					if (alert != NULL)
-						alert->Go();
-				} else
-					addressValid = true;
-			} else {
-				addressValid = true;
+			::Thread* thread;
+			if (message->FindPointer("thread",
+					reinterpret_cast<void**>(&thread)) != B_OK) {
+				break;
 			}
 
-			if (addressValid) {
-				fCurrentAddress = address;
-				if (fCurrentBlock == NULL
-					|| !fCurrentBlock->Contains(address)) {
-					fListener->InspectRequested(address, this);
-				} else
-					fMemoryView->SetTargetAddress(fCurrentBlock, address);
+			BReference< ::Thread> threadReference(thread, true);
+			if (thread->State() == THREAD_STATE_STOPPED) {
+				if (fCurrentBlock != NULL) {
+					_SetCurrentBlock(NULL);
+					_SetToAddress(fCurrentAddress);
+				}
 			}
 			break;
 		}
+		case MSG_INSPECT_ADDRESS:
+		{
+			target_addr_t address = 0;
+			if (message->FindUInt64("address", &address) != B_OK) {
+				if (fAddressInput->TextView()->TextLength() == 0)
+					break;
+
+				fExpressionInfo->SetTo(fAddressInput->Text());
+
+				fListener->ExpressionEvaluationRequested(fLanguage,
+					fExpressionInfo);
+			} else
+				_SetToAddress(address);
+			break;
+		}
+		case MSG_EXPRESSION_EVALUATED:
+		{
+			BString errorMessage;
+			BReference<ExpressionResult> reference;
+			ExpressionResult* value = NULL;
+			if (message->FindPointer("value",
+					reinterpret_cast<void**>(&value)) == B_OK) {
+				reference.SetTo(value, true);
+				if (value->Kind() == EXPRESSION_RESULT_KIND_PRIMITIVE) {
+					Value* primitive = value->PrimitiveValue();
+					BVariant variantValue;
+					primitive->ToVariant(variantValue);
+					if (variantValue.Type() == B_STRING_TYPE) {
+						errorMessage.SetTo(variantValue.ToString());
+					} else {
+						_SetToAddress(variantValue.ToUInt64());
+						break;
+					}
+				}
+			} else {
+				status_t result = message->FindInt32("result");
+				errorMessage.SetToFormat("Failed to evaluate expression: %s",
+					strerror(result));
+			}
+
+			BAlert* alert = new(std::nothrow) BAlert("Inspect Address",
+				errorMessage.String(), "Close");
+			if (alert != NULL)
+				alert->Go();
+			break;
+		}
+
 		case MSG_NAVIGATE_PREVIOUS_BLOCK:
 		case MSG_NAVIGATE_NEXT_BLOCK:
 		{
@@ -260,17 +299,8 @@ InspectorWindow::MessageReceived(BMessage* message)
 				break;
 			}
 
-			{
-				AutoLocker< ::Team> teamLocker(fTeam);
-				block->RemoveListener(this);
-			}
-
 			if (result == B_OK) {
-				if (fCurrentBlock != NULL)
-					fCurrentBlock->ReleaseReference();
-
-				fCurrentBlock = block;
-				fMemoryView->SetTargetAddress(block, fCurrentAddress);
+				_SetCurrentBlock(block);
 				fPreviousBlockButton->SetEnabled(true);
 				fNextBlockButton->SetEnabled(true);
 			} else {
@@ -309,6 +339,18 @@ InspectorWindow::QuitRequested()
 
 
 void
+InspectorWindow::ThreadStateChanged(const Team::ThreadEvent& event)
+{
+	BMessage message(MSG_THREAD_STATE_CHANGED);
+	BReference< ::Thread> threadReference(event.GetThread());
+	message.AddPointer("thread", threadReference.Get());
+
+	if (PostMessage(&message) == B_OK)
+		threadReference.Detach();
+}
+
+
+void
 InspectorWindow::MemoryBlockRetrieved(TeamMemoryBlock* block)
 {
 	BMessage message(MSG_MEMORY_BLOCK_RETRIEVED);
@@ -339,6 +381,23 @@ InspectorWindow::TargetAddressChanged(target_addr_t address)
 		computedAddress.SetToFormat("0x%" B_PRIx64, address);
 		fAddressInput->SetText(computedAddress.String());
 	}
+}
+
+
+void
+InspectorWindow::ExpressionEvaluated(ExpressionInfo* info, status_t result,
+	ExpressionResult* value)
+{
+	BMessage message(MSG_EXPRESSION_EVALUATED);
+	message.AddInt32("result", result);
+	BReference<ExpressionResult> reference;
+	if (value != NULL) {
+		reference.SetTo(value);
+		message.AddPointer("value", value);
+	}
+
+	if (PostMessage(&message) == B_OK)
+		reference.Detach();
 }
 
 
@@ -429,4 +488,30 @@ InspectorWindow::_SaveMenuFieldMode(BMenuField* field, const char* name,
 	}
 
 	return B_OK;
+}
+
+
+void
+InspectorWindow::_SetToAddress(target_addr_t address)
+{
+	fCurrentAddress = address;
+	if (fCurrentBlock == NULL
+		|| !fCurrentBlock->Contains(address)) {
+		fListener->InspectRequested(address, this);
+	} else
+		fMemoryView->SetTargetAddress(fCurrentBlock, address);
+}
+
+
+void
+InspectorWindow::_SetCurrentBlock(TeamMemoryBlock* block)
+{
+	AutoLocker< ::Team> teamLocker(fTeam);
+	if (fCurrentBlock != NULL) {
+		fCurrentBlock->RemoveListener(this);
+		fCurrentBlock->ReleaseReference();
+	}
+
+	fCurrentBlock = block;
+	fMemoryView->SetTargetAddress(fCurrentBlock, fCurrentAddress);
 }

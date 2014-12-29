@@ -36,9 +36,11 @@ All rights reserved.
 #define TIME_VIEW_H
 
 
-#include <OS.h>
+#include <DateFormat.h>
+#include <DateTimeFormat.h>
 #include <Locale.h>
 #include <Messenger.h>
+#include <OS.h>
 #include <View.h>
 
 

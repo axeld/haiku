@@ -91,6 +91,8 @@ error_description(int error)
 			return "Operation not allowed";
 		case B_BAD_DATA:
 			return "Bad data";
+		case B_DONT_DO_THAT:
+			return "No, really, don't do that";
 
 		// Kernel Kit Errors
 
@@ -127,6 +129,10 @@ error_description(int error)
 			return "Missing library";
 		case B_MISSING_SYMBOL:
 			return "Symbol not found";
+		case B_UNKNOWN_EXECUTABLE:
+			return "Unknown executable format";
+		case B_LEGACY_EXECUTABLE:
+			return "Unsupported legacy executable";
 
 		case B_DEBUGGER_ALREADY_INSTALLED:
 			return "Debugger already installed for this team";
@@ -494,6 +500,8 @@ error_description(int error)
 			return "Operation not supported";
 		case ENOTSOCK:
 			return "Socket operation on non-socket";
+		case EHOSTDOWN:
+			return "Host is down";
 		case EBADMSG:
 			return "Bad message";
 		case ECANCELED:

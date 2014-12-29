@@ -80,18 +80,17 @@ DesktopPoseView::InitDesktopDirentIterator(BPoseView* nodeMonitoringTarget,
 
 	ASSERT(!sourceModel.IsQuery());
 	ASSERT(!sourceModel.IsVirtualDirectory());
-	ASSERT(sourceModel.Node());
-	BDirectory* sourceDirectory
-		= dynamic_cast<BDirectory*>(sourceModel.Node());
+	ASSERT(sourceModel.Node() != NULL);
 
-	ASSERT(sourceDirectory);
+	BDirectory* sourceDirectory = dynamic_cast<BDirectory*>(sourceModel.Node());
+	ThrowOnAssert(sourceDirectory != NULL);
 
 	// build an iterator list, start with boot
 	EntryListBase* perDesktopIterator
 		= new CachedDirectoryEntryList(*sourceDirectory);
 
 	result->AddItem(perDesktopIterator);
-	if (nodeMonitoringTarget) {
+	if (nodeMonitoringTarget != NULL) {
 		TTracker::WatchNode(sourceModel.NodeRef(),
 			B_WATCH_DIRECTORY | B_WATCH_NAME | B_WATCH_STAT | B_WATCH_ATTR,
 			nodeMonitoringTarget);
@@ -99,7 +98,7 @@ DesktopPoseView::InitDesktopDirentIterator(BPoseView* nodeMonitoringTarget,
 
 	if (result->Rewind() != B_OK) {
 		delete result;
-		if (nodeMonitoringTarget)
+		if (nodeMonitoringTarget != NULL)
 			nodeMonitoringTarget->HideBarberPole();
 
 		return NULL;
@@ -200,22 +199,24 @@ DesktopPoseView::ShowVolumes(bool visible, bool showShared)
 void
 DesktopPoseView::StartSettingsWatch()
 {
-	be_app->LockLooper();
-	be_app->StartWatching(this, kShowDisksIconChanged);
-	be_app->StartWatching(this, kVolumesOnDesktopChanged);
-	be_app->StartWatching(this, kDesktopIntegrationChanged);
-	be_app->UnlockLooper();
+	if (be_app->LockLooper()) {
+		be_app->StartWatching(this, kShowDisksIconChanged);
+		be_app->StartWatching(this, kVolumesOnDesktopChanged);
+		be_app->StartWatching(this, kDesktopIntegrationChanged);
+		be_app->UnlockLooper();
+	}
 }
 
 
 void
 DesktopPoseView::StopSettingsWatch()
 {
-	be_app->LockLooper();
-	be_app->StopWatching(this, kShowDisksIconChanged);
-	be_app->StopWatching(this, kVolumesOnDesktopChanged);
-	be_app->StopWatching(this, kDesktopIntegrationChanged);
-	be_app->UnlockLooper();
+	if (be_app->LockLooper()) {
+		be_app->StopWatching(this, kShowDisksIconChanged);
+		be_app->StopWatching(this, kVolumesOnDesktopChanged);
+		be_app->StopWatching(this, kDesktopIntegrationChanged);
+		be_app->UnlockLooper();
+	}
 }
 
 
@@ -223,8 +224,7 @@ void
 DesktopPoseView::AdaptToVolumeChange(BMessage* message)
 {
 	TTracker* tracker = dynamic_cast<TTracker*>(be_app);
-	if (tracker == NULL)
-		return;
+	ThrowOnAssert(tracker != NULL);
 
 	bool showDisksIcon = false;
 	bool mountVolumesOnDesktop = true;

@@ -114,11 +114,15 @@ TrackerSettingsWindow::TrackerSettingsWindow()
 		.End();
 
 	fSettingsTypeListView->AddItem(new SettingsItem(B_TRANSLATE("Desktop"),
-		new DesktopSettingsView()));
+		new DesktopSettingsView()), kDesktopSettings);
 	fSettingsTypeListView->AddItem(new SettingsItem(B_TRANSLATE("Windows"),
-		new WindowsSettingsView()));
+		new WindowsSettingsView()), kWindowsSettings);
 	fSettingsTypeListView->AddItem(new SettingsItem(
-		B_TRANSLATE("Volume icons"), new SpaceBarSettingsView()));
+		B_TRANSLATE("Volume icons"), new SpaceBarSettingsView()),
+		kSpaceBarSettings);
+	fSettingsTypeListView->AddItem(new SettingsItem(
+		B_TRANSLATE("Disk mount"), new AutomountSettingsPanel()),
+		kAutomountSettings);
 
 	// constraint the listview width so that the longest item fits
 	float width = 0;
@@ -198,18 +202,25 @@ TrackerSettingsWindow::Show()
 }
 
 
+void
+TrackerSettingsWindow::ShowPage(SettingsPage page)
+{
+	fSettingsTypeListView->Select(page);
+}
+
+
 SettingsView*
 TrackerSettingsWindow::_ViewAt(int32 i)
 {
 	if (!Lock())
 		return NULL;
 
-	SettingsItem* item = dynamic_cast<SettingsItem*>
-		(fSettingsTypeListView->ItemAt(i));
+	SettingsItem* item = dynamic_cast<SettingsItem*>(
+		fSettingsTypeListView->ItemAt(i));
 
 	Unlock();
 
-	return item->View();
+	return item != NULL ? item->View() : NULL;
 }
 
 
@@ -281,10 +292,8 @@ TrackerSettingsWindow::_HandleChangedSettingsView()
 	if (oldView != NULL)
 		oldView->RemoveSelf();
 
-	SettingsItem* selectedItem =
-		dynamic_cast<SettingsItem*>
-			(fSettingsTypeListView->ItemAt(currentSelection));
-
+	SettingsItem* selectedItem = dynamic_cast<SettingsItem*>(
+		fSettingsTypeListView->ItemAt(currentSelection));
 	if (selectedItem != NULL) {
 		fSettingsContainerBox->SetLabel(selectedItem->Text());
 

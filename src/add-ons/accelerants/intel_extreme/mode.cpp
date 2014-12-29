@@ -73,6 +73,12 @@ struct pll_limits {
 	uint32			max_vco;
 };
 
+struct gpio_map {
+	const char*	name;
+	uint32		pin;
+	uint32		validOn;
+};
+
 
 static void mode_fill_missing_bits(display_mode *, uint32);
 
@@ -184,14 +190,14 @@ get_pll_limits(pll_limits &limits)
 		limits = kLimits;
 	}
 
-	TRACE("PLL limits, min: p %lu (p1 %lu, p2 %lu), n %lu, m %lu "
-		"(m1 %lu, m2 %lu)\n", limits.min.post, limits.min.post1,
-		limits.min.post2, limits.min.n, limits.min.m, limits.min.m1,
-		limits.min.m2);
-	TRACE("PLL limits, max: p %lu (p1 %lu, p2 %lu), n %lu, m %lu "
-		"(m1 %lu, m2 %lu)\n", limits.max.post, limits.max.post1,
-		limits.max.post2, limits.max.n, limits.max.m, limits.max.m1,
-		limits.max.m2);
+	TRACE("PLL limits, min: p %" B_PRIu32 " (p1 %" B_PRIu32 ", p2 %" B_PRIu32
+		"), n %" B_PRIu32 ", m %" B_PRIu32 " (m1 %" B_PRIu32 ", m2 %" B_PRIu32
+		")\n", limits.min.post, limits.min.post1, limits.min.post2,
+		limits.min.n, limits.min.m, limits.min.m1, limits.min.m2);
+	TRACE("PLL limits, max: p %" B_PRIu32 " (p1 %" B_PRIu32 ", p2 %" B_PRIu32
+		"), n %" B_PRIu32 ", m %" B_PRIu32 " (m1 %" B_PRIu32 ", m2 %" B_PRIu32
+		")\n", limits.max.post, limits.max.post1, limits.max.post2,
+		limits.max.n, limits.max.m, limits.max.m1, limits.max.m2);
 }
 
 
@@ -277,8 +283,9 @@ compute_pll_divisors(const display_mode &current, pll_divisors& divisors,
 
 	divisors = bestDivisors;
 
-	TRACE("%s: found: %g MHz, p = %lu (p1 = %lu, p2 = %lu), n = %lu, m = %lu "
-		"(m1 = %lu, m2 = %lu)\n", __func__,
+	TRACE("%s: found: %g MHz, p = %" B_PRIu32 " (p1 = %" B_PRIu32 ", p2 = %"
+		B_PRIu32 "), n = %" B_PRIu32 ", m = %" B_PRIu32 " (m1 = %" B_PRIu32
+		", m2 = %" B_PRIu32 ")\n", __func__,
 		((referenceClock * divisors.m) / divisors.n) / divisors.post,
 		divisors.post, divisors.post1, divisors.post2, divisors.n,
 		divisors.m, divisors.m1, divisors.m2);
@@ -579,78 +586,87 @@ set_frame_buffer_base()
 status_t
 create_mode_list(void)
 {
-	i2c_bus bus;
-	bus.cookie = (void*)(addr_t)INTEL_I2C_IO_A;
-	bus.set_signals = &set_i2c_signals;
-	bus.get_signals = &get_i2c_signals;
-	ddc2_init_timing(&bus);
+	// TODO: We may want to choose different GPIO pin maps
+	// for different generations of cards... not sure
+	const gpio_map gpioPinMap[] = {
+		{"ssc", INTEL_I2C_IO_B, 0},
+		{"vga", INTEL_I2C_IO_A, HEAD_MODE_A_ANALOG},
+		{"lvds", INTEL_I2C_IO_C, HEAD_MODE_LVDS_PANEL},
+		{"dpc", INTEL_I2C_IO_D, 0},
+		{"dpb", INTEL_I2C_IO_E, 0},
+		{"dpd", INTEL_I2C_IO_F, 0},
+	};
 
-	status_t error = ddc2_read_edid1(&bus, &gInfo->edid_info, NULL, NULL);
-	if (error == B_OK) {
+	// TODO: We may want to do extra validation on gpio validOn
+	// vs the HEAD_MODE_ in head_mode
+	for (uint32 i = 0; i < sizeof(gpioPinMap) / sizeof(gpioPinMap[0]); i++) {
+		i2c_bus bus;
+		bus.cookie = (void*)(uintptr_t)gpioPinMap[i].pin;
+		bus.set_signals = &set_i2c_signals;
+		bus.get_signals = &get_i2c_signals;
+		ddc2_init_timing(&bus);
+
+		status_t result = ddc2_read_edid1(&bus, &gInfo->edid_info,
+			NULL, NULL);
+
+		if (result != B_OK)
+			continue;
+
+		TRACE("found edid data on gpio '%s'\n", gpioPinMap[i].name);
+
 		edid_dump(&gInfo->edid_info);
 		gInfo->has_edid = true;
 		if (gInfo->shared_info->single_head_locked)
 			gInfo->head_mode = HEAD_MODE_A_ANALOG;
-	} else {
-		TRACE("getting EDID on port A (analog) failed: %s. "
-			"Trying on port C (lvds)\n", strerror(error));
-		bus.cookie = (void*)INTEL_I2C_IO_C;
-		error = ddc2_read_edid1(&bus, &gInfo->edid_info, NULL, NULL);
-		if (error == B_OK) {
-			edid_dump(&gInfo->edid_info);
-			gInfo->has_edid = true;
-		} else if (gInfo->shared_info->has_vesa_edid_info) {
-			TRACE("getting EDID on port C failed: %s. Use VESA EDID info\n",
-				strerror(error));
-			memcpy(&gInfo->edid_info, &gInfo->shared_info->vesa_edid_info,
-				sizeof(edid1_info));
-			gInfo->has_edid = true;
-		} else {
-			TRACE("getting EDID on port C failed: %s\n",
-				strerror(error));
 
-			// We could not read any EDID info. Fallback to creating a list with
-			// only the mode set up by the BIOS.
-			// TODO: support lower modes via scaling and windowing
-			if (((gInfo->head_mode & HEAD_MODE_LVDS_PANEL) != 0
-					&& (gInfo->head_mode & HEAD_MODE_A_ANALOG) == 0)
-					|| ((gInfo->head_mode & HEAD_MODE_LVDS_PANEL) != 0 
-					&& gInfo->shared_info->got_vbt)) {
-				size_t size = (sizeof(display_mode) + B_PAGE_SIZE - 1)
-					& ~(B_PAGE_SIZE - 1);
+		// TODO: We may want to probe multiple GPIO pins here
+		// someday and store valid ones for multi-head support.
+		// For now, we break on the first valid one.
+		break;
+	}
 
-				display_mode* list;
-				area_id area = create_area("intel extreme modes",
-					(void**)&list, B_ANY_ADDRESS, size, B_NO_LOCK,
-					B_READ_AREA | B_WRITE_AREA);
-				if (area < B_OK)
-					return area;
+	if (!gInfo->has_edid) {
+		// We could not read any EDID info. Fallback to creating a list with
+		// only the mode set up by the BIOS.
+		// TODO: support lower modes via scaling and windowing
+		if (((gInfo->head_mode & HEAD_MODE_LVDS_PANEL) != 0
+				&& (gInfo->head_mode & HEAD_MODE_A_ANALOG) == 0)
+				|| ((gInfo->head_mode & HEAD_MODE_LVDS_PANEL) != 0
+				&& gInfo->shared_info->got_vbt)) {
+			size_t size = (sizeof(display_mode) + B_PAGE_SIZE - 1)
+				& ~(B_PAGE_SIZE - 1);
 
-				// Prefer information dumped directly from VBT, as the BIOS
-				// one may have display scaling, but only do this if the VBT
-				// resolution is higher than the BIOS one.
-				if (gInfo->shared_info->got_vbt
-					&& gInfo->shared_info->current_mode.virtual_width
-						>= gInfo->lvds_panel_mode.virtual_width
-					&& gInfo->shared_info->current_mode.virtual_height
-						>= gInfo->lvds_panel_mode.virtual_height) {
-					memcpy(list, &gInfo->shared_info->current_mode,
-						sizeof(display_mode));
-					mode_fill_missing_bits(list, INTEL_DISPLAY_B_CONTROL);
-				} else {
-					memcpy(list, &gInfo->lvds_panel_mode,
-						sizeof(display_mode));
+			display_mode* list;
+			area_id area = create_area("intel extreme modes",
+				(void**)&list, B_ANY_ADDRESS, size, B_NO_LOCK,
+				B_READ_AREA | B_WRITE_AREA);
+			if (area < B_OK)
+				return area;
 
-					if (gInfo->shared_info->got_vbt)
-						TRACE("intel_extreme: ignoring VBT mode.");
-				}
+			// Prefer information dumped directly from VBT, as the BIOS
+			// one may have display scaling, but only do this if the VBT
+			// resolution is higher than the BIOS one.
+			if (gInfo->shared_info->got_vbt
+				&& gInfo->shared_info->current_mode.virtual_width
+					>= gInfo->lvds_panel_mode.virtual_width
+				&& gInfo->shared_info->current_mode.virtual_height
+					>= gInfo->lvds_panel_mode.virtual_height) {
+				memcpy(list, &gInfo->shared_info->current_mode,
+					sizeof(display_mode));
+				mode_fill_missing_bits(list, INTEL_DISPLAY_B_CONTROL);
+			} else {
+				memcpy(list, &gInfo->lvds_panel_mode,
+					sizeof(display_mode));
 
-				gInfo->mode_list_area = area;
-				gInfo->mode_list = list;
-				gInfo->shared_info->mode_list_area = gInfo->mode_list_area;
-				gInfo->shared_info->mode_count = 1;
-				return B_OK;
+				if (gInfo->shared_info->got_vbt)
+					TRACE("intel_extreme: ignoring VBT mode.");
 			}
+
+			gInfo->mode_list_area = area;
+			gInfo->mode_list = list;
+			gInfo->shared_info->mode_list_area = gInfo->mode_list_area;
+			gInfo->shared_info->mode_count = 1;
+			return B_OK;
 		}
 	}
 

@@ -28,6 +28,7 @@ public:
 	virtual status_t				Pause();
 	virtual status_t				Resume();
 	virtual	status_t				Stop();
+	virtual void					SetTimeout(bigtime_t timeout) {}
 
 	// URL protocol parameters modification
 			status_t				SetUrl(const BUrl& url);
@@ -48,6 +49,7 @@ public:
 
 protected:
 	static	int32					_ThreadEntry(void* arg);
+	virtual	void					_ProtocolSetup() {};
 	virtual	status_t				_ProtocolLoop() = 0;
 	virtual void					_EmitDebug(BUrlProtocolDebugMessage type,
 										const char* format, ...);

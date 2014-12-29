@@ -1,5 +1,5 @@
 /*
- * Copyright 2012, Rene Gollent, rene@gollent.com.
+ * Copyright 2012-2014, Rene Gollent, rene@gollent.com.
  * Copyright 2012, Ingo Weinhold, ingo_weinhold@gmx.de.
  * Distributed under the terms of the MIT License.
  */
@@ -13,6 +13,8 @@
 #include "StackTrace.h"
 #include "UserInterface.h"
 #include "ValueNodeManager.h"
+#include "Variable.h"
+
 
 // NOTE: This is a simple work-around for EditLine not having any kind of user
 // data field. Hence in _GetPrompt() we don't have access to the context object.
@@ -26,11 +28,16 @@ static CliContext* sCurrentContext;
 
 
 struct CliContext::Event : DoublyLinkedListLinkImpl<CliContext::Event> {
-	Event(int type, Thread* thread = NULL, TeamMemoryBlock* block = NULL)
+	Event(int type, Thread* thread = NULL, TeamMemoryBlock* block = NULL,
+		ExpressionInfo* info = NULL, status_t expressionResult = B_OK,
+		ExpressionResult* expressionValue = NULL)
 		:
 		fType(type),
 		fThreadReference(thread),
-		fMemoryBlockReference(block)
+		fMemoryBlockReference(block),
+		fExpressionInfo(info),
+		fExpressionResult(expressionResult),
+		fExpressionValue(expressionValue)
 	{
 	}
 
@@ -49,10 +56,29 @@ struct CliContext::Event : DoublyLinkedListLinkImpl<CliContext::Event> {
 		return fMemoryBlockReference.Get();
 	}
 
+	ExpressionInfo* GetExpressionInfo() const
+	{
+		return fExpressionInfo;
+	}
+
+	status_t GetExpressionResult() const
+	{
+		return fExpressionResult;
+	}
+
+	ExpressionResult* GetExpressionValue() const
+	{
+		return fExpressionValue.Get();
+	}
+
+
 private:
 	int					fType;
 	BReference<Thread>	fThreadReference;
 	BReference<TeamMemoryBlock> fMemoryBlockReference;
+	BReference<ExpressionInfo> fExpressionInfo;
+	status_t			fExpressionResult;
+	BReference<ExpressionResult> fExpressionValue;
 };
 
 
@@ -72,11 +98,15 @@ CliContext::CliContext()
 	fInputLoopWaitingForEvents(0),
 	fEventsOccurred(0),
 	fInputLoopWaiting(false),
+	fInteractive(true),
 	fTerminating(false),
 	fCurrentThread(NULL),
 	fCurrentStackTrace(NULL),
 	fCurrentStackFrameIndex(-1),
-	fCurrentBlock(NULL)
+	fCurrentBlock(NULL),
+	fExpressionInfo(NULL),
+	fExpressionResult(B_OK),
+	fExpressionValue(NULL)
 {
 	sCurrentContext = this;
 }
@@ -128,6 +158,11 @@ CliContext::Init(Team* team, UserInterfaceListener* listener)
 		return B_NO_MEMORY;
 	fNodeManager->AddListener(this);
 
+	fExpressionInfo = new(std::nothrow) ExpressionInfo();
+	if (fExpressionInfo == NULL)
+		return B_NO_MEMORY;
+	fExpressionInfo->AddListener(this);
+
 	return B_OK;
 }
 
@@ -164,6 +199,11 @@ CliContext::Cleanup()
 		fCurrentBlock->ReleaseReference();
 		fCurrentBlock = NULL;
 	}
+
+	if (fExpressionInfo != NULL) {
+		fExpressionInfo->ReleaseReference();
+		fExpressionInfo = NULL;
+	}
 }
 
 
@@ -176,6 +216,13 @@ CliContext::Terminating()
 	_SignalInputLoop(EVENT_QUIT);
 
 	// TODO: Signal the input loop, should it be in PromptUser()!
+}
+
+
+void
+CliContext::SetInteractive(bool interactive)
+{
+	fInteractive = interactive;
 }
 
 
@@ -396,6 +443,23 @@ CliContext::ProcessPendingEvents()
 				}
 				fCurrentBlock = event->GetMemoryBlock();
 				break;
+			case EVENT_EXPRESSION_EVALUATED:
+				fExpressionResult = event->GetExpressionResult();
+				if (fExpressionValue != NULL) {
+					fExpressionValue->ReleaseReference();
+					fExpressionValue = NULL;
+				}
+				fExpressionValue = event->GetExpressionValue();
+				if (fExpressionValue != NULL)
+					fExpressionValue->AcquireReference();
+				break;
+			case EVENT_DEBUG_REPORT_CHANGED:
+				if (!IsInteractive()) {
+					Terminating();
+					QuitSession(true);
+				}
+				break;
+
 		}
 	}
 }
@@ -441,6 +505,28 @@ CliContext::ThreadStackTraceChanged(const Team::ThreadEvent& threadEvent)
 		new(std::nothrow) Event(EVENT_THREAD_STACK_TRACE_CHANGED,
 			threadEvent.GetThread()));
 	_SignalInputLoop(EVENT_THREAD_STACK_TRACE_CHANGED);
+}
+
+
+void
+CliContext::ExpressionEvaluated(ExpressionInfo* info, status_t result,
+	ExpressionResult* value)
+{
+	_QueueEvent(
+		new(std::nothrow) Event(EVENT_EXPRESSION_EVALUATED,
+			NULL, NULL, info, result, value));
+	_SignalInputLoop(EVENT_EXPRESSION_EVALUATED);
+}
+
+
+void
+CliContext::DebugReportChanged(const Team::DebugReportEvent& event)
+{
+	printf("Successfully saved debug report to %s\n",
+		event.GetReportPath());
+
+	_QueueEvent(new(std::nothrow) Event(EVENT_DEBUG_REPORT_CHANGED));
+	_SignalInputLoop(EVENT_DEBUG_REPORT_CHANGED);
 }
 
 

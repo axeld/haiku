@@ -26,8 +26,7 @@ BUrlProtocolAsynchronousListener::BUrlProtocolAsynchronousListener(
 	if (be_app->Lock()) {
 		be_app->AddHandler(this);
 		be_app->Unlock();
-	}
-	else
+	} else
 		PRINT(("Cannot lock be_app\n"));
 
 	if (transparent) {
@@ -140,6 +139,20 @@ BUrlProtocolAsynchronousListener::MessageReceived(BMessage* message)
 				message->FindBool("url:success", &success);
 
 				RequestCompleted(caller, success);
+			}
+			break;
+
+		case B_URL_PROTOCOL_CERTIFICATE_VERIFICATION_FAILED:
+			{
+				const char* error = message->FindString("url:error");
+				BCertificate* certificate;
+				message->FindPointer("url:certificate", (void**)&certificate);
+				bool result = CertificateVerificationFailed(caller,
+					*certificate, error);
+
+				BMessage reply;
+				reply.AddBool("url:continue", result);
+				message->SendReply(&reply);
 			}
 			break;
 

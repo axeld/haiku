@@ -17,6 +17,54 @@ Stack *gUSBStack = NULL;
 
 
 #ifdef HAIKU_TARGET_PLATFORM_HAIKU
+/*!	The function is an evil hack to allow <tt> <kdebug>usb_keyboard </tt> to
+	execute transfers.
+	When invoked the first time, a new transfer is started, each time the
+	function is called afterwards, it is checked whether the transfer is already
+	completed. If called with argv[1] == "cancel" the function cancels a
+	possibly pending transfer.
+*/
+static status_t
+debug_run_transfer(Pipe *pipe, uint8 *data, size_t dataLength,
+	usb_request_data *requestData, bool cancel)
+{
+	static uint8 transferBuffer[sizeof(Transfer)]
+		__attribute__((aligned(16)));
+	static Transfer *transfer = NULL;
+
+	BusManager *bus = pipe->GetBusManager();
+
+	if (cancel) {
+		if (transfer != NULL) {
+			bus->CancelDebugTransfer(transfer);
+			transfer = NULL;
+		}
+
+		return B_OK;
+	}
+
+	if (transfer != NULL) {
+		status_t error = bus->CheckDebugTransfer(transfer);
+		if (error != B_DEV_PENDING)
+			transfer = NULL;
+
+		return error;
+	}
+
+	transfer = new(transferBuffer) Transfer(pipe);
+	transfer->SetData(data, dataLength);
+	transfer->SetRequestData(requestData);
+
+	status_t error = bus->StartDebugTransfer(transfer);
+	if (error != B_OK) {
+		transfer = NULL;
+		return error;
+	}
+
+	return B_DEV_PENDING;
+}
+
+
 static int
 debug_get_pipe_for_id(int argc, char **argv)
 {
@@ -31,12 +79,63 @@ debug_get_pipe_for_id(int argc, char **argv)
 	if (!object || (object->Type() & USB_OBJECT_PIPE) == 0)
 		return 3;
 
-	// check if we support debug transfers for this pipe (only on UHCI for now)
-	if (object->GetBusManager()->TypeName()[0] != 'u')
-		return 4;
-
 	set_debug_variable("_usbPipe", (uint64)object);
 	return 0;
+}
+
+
+static int
+debug_process_transfer(int argc, char **argv)
+{
+	Pipe *pipe = (Pipe *)get_debug_variable("_usbPipe", 0);
+	if (pipe == NULL)
+		return B_BAD_VALUE;
+
+	uint8 *data = (uint8 *)get_debug_variable("_usbTransferData", 0);
+	size_t length = (size_t)get_debug_variable("_usbTransferLength", 0);
+	usb_request_data *requestData
+		= (usb_request_data *)get_debug_variable("_usbRequestData", 0);
+
+	return debug_run_transfer(pipe, data, length, requestData,
+		argc > 1 && strcmp(argv[1], "cancel") == 0);
+}
+
+
+static int
+debug_clear_stall(int argc, char *argv[])
+{
+	Pipe *pipe = (Pipe *)get_debug_variable("_usbPipe", 0);
+	if (pipe == NULL)
+		return B_BAD_VALUE;
+
+	static usb_request_data requestData;
+
+	requestData.RequestType = USB_REQTYPE_STANDARD | USB_REQTYPE_ENDPOINT_OUT;
+	requestData.Request = USB_REQUEST_CLEAR_FEATURE;
+	requestData.Value = USB_FEATURE_ENDPOINT_HALT;
+	requestData.Index = pipe->EndpointAddress()
+		| (pipe->Direction() == Pipe::In ? USB_ENDPOINT_ADDR_DIR_IN
+			: USB_ENDPOINT_ADDR_DIR_OUT);
+	requestData.Length = 0;
+
+	Pipe *parentPipe = ((Device *)pipe->Parent())->DefaultPipe();
+	for (int tries = 0; tries < 100; tries++) {
+		status_t result
+			= debug_run_transfer(parentPipe, NULL, 0, &requestData, false);
+
+		if (result == B_DEV_PENDING)
+			continue;
+
+		if (result == B_OK) {
+			// clearing a stalled condition resets the data toggle
+			pipe->SetDataToggle(false);
+			return B_OK;
+		}
+
+		return result;
+	}
+
+	return B_TIMED_OUT;
 }
 #endif
 
@@ -87,7 +186,15 @@ bus_std_ops(int32 op, ...)
 #ifdef HAIKU_TARGET_PLATFORM_HAIKU
 			add_debugger_command("get_usb_pipe_for_id",
 				&debug_get_pipe_for_id,
-				"Gets the config for a USB pipe");
+				"Sets _usbPipe by resolving _usbPipeID");
+			add_debugger_command("usb_process_transfer",
+				&debug_process_transfer,
+				"Transfers _usbTransferData with _usbTransferLength"
+				" (and/or _usbRequestData) to pipe _usbPipe");
+			add_debugger_command("usb_clear_stall",
+				&debug_clear_stall,
+				"Tries to issue a clear feature request for the endpoint halt"
+				" feature on pipe _usbPipe");
 #elif HAIKU_TARGET_PLATFORM_BEOS
 			// Plain R5 workaround, see comment above.
 			shared = create_area("shared usb stack", &address,

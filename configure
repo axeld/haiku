@@ -110,6 +110,7 @@ options:
                               less likely).
 
 environment variables:
+  CC                          The host compiler. Defaults to "gcc".
   HAIKU_AR_x86_gcc2           The static library archiver for x86_gcc2.
                               Defaults to "ar".
   HAIKU_CC_x86_gcc2           The x86_gcc2 compiler. Defaults to "gcc".
@@ -247,8 +248,6 @@ standard_gcc_settings()
 	local gccRawVersion=`$gcc -dumpversion`
 	local gccMachine=`$gcc -dumpmachine`
 
-	local libgcc=${gccdir}/libgcc.a
-
 	# determine architecture from machine triple
 	case $gccMachine in
 		arm-*)		targetCpu=arm;;
@@ -263,75 +262,8 @@ standard_gcc_settings()
 	esac
 
 	local targetArch=$targetCpu
-	local staticLibStdCxx
-	local sharedLibStdCxx
-	local staticLibSupCxx
-	local sharedLibSupCxx
-	local kernelLibgcc
-	local cxxHeaders
 
 	case $gccRawVersion in
-		4.*)
-			# for gcc 4 we use the libstdc++ and libsupc++ that come with the
-			# compiler
-			staticLibStdCxx=`$gcc -print-file-name=libstdc++.a`
-			sharedLibStdCxx=`$gcc -print-file-name=libstdc++.so`
-			staticLibSupCxx=`$gcc -print-file-name=libsupc++.a`
-			sharedLibSupCxx=`$gcc -print-file-name=libsupc++.so`
-
-			# If the architecture has separate runtime libraries for the
-			# kernel, use them.
-			kernelLibgcc=`$gcc -print-file-name=libgcc-kernel.a`
-			if [ $kernelLibgcc = libgcc-kernel.a ]; then
-				kernelLibgcc=$libgcc
-			fi
-			kernelLibSupCxx=`$gcc -print-file-name=libsupc++-kernel.a`
-			if [ $kernelLibSupCxx = libsupc++-kernel.a ]; then
-				kernelLibSupCxx=$staticLibSupCxx
-			fi
-
-			local headersBase=$gccdir/../../../..
-			local headers=$headersBase/$gccMachine/include/c++/$gccRawVersion
-			if [ ! -d $headers ]; then
-				headers=$headersBase/include/c++/$gccRawVersion
-			fi
-
-			cxxHeaders=$headers
-			for d in $gccMachine backward ext; do
-				# Note: We need the line break, otherwise the line might become
-				# too long for jam (512 bytes max).
-				cxxHeaders="$cxxHeaders $headers/$d"
-			done
-
-			# Unset the HAIKU_{SHARED,STATIC}_LIB{STD,SUP}CXX variables, if the
-			# compiler didn't give us actual file names. Otherwise resolve
-			# symlinks to avoid problems when copying the libraries to the
-			# image.
-
-			if [ $staticLibStdCxx = libstdc++.a ]; then
-				staticLibStdCxx=
-			else
-				staticLibStdCxx=`$readlink $staticLibStdCxx`
-			fi
-
-			if [ $sharedLibStdCxx = libstdc++.so ]; then
-				sharedLibStdCxx=
-			else
-				sharedLibStdCxx=`$readlink $sharedLibStdCxx`
-			fi
-
-			if [ $staticLibSupCxx = libsupc++.a ]; then
-				staticLibSupCxx=
-			else
-				staticLibSupCxx=`$readlink $staticLibSupCxx`
-			fi
-
-			if [ $sharedLibSupCxx = libsupc++.so ]; then
-				sharedLibSupCxx=
-			else
-				sharedLibSupCxx=`$readlink $sharedLibSupCxx`
-			fi
-			;;
 		2.9*)
 			# check for correct (most up-to-date) legacy compiler and complain
 			# if an older one is installed
@@ -341,8 +273,6 @@ standard_gcc_settings()
 				exit 1;
 			fi
 
-			kernelLibgcc=$libgcc
-			kernelLibSupCxx=
 			targetArch=x86_gcc2
 			;;
 	esac
@@ -353,7 +283,7 @@ standard_gcc_settings()
 	case $gccMachine in
 		x86_64-*)
 			# Boot loader is 32-bit, need the 32-bit libs and c++ config
-			bootLibgcc=`$gcc -m32 -print-libgcc-file-name`
+			bootLibgcc=`$gcc -m32 -print-file-name=libgcc.a`
 			bootLibSupCxx=`$gcc -m32 -print-file-name=libsupc++.a`
 
 			local headersBase=$gccdir/../../../..
@@ -362,10 +292,6 @@ standard_gcc_settings()
 				headers=$headersBase/include/c++/$gccRawVersion
 			fi
 			bootCxxHeaders="$headers/$gccMachine/32"
-			;;
-		*)
-			bootLibgcc=$libgcc
-			bootLibSupCxx=$staticLibSupCxx
 			;;
 	esac
 
@@ -399,20 +325,9 @@ standard_gcc_settings()
 	set_variable HAIKU_GCC_RAW_VERSION_$targetArch $gccRawVersion
 	set_variable HAIKU_GCC_MACHINE_$targetArch $gccMachine
 	set_variable HAIKU_GCC_LIB_DIR_$targetArch $gccdir
-	set_variable HAIKU_GCC_LIBGCC_$targetArch $libgcc
-	set_variable HAIKU_GCC_GLUE_CODE_$targetArch "crtbegin.o crtend.o"
-	set_variable HAIKU_GCC_HEADERS_DIR_$targetArch \
-		"${gccdir}/include ${gccdir}/include-fixed"
-	set_variable HAIKU_STATIC_LIBSTDCXX_$targetArch "$staticLibStdCxx"
-	set_variable HAIKU_SHARED_LIBSTDCXX_$targetArch "$sharedLibStdCxx"
-	set_variable HAIKU_STATIC_LIBSUPCXX_$targetArch "$staticLibSupCxx"
-	set_variable HAIKU_SHARED_LIBSUPCXX_$targetArch "$sharedLibSupCxx"
-	set_variable HAIKU_KERNEL_LIBSUPCXX_$targetArch "$kernelLibSupCxx"
-	set_variable HAIKU_BOOT_LIBSUPCXX_$targetArch "$bootLibSupCxx"
-	set_variable HAIKU_KERNEL_LIBGCC_$targetArch $kernelLibgcc
-	set_variable HAIKU_CXX_HEADERS_DIR_$targetArch "$cxxHeaders"
-	set_variable HAIKU_BOOT_LIBGCC_$targetArch $bootLibgcc
 	set_variable HAIKU_BOOT_CXX_HEADERS_DIR_$targetArch "$bootCxxHeaders"
+	set_variable HAIKU_BOOT_LIBSUPCXX_$targetArch "$bootLibSupCxx"
+	set_variable HAIKU_BOOT_LIBGCC_$targetArch $bootLibgcc
 	set_variable HAIKU_USE_GCC_GRAPHITE_$targetArch $useGraphite
 
 	standard_gcc_settings_targetArch=$targetArch
@@ -481,6 +396,12 @@ is_in_list()
 	return 1
 }
 
+# check for --help or -h and show usage immediately
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+	usage; exit 0;
+fi
+
+
 # get cwd and the source directory
 currentDir=`pwd`
 cd `dirname "$0"`
@@ -503,10 +424,14 @@ useGccGraphiteDefault=0
 unknownArchIndex=1
 haikuTargetArchs=
 
+if [ -z "$CC" ]; then
+	CC=gcc
+fi
+
 # exported (BuildSetup) default parameter values
 #
-HOST_GCC_RAW_VERSION=`gcc -dumpversion`
-HOST_GCC_MACHINE=`gcc -dumpmachine`
+HOST_GCC_RAW_VERSION=`$CC -dumpversion`
+HOST_GCC_MACHINE=`$CC -dumpmachine`
 HAIKU_INCLUDE_GPL_ADDONS=0
 HAIKU_INCLUDE_PATENTED_CODE=0
 HAIKU_INCLUDE_SOURCES=0
@@ -520,14 +445,13 @@ HAIKU_HOST_USE_XATTR=0
 HAIKU_HOST_USE_XATTR_REF=0
 HAIKU_HOST_BUILD_ONLY=0
 HOST_EXTENDED_REGEX_SED="sed -r"
-HOST_GCC_LD=`gcc -print-prog-name=ld`
-HOST_GCC_OBJCOPY=`gcc -print-prog-name=objcopy`
-SFDISK_BINARY=sfdisk
-HOST_SFDISK=$SFDISK_BINARY
+HOST_GCC_LD=`$CC -print-prog-name=ld`
+HOST_GCC_OBJCOPY=`$CC -print-prog-name=objcopy`
 HOST_SHA256=
 HOST_HAIKU_PORTER=
 HAIKU_PORTS=
 HAIKU_PORTS_CROSS=
+HAIKU_IS_BOOTSTRAP=0
 HAIKU_BOOT_BOARD=
 HAIKU_NO_DOWNLOADS=0
 
@@ -546,7 +470,7 @@ else
 	exit 1
 fi
 
-haikuRequiredLegacyGCCVersion="2.95.3-haiku-2013_08_15"
+haikuRequiredLegacyGCCVersion="2.95.3-haiku-2014_07_26"
 export haikuRequiredLegacyGCCVersion
 	# version of legacy gcc required to build haiku
 supportedTargetArchs="
@@ -601,6 +525,8 @@ while [ $# -gt 0 ] ; do
 			HOST_HAIKU_PORTER="`absolute_path $2`"
 			HAIKU_PORTS_CROSS="`absolute_path $3`"
 			HAIKU_PORTS="`absolute_path $4`"
+			HAIKU_IS_BOOTSTRAP=1
+			HAIKU_NO_DOWNLOADS=1
 			check_file_exists "$HOST_HAIKU_PORTER" || (
 				echo "Invalid path to haikuporter: $HOST_HAIKU_PORTER" >&2
 				exit 1
@@ -665,7 +591,6 @@ while [ $# -gt 0 ] ; do
 			shift 2
 			;;
 		--enable-multiuser)	HAIKU_ENABLE_MULTIUSER=1; shift 1;;
-		--help | -h)	usage; exit 0;;
 		--host-only)	HAIKU_HOST_BUILD_ONLY=1; shift 1;;
 		--include-gpl-addons)	HAIKU_INCLUDE_GPL_ADDONS=1; shift 1;;
 		--include-patented-code)	HAIKU_INCLUDE_PATENTED_CODE=1; shift 1;;
@@ -711,7 +636,6 @@ done
 case "${platform}" in
 	Darwin)	HOST_PLATFORM=darwin ;;
 	FreeBSD)	HOST_PLATFORM=freebsd
-				SFDISK_BINARY=sfdisk-linux
 				if [ "$HAIKU_HOST_USE_32BIT" = 1 ] ; then
 					echo Unsupported platform: FreeBSD ${platformMachine}
 					exit 1
@@ -724,13 +648,6 @@ case "${platform}" in
 	*)		echo Unsupported platform: ${platform}
 			exit 1 ;;
 esac
-
-# check common locations for sfdisk
-for sfdiskDir in /sbin /usr/sbin /usr/local/sbin ; do
-	if [ -e ${sfdiskDir}/${SFDISK_BINARY} ]; then
-		HOST_SFDISK=${sfdiskDir}/${SFDISK_BINARY}
-	fi
-done
 
 # check for case-sensitive filesystem
 mkdir haikuCaseTest 2>/dev/null
@@ -749,6 +666,18 @@ fi
 # determine how to invoke sed with extended regexp support for non-GNU sed
 if [ $HOST_PLATFORM = "darwin" ]; then
 	HOST_EXTENDED_REGEX_SED="sed -E"
+fi
+
+# check if nasm can actually output ELF files
+# (the stock version in OSX can't)
+# XXX: should probably only test for x86* arch
+if [ "$("$HAIKU_NASM" -hf | grep -c elf'[36][24] ')" -ne "2" ]; then
+	echo "$HAIKU_NASM cannot generate ELF files. Please install a working version."
+	if [ $HOST_PLATFORM = "darwin" ]; then
+		echo "You can install it from Mac Ports."
+		echo "Mac Ports is available at: http://www.macports.org/"
+	fi
+	exit 1
 fi
 
 # create output directory
@@ -776,6 +705,7 @@ else
 			echo "Please specify the build tools to use or build (via" \
 				"--cross-tools-prefix or --build-cross-tools) or specify a" \
 				"host-only build (--host-only)." >&2
+			echo "For more info, invoke $0 --help"
 			exit 1
 		fi
 
@@ -897,15 +827,6 @@ else
 			esac
 		fi
 
-		# Get the libgcc objects. We couldn't do that in standard_gcc_settings,
-		# since we need "ar", which may be set later.
-		ar=`get_variable HAIKU_AR_$targetArch`
-		libgcc=`get_variable HAIKU_GCC_LIBGCC_$targetArch`
-		set_variable HAIKU_GCC_LIBGCC_OBJECTS_$targetArch \
-			"`$ar t $libgcc | grep -v eabi.o`"
-			# Note: We filter out eabi.o. It's present in gcc's libgcc for PPC
-			# and neither needed nor wanted.
-
 		# check whether the Haiku compiler really targets Haiku
 		targetMachine=`get_variable HAIKU_GCC_MACHINE_$targetArch`
 		case "$targetMachine" in
@@ -959,12 +880,12 @@ HOST_GCC_RAW_VERSION		?= ${HOST_GCC_RAW_VERSION} ;
 HOST_GCC_MACHINE			?= ${HOST_GCC_MACHINE} ;
 HOST_LD						?= ${HOST_GCC_LD} ;
 HOST_OBJCOPY				?= ${HOST_GCC_OBJCOPY} ;
-HOST_SFDISK					?= ${HOST_SFDISK} ;
 HOST_SHA256					?= ${HOST_SHA256} ;
 
 HOST_HAIKU_PORTER			?= ${HOST_HAIKU_PORTER} ;
 HAIKU_PORTS					?= ${HAIKU_PORTS} ;
 HAIKU_PORTS_CROSS			?= ${HAIKU_PORTS_CROSS} ;
+HAIKU_IS_BOOTSTRAP			?= ${HAIKU_IS_BOOTSTRAP} ;
 
 EOF
 
@@ -973,14 +894,7 @@ for targetArch in $HAIKU_PACKAGING_ARCHS; do
 		HAIKU_GCC_RAW_VERSION		HAIKU_GCC_RAW_VERSION
 		HAIKU_GCC_MACHINE			HAIKU_GCC_MACHINE
 		HAIKU_GCC_LIB_DIR			HAIKU_GCC_LIB_DIR
-		HAIKU_GCC_LIBGCC			HAIKU_GCC_LIBGCC
 		HAIKU_CPU					HAIKU_CPU
-		HAIKU_STATIC_LIBSTDC++		HAIKU_STATIC_LIBSTDCXX
-		HAIKU_SHARED_LIBSTDC++		HAIKU_SHARED_LIBSTDCXX
-		HAIKU_STATIC_LIBSUPC++		HAIKU_STATIC_LIBSUPCXX
-		HAIKU_SHARED_LIBSUPC++		HAIKU_SHARED_LIBSUPCXX
-		HAIKU_KERNEL_LIBGCC			HAIKU_KERNEL_LIBGCC
-		HAIKU_KERNEL_LIBSUPC++		HAIKU_KERNEL_LIBSUPCXX
 		HAIKU_BOOT_LIBGCC			HAIKU_BOOT_LIBGCC
 		HAIKU_BOOT_LIBSUPC++		HAIKU_BOOT_LIBSUPCXX
 		HAIKU_AR					HAIKU_AR
@@ -1009,10 +923,7 @@ for targetArch in $HAIKU_PACKAGING_ARCHS; do
 	# For variables that may have long values, distribute them over multiple
 	# lines so that jam doesn't hit the maximum line length.
 	variables="
-		HAIKU_GCC_HEADERS_DIR		HAIKU_GCC_HEADERS_DIR
-		HAIKU_C++_HEADERS_DIR		HAIKU_CXX_HEADERS_DIR
 		HAIKU_BOOT_C++_HEADERS_DIR	HAIKU_BOOT_CXX_HEADERS_DIR
-		HAIKU_GCC_LIBGCC_OBJECTS	HAIKU_GCC_LIBGCC_OBJECTS
 		"
 	set -- $variables
 	while [ $# -ge 2 ]; do

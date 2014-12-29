@@ -16,6 +16,7 @@ class BBitmap;
 class BCatalog;
 class BCollator;
 class BCountry;
+class BDateFormat;
 class BFormattingConventions;
 class BLanguage;
 class BLocale;

@@ -74,6 +74,7 @@ enum {
 	kModelSupportsFile
 };
 
+
 class Model {
 public:
 	Model();
@@ -167,7 +168,7 @@ public:
 
 	// Node monitor update call
 	void UpdateEntryRef(const node_ref* dirRef, const char* name);
-	bool AttrChanged(const char*);
+	bool AttrChanged(const char* attrName);
 		// returns true if pose needs to update it's icon, etc.
 		// pass null to force full update
 	bool StatChanged();
@@ -482,9 +483,10 @@ Model::HasLocalizedName() const
 inline
 ModelNodeLazyOpener::ModelNodeLazyOpener(Model* model, bool writable,
 	bool openLater)
-	:	fModel(model),
-		fWasOpen(model->IsNodeOpen()),
-		fWasOpenForWriting(model->IsNodeOpenForWriting())
+	:
+	fModel(model),
+	fWasOpen(model->IsNodeOpen()),
+	fWasOpenForWriting(model->IsNodeOpenForWriting())
 {
 	if (!openLater)
 		OpenNode(writable);

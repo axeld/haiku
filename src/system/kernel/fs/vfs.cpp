@@ -1,6 +1,6 @@
 /*
  * Copyright 2005-2013, Ingo Weinhold, ingo_weinhold@gmx.de.
- * Copyright 2002-2011, Axel Dörfler, axeld@pinc-software.de.
+ * Copyright 2002-2014, Axel Dörfler, axeld@pinc-software.de.
  * Distributed under the terms of the MIT License.
  *
  * Copyright 2001-2002, Travis Geiselbrecht. All rights reserved.
@@ -882,7 +882,7 @@ lookup_vnode(dev_t mountID, ino_t vnodeID)
 	If the node already exists, it is returned instead and no new node is
 	created. In either case -- but not, if an error occurs -- the function write
 	locks \c sVnodeLock and keeps it locked for the caller when returning. On
-	error the lock is not not held on return.
+	error the lock is not held on return.
 
 	\param mountID The mount ID.
 	\param vnodeID The vnode ID.
@@ -3591,6 +3591,23 @@ common_file_io_vec_pages(struct vnode* vnode, void* cookie,
 }
 
 
+static bool
+is_user_in_group(gid_t gid)
+{
+	if (gid == getegid())
+		return true;
+
+	gid_t groups[NGROUPS_MAX];
+	int groupCount = getgroups(NGROUPS_MAX, groups);
+	for (int i = 0; i < groupCount; i++) {
+		if (gid == groups[i])
+			return true;
+	}
+
+	return false;
+}
+
+
 //	#pragma mark - public API for file systems
 
 
@@ -3873,6 +3890,42 @@ volume_for_vnode(fs_vnode* _vnode)
 
 	struct vnode* vnode = static_cast<struct vnode*>(_vnode);
 	return vnode->mount->volume;
+}
+
+
+extern "C" status_t
+check_access_permissions(int accessMode, mode_t mode, gid_t nodeGroupID,
+	uid_t nodeUserID)
+{
+	// get node permissions
+	int userPermissions = (mode & S_IRWXU) >> 6;
+	int groupPermissions = (mode & S_IRWXG) >> 3;
+	int otherPermissions = mode & S_IRWXO;
+
+	// get the node permissions for this uid/gid
+	int permissions = 0;
+	uid_t uid = geteuid();
+
+	if (uid == 0) {
+		// user is root
+		// root has always read/write permission, but at least one of the
+		// X bits must be set for execute permission
+		permissions = userPermissions | groupPermissions | otherPermissions
+			| S_IROTH | S_IWOTH;
+		if (S_ISDIR(mode))
+			permissions |= S_IXOTH;
+	} else if (uid == nodeUserID) {
+		// user is node owner
+		permissions = userPermissions;
+	} else if (is_user_in_group(nodeGroupID)) {
+		// user is in owning group
+		permissions = groupPermissions;
+	} else {
+		// user is one of the others
+		permissions = otherPermissions;
+	}
+
+	return (accessMode & ~permissions) == 0 ? B_OK : B_PERMISSION_DENIED;
 }
 
 
@@ -4888,23 +4941,23 @@ vfs_put_io_context(io_context* context)
 }
 
 
-static status_t
-vfs_resize_fd_table(struct io_context* context, const int newSize)
+status_t
+vfs_resize_fd_table(struct io_context* context, uint32 newSize)
 {
-	if (newSize <= 0 || newSize > MAX_FD_TABLE_SIZE)
+	if (newSize == 0 || newSize > MAX_FD_TABLE_SIZE)
 		return B_BAD_VALUE;
 
 	TIOC(ResizeIOContext(context, newSize));
 
 	MutexLocker _(context->io_mutex);
 
-	int oldSize = context->table_size;
+	uint32 oldSize = context->table_size;
 	int oldCloseOnExitBitmapSize = (oldSize + 7) / 8;
 	int newCloseOnExitBitmapSize = (newSize + 7) / 8;
 
 	// If the tables shrink, make sure none of the fds being dropped are in use.
 	if (newSize < oldSize) {
-		for (int i = oldSize; i-- > newSize;) {
+		for (uint32 i = oldSize; i-- > newSize;) {
 			if (context->fds[i])
 				return B_BUSY;
 		}
@@ -4929,7 +4982,7 @@ vfs_resize_fd_table(struct io_context* context, const int newSize)
 	context->table_size = newSize;
 
 	// copy entries from old tables
-	int toCopy = min_c(oldSize, newSize);
+	uint32 toCopy = min_c(oldSize, newSize);
 
 	memcpy(context->fds, oldFDs, sizeof(void*) * toCopy);
 	memcpy(context->select_infos, oldSelectInfos, sizeof(void*) * toCopy);
@@ -5529,6 +5582,7 @@ file_seek(struct file_descriptor* descriptor, off_t pos, int seekType)
 {
 	struct vnode* vnode = descriptor->u.vnode;
 	off_t offset;
+	bool isDevice = false;
 
 	FUNCTION(("file_seek(pos = %" B_PRIdOFF ", seekType = %d)\n", pos,
 		seekType));
@@ -5539,13 +5593,16 @@ file_seek(struct file_descriptor* descriptor, off_t pos, int seekType)
 		case S_IFSOCK:
 			return ESPIPE;
 
+		// drivers publish block devices as chr, so pick both
+		case S_IFBLK:
+		case S_IFCHR:
+			isDevice = true;
+			break;
 		// The Open Group Base Specs don't mention any file types besides pipes,
 		// fifos, and sockets specially, so we allow seeking them.
 		case S_IFREG:
-		case S_IFBLK:
 		case S_IFDIR:
 		case S_IFLNK:
-		case S_IFCHR:
 			break;
 	}
 
@@ -5568,6 +5625,22 @@ file_seek(struct file_descriptor* descriptor, off_t pos, int seekType)
 				return status;
 
 			offset = stat.st_size;
+
+			if (offset == 0 && isDevice) {
+				// stat() on regular drivers doesn't report size
+				device_geometry geometry;
+
+				if (HAS_FS_CALL(vnode, ioctl)) {
+					status = FS_CALL(vnode, ioctl, descriptor->cookie,
+						B_GET_GEOMETRY, &geometry, sizeof(geometry));
+					if (status == B_OK)
+						offset = (off_t)geometry.bytes_per_sector
+							* geometry.sectors_per_track
+							* geometry.cylinder_count
+							* geometry.head_count;
+				}
+			}
+
 			break;
 		}
 		default:
@@ -7881,6 +7954,13 @@ set_cwd(int fd, char* path, bool kernel)
 		// nope, can't cwd to here
 		status = B_NOT_A_DIRECTORY;
 		goto err;
+	}
+
+	// We need to have the permission to enter the directory, too
+	if (HAS_FS_CALL(vnode, access)) {
+		status = FS_CALL(vnode, access, X_OK);
+		if (status != B_OK)
+			goto err;
 	}
 
 	// Get current io context and lock

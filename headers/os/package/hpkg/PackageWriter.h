@@ -11,10 +11,12 @@
 #include <package/hpkg/ErrorOutput.h>
 
 
+class BPositionIO;
+
+
 namespace BPackageKit {
 
 namespace BHPKG {
-
 
 namespace BPrivate {
 	class PackageWriterImpl;
@@ -49,11 +51,15 @@ public:
 			uint32				Flags() const;
 			void				SetFlags(uint32 flags);
 
+			uint32				Compression() const;
+			void				SetCompression(uint32 compression);
+
 			int32				CompressionLevel() const;
 			void				SetCompressionLevel(int32 compressionLevel);
 
 private:
 			uint32				fFlags;
+			uint32				fCompression;
 			int32				fCompressionLevel;
 };
 
@@ -67,10 +73,16 @@ public:
 			status_t			Init(const char* fileName,
 									const BPackageWriterParameters* parameters
 										= NULL);
+			status_t			Init(BPositionIO* file, bool keepFile,
+									const BPackageWriterParameters* parameters
+										= NULL);
 			status_t			SetInstallPath(const char* installPath);
 			void				SetCheckLicenses(bool checkLicenses);
 			status_t			AddEntry(const char* fileName, int fd = -1);
 			status_t			Finish();
+
+			status_t			Recompress(BPositionIO* inputFile);
+									// to be called after Init(); no Finish()
 
 private:
 			PackageWriterImpl*	fImpl;

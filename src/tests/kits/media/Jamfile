@@ -1,11 +1,5 @@
 SubDir HAIKU_TOP src tests kits media ;
 
-SimpleTest AreaTest : AreaTest.cpp : be $(TARGET_LIBSUPC++) ;
-
-SimpleTest BufferTest : BufferTest.cpp : libmedia.so be $(TARGET_LIBSUPC++) ;
-
-SimpleTest SizeofTest : SizeofTest.cpp : be ;
-
 SimpleTest TimedEventQueueTest : TimedEventQueueTest.cpp
 	: libmedia.so be ;
 
@@ -13,11 +7,20 @@ SimpleTest mediaFormats :
 	mediaFormats.cpp
 	: media ;
 
-SimpleTest mediaDescriptions :
-	mediaDescriptions.cpp
-	: media ;
+UnitTestLib libmediatest.so :
+	MediaKitTestAddon.cpp
+
+	AreaTest.cpp
+	BufferTest.cpp
+	FormatDescriptions.cpp
+	SizeofTest.cpp
+
+	: be media [ TargetLibstdc++ ] [ TargetLibsupc++ ]
+;
 
 SubInclude HAIKU_TOP src tests kits media media_decoder ;
+SubInclude HAIKU_TOP src tests kits media mpeg2_decoder_test ;
+SubInclude HAIKU_TOP src tests kits media mp3_decoder_test ;
 SubInclude HAIKU_TOP src tests kits media notificationtest ;
 SubInclude HAIKU_TOP src tests kits media nodetest ;
 SubInclude HAIKU_TOP src tests kits media playwav ;

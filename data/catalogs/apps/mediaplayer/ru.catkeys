@@ -1,4 +1,4 @@
-1	russian	x-vnd.Haiku-MediaPlayer	2969013755
+1	russian	x-vnd.Haiku-MediaPlayer	2175336122
 raw audio	MediaPlayer-InfoWin		raw аудио
 Location	MediaPlayer-InfoWin		Путь
 1.85 : 1 (American)	MediaPlayer-Main		1.85 : 1 (Американский)
@@ -21,15 +21,16 @@ Close	MediaPlayer-Main		Закрыть
 Display Mode	MediaPlayer-InfoWin		Режим показа
 Some files could not be moved into Trash.	MediaPlayer-RemovePLItemsCmd		Некоторые файлы не могут быть перемещены в Корзину.
 <unknown>	MediaPlayer-InfoWin		<неизвестно>
+Seek	MediaPlayer-Main		Поиск
 Open	MediaPlayer-Main		Открыть
 Next	MediaPlayer-Main		Следующий
 OK	MediaPlayer-SettingsWindow		ОК
 Track %d	MediaPlayer-Main		Дорожка %d
+Gets/sets the current playing position in microseconds.	MediaPlayer-Main		Получает/устанавливает текущую позицию воспроизведения в микросекундах.
 2.35 : 1 (Cinemascope)	MediaPlayer-Main		2.35 : 1 (Синемаскоп)
 Display mode	MediaPlayer-InfoWin		Режим показа
 Medium	MediaPlayer-SettingsWindow		cредний
 Close	MediaPlayer-PlaylistWindow		Закрыть
-Stereo	MediaPlayer-InfoWin		Стерео
 Open…	MediaPlayer-PlaylistWindow		Открыть…
 Toggle mute.	MediaPlayer-Main		Включить/выключить звук.
 Undo	MediaPlayer-PlaylistWindow		Отменить
@@ -54,7 +55,6 @@ Start playing.	MediaPlayer-Main		Начать проигрывание.
 There is no decoder installed to handle the file format, or the decoder has trouble with the specific version of the format.	MediaPlayer-Main		Не установлен декодер, необходимый для работы с этим форматом файлов или у декодера возникли проблемы с указанной версией этого формата.
 Import Entry	MediaPlayer-ImportPLItemsCmd		импортирование записи
 Gets the URI of the currently playing item.	MediaPlayer-Main		Получает URI текущей проигрываемой записи.
-%d Channels	MediaPlayer-InfoWin		%d Канала
 400% scale	MediaPlayer-Main		Масштаб 400%
 Saving the playlist failed:\n\nError: 	MediaPlayer-PlaylistWindow		Ошибка при сохранени плейлиста:\n\nОшибка: 
 Move Entries	MediaPlayer-MovePLItemsCmd		Переместить записи
@@ -141,6 +141,7 @@ Open Clips	MediaPlayer-Main		Открыть клипы
 OK	MediaPlayer-PlaylistWindow		ОК
 none	Audio track menu		пусто
 Gets/sets the volume (0.0-2.0).	MediaPlayer-Main		Получить/установить громкость (0.0-2.0).
+Duration	MediaPlayer-Main		Длительность
 Playlist…	MediaPlayer-Main		Плейлист…
 <unknown>	PlaylistItem-author		<неизвестно>
 Save as…	MediaPlayer-PlaylistWindow		Сохранить как…
@@ -150,7 +151,6 @@ Always on top	MediaPlayer-Main		Всегда сверху
 Remove Entry into Trash	MediaPlayer-RemovePLItemsCmd		Переместить запись в корзину
 Save	MediaPlayer-Main		Сохранить
 <nothing to undo>	MediaPlayer-PlaylistWindow		<нечего отменять>
-Mono	MediaPlayer-InfoWin		Моно
 File info	MediaPlayer-InfoWin		Информация о файле
 Save	MediaPlayer-PlaylistWindow		Сохранить
 %d Bit	MediaPlayer-InfoWin		%d Бит

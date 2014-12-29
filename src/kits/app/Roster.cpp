@@ -14,7 +14,7 @@
 #include <new>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+#include <strings.h>
 #include <unistd.h>
 
 #include <AppFileInfo.h>
@@ -991,6 +991,15 @@ Launch__C7BRosterP9entry_refP8BMessagePl(BRoster* roster, entry_ref* ref,
 	BMessage* initialMessage)
 {
 	return roster->BRoster::Launch(ref, initialMessage, NULL);
+}
+/*!	Just here for providing binary compatibility
+	(for example "BartLauncher" needs this)
+*/
+extern "C" status_t
+Launch__C7BRosterP9entry_refiPPcPl(BRoster* roster, entry_ref* ref,
+	int argc, char * const *args, team_id *app_team)
+{
+	return roster->BRoster::Launch(ref, argc, args, app_team);
 }
 #endif	// __GNUC__ == 2
 

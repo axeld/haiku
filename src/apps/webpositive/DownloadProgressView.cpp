@@ -9,6 +9,7 @@
 #include <stdio.h>
 
 #include <Alert.h>
+#include <Application.h>
 #include <Bitmap.h>
 #include <Button.h>
 #include <Catalog.h>
@@ -27,7 +28,9 @@
 #include <SpaceLayoutItem.h>
 #include <StatusBar.h>
 #include <StringView.h>
+#include <TimeUnitFormat.h>
 
+#include "BrowserWindow.h"
 #include "WebDownload.h"
 #include "WebPage.h"
 #include "StringForSize.h"
@@ -254,6 +257,13 @@ DownloadProgressView::Init(BMessage* archive)
 	}
 
 	fInfoView = new BStringView("info view", "");
+	
+	BSize topButtonSize = fTopButton->PreferredSize();
+	BSize bottomButtonSize = fBottomButton->PreferredSize();
+	if (bottomButtonSize.width < topButtonSize.width)
+		fBottomButton->SetExplicitMaxSize(topButtonSize);
+	else
+		fTopButton->SetExplicitMaxSize(bottomButtonSize);
 
 	BGroupLayout* layout = GroupLayout();
 	layout->SetInsets(8, 5, 5, 6);
@@ -403,8 +413,20 @@ DownloadProgressView::MessageReceived(BMessage* message)
 			break;
 		}
 		case RESTART_DOWNLOAD:
-			BWebPage::RequestDownload(fURL);
+		{
+			// We can't create a download without a full web context (mainly
+			// because it needs to access the cookie jar), and when we get here
+			// the original context is long gone (possibly the browser was
+			// restarted). So we create a new window to restart the download
+			// in a fresh context.
+			// FIXME this has of course the huge downside of leaving the new
+			// window open with a blank page. I can't think of a better
+			// solution right now...
+			BMessage* request = new BMessage(NEW_WINDOW);
+			request->AddString("url", fURL);
+			be_app->PostMessage(request);
 			break;
+		}
 
 		case CANCEL_DOWNLOAD:
 			CancelDownload();
@@ -505,51 +527,32 @@ DownloadProgressView::MessageReceived(BMessage* message)
 			break;
 		case OPEN_CONTAINING_FOLDER:
 			if (fPath.InitCheck() == B_OK) {
+				BEntry selected(fPath.Path());
+				if (!selected.Exists())
+					break;
+
 				BPath containingFolder;
 				if (fPath.GetParent(&containingFolder) != B_OK)
 					break;
-				BEntry entry(containingFolder.Path());
-				if (!entry.Exists())
-					break;
 				entry_ref ref;
-				if (entry.GetRef(&ref) != B_OK)
+				if (get_ref_for_path(containingFolder.Path(), &ref) != B_OK)
 					break;
-				be_roster->Launch(&ref);
 
-				// Use Tracker scripting and select the download pose
-				// in the window.
-				// TODO: We should somehow get the window that just openend.
-				// Using the name like this is broken when there are multiple
-				// windows open with this name. Also Tracker does not scroll
-				// to this entry.
-				BString windowName = ref.name;
-				BString fullWindowName = containingFolder.Path();
-
+				// Ask Tracker to open the containing folder and select the
+				// file inside it.
 				BMessenger trackerMessenger("application/x-vnd.Be-TRAK");
-				if (trackerMessenger.IsValid()
-					&& get_ref_for_path(fPath.Path(), &ref) == B_OK) {
-					// We need to wait a bit until the folder is open.
-					// TODO: This is also too fragile... we should be able
-					// to wait for the roster message.
-					snooze(250000);
-					int32 tries = 2;
-					while (tries > 0) {
-						BMessage selectionCommand(B_SET_PROPERTY);
-						selectionCommand.AddSpecifier("Selection");
-						selectionCommand.AddSpecifier("Poses");
-						selectionCommand.AddSpecifier("Window",
-							windowName.String());
-						selectionCommand.AddRef("data", &ref);
-						BMessage reply;
-						trackerMessenger.SendMessage(&selectionCommand, &reply);
-						int32 error;
-						if (reply.FindInt32("error", &error) != B_OK
-							|| error == B_OK) {
-							break;
-						}
-						windowName = fullWindowName;
-						tries--;
+
+				if (trackerMessenger.IsValid()) {
+					BMessage selectionCommand(B_REFS_RECEIVED);
+					selectionCommand.AddRef("refs", &ref);
+
+					node_ref selectedRef;
+					if (selected.GetNodeRef(&selectedRef) == B_OK) {
+						selectionCommand.AddData("nodeRefToSelect", B_RAW_TYPE,
+							(void*)&selectedRef, sizeof(node_ref));
 					}
+
+					trackerMessenger.SendMessage(&selectionCommand);
 				}
 			}
 			break;
@@ -623,6 +626,7 @@ DownloadProgressView::DownloadFinished()
 	fStatusBar->SetBarColor(ui_color(B_SUCCESS_COLOR));
 
 	BNotification success(B_INFORMATION_NOTIFICATION);
+	success.SetGroup(B_TRANSLATE("WebPositive"));
 	success.SetTitle(B_TRANSLATE("Download finished"));
 	success.SetContent(fPath.Leaf());
 	BEntry entry(fPath.Path());
@@ -645,6 +649,7 @@ DownloadProgressView::CancelDownload()
 		// Also cancel the download
 		fDownload->Cancel();
 		BNotification success(B_ERROR_NOTIFICATION);
+		success.SetGroup(B_TRANSLATE("WebPositive"));
 		success.SetTitle(B_TRANSLATE("Download aborted"));
 		success.SetContent(fPath.Leaf());
 		// Don't make a click on the notification open the file: it is not
@@ -801,38 +806,36 @@ DownloadProgressView::_UpdateStatusText()
 		finishTime -= now;
 		time = gmtime(&finishTime);
 
+		BTimeUnitFormat timeFormat;
+
 		BString buffer2;
 		if (finishTime > secondsPerDay) {
 			int64 days = finishTime / secondsPerDay;
-			if (days == 1)
-				buffer2 << B_TRANSLATE("Over 1 day left");
-			else {
-				buffer2 << B_TRANSLATE("Over %days days left");
-				buffer2.ReplaceFirst("%days", BString() << days);
-			}
+
+			BString time;
+			timeFormat.Format(time, days, B_TIME_UNIT_DAY);
+
+			buffer2 << B_TRANSLATE("Over %days left");
+			buffer2.ReplaceFirst("%days", time);
 		} else if (finishTime > 60 * 60) {
 			int64 hours = finishTime / (60 * 60);
-			if (hours == 1)
-				buffer2 << B_TRANSLATE("Over 1 hour left");
-			else {
-				buffer2 << B_TRANSLATE("Over %hours hours left");
-				buffer2.ReplaceFirst("%hours", BString() << hours);
-			}
+			BString time;
+			timeFormat.Format(time, hours, B_TIME_UNIT_HOUR);
+
+			buffer2 << B_TRANSLATE("Over %hours left");
+			buffer2.ReplaceFirst("%hours", time);
 		} else if (finishTime > 60) {
 			int64 minutes = finishTime / 60;
 			if (minutes == 1)
 				buffer2 << B_TRANSLATE("Over 1 minute left");
-			else {
-				buffer2 << B_TRANSLATE("%minutes minutes");
-				buffer2.ReplaceFirst("%minutes", BString() << minutes);
-			}
+			else
+				timeFormat.Format(buffer2, minutes, B_TIME_UNIT_MINUTE);
 		} else {
-			if (finishTime == 1)
-				buffer2 << B_TRANSLATE("1 second left");
-			else {
-				buffer2 << B_TRANSLATE("%seconds seconds left");
-				buffer2.ReplaceFirst("%seconds", BString() << finishTime);
-			}
+			BString time;
+			timeFormat.Format(time, finishTime, B_TIME_UNIT_SECOND);
+
+			buffer2 << B_TRANSLATE("%seconds left");
+			buffer2.ReplaceFirst("%seconds", time);
 		}
 
 		buffer = "(";

@@ -73,15 +73,14 @@ struct AttributeTemplate {
 class AttributeInfo {
 	// utility class for internal attribute description
 public:
-	AttributeInfo()
-		{}
-	AttributeInfo(const AttributeInfo &);
-	AttributeInfo(const char*, attr_info);
-	AttributeInfo(const char*, uint32, off_t);
+	AttributeInfo();
+	AttributeInfo(const AttributeInfo& other);
+	AttributeInfo(const char* name, attr_info info);
+	AttributeInfo(const char* name, uint32 type, off_t size);
 
-	void SetTo(const AttributeInfo &);
-	void SetTo(const char*, attr_info);
-	void SetTo(const char*, uint32, off_t);
+	void SetTo(const AttributeInfo& other);
+	void SetTo(const char* name, attr_info info);
+	void SetTo(const char* name, uint32 type, off_t size);
 	const char* Name() const;
 	uint32 Type() const;
 	off_t Size() const;
@@ -169,8 +168,7 @@ public:
 
 	void SetTo(BNode*);
 
-	BNode* Node()
-		{ return fNode; }
+	BNode* Node() { return fNode; }
 
 protected:
 	virtual bool CanFeed() const { return true; }

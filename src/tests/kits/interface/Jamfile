@@ -11,6 +11,8 @@ SEARCH_SOURCE += [ FDirName $(SUBDIR) bbitmap ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) bdeskbar ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) bpolygon ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) bregion ] ;
+SEARCH_SOURCE += [ FDirName $(SUBDIR) btextcontrol ] ;
+SEARCH_SOURCE += [ FDirName $(SUBDIR) btextview ] ;
 SEARCH_SOURCE += [ FDirName $(SUBDIR) bwindowstack ] ;
 
 SEARCH_SOURCE += [ FDirName $(TOP) src kits interface ] ;
@@ -49,7 +51,10 @@ UnitTestLib libinterfacetest.so
 		RegionIntersect.cpp
 		RegionOffsetBy.cpp
 
-	: be $(TARGET_LIBSTDC++)
+		TextControlTest.cpp
+		TextViewTest.cpp
+
+	: be [ TargetLibstdc++ ]
 ;
 
 ObjectDefines
@@ -59,31 +64,36 @@ ObjectDefines
 
 SimpleTest ScrollViewTest_r5 :
 	ScrollViewTest.cpp
-	: be $(TARGET_LIBSUPC++)
+	: be [ TargetLibsupc++ ]
 	;
 
 SimpleTest ScrollViewTest :
 	ScrollViewTest.cpp
 	ScrollView.cpp
-	: be $(TARGET_LIBSUPC++)
+	: be [ TargetLibsupc++ ]
 	;
 
 SimpleTest AlertTest :
 	SimpleAlertTest.cpp
-	: be $(TARGET_LIBSUPC++)
+	: be [ TargetLibsupc++ ]
 ;
 
 SimpleTest ChannelSliderTest :
 	ChannelSliderTest.cpp
 	ChannelSlider.cpp
 	ChannelControl.cpp
-	: be $(TARGET_LIBSUPC++)
+	: be [ TargetLibsupc++ ]
 	;
 
 SimpleTest CheckBoxTest :
 	CheckBoxTest.cpp
 	CheckBox.cpp
-	: be $(TARGET_LIBSUPC++)
+	: be [ TargetLibsupc++ ]
+	;
+
+SimpleTest ListViewTest :
+	ListViewTest.cpp
+	: be [ TargetLibsupc++ ]
 	;
 
 SimpleTest ScreenTest :
@@ -93,50 +103,50 @@ SimpleTest ScreenTest :
 
 SimpleTest StatusBarTest :
 	StatusBarTest.cpp
-	: be $(TARGET_LIBSUPC++)
+	: be [ TargetLibsupc++ ]
 	;
 
 SimpleTest ToolTipTest :
 	ToolTipTest.cpp
-	: be $(TARGET_LIBSUPC++)
+	: be [ TargetLibsupc++ ]
 	;
 
 SimpleTest GetMouseTest :
 	GetMouseTest.cpp
-	: be $(TARGET_LIBSUPC++)
+	: be [ TargetLibsupc++ ]
 	;
 
 SimpleTest PulseTest :
 	PulseTest.cpp
-	: be $(TARGET_LIBSUPC++)
+	: be [ TargetLibsupc++ ]
 	;
 
 SimpleTest SliderTest_r5 :
 	SliderTest.cpp
-	: be $(TARGET_LIBSUPC++)
+	: be [ TargetLibsupc++ ]
 	;
 
 SimpleTest SliderTest :
 	SliderTest.cpp
 	Slider.cpp
 	Control.cpp
-	: be $(TARGET_LIBSUPC++)
+	: be [ TargetLibsupc++ ]
 	;
 
 SimpleTest TruncateString :
 	TruncateString.cpp
-	: be $(TARGET_LIBSUPC++)
+	: be [ TargetLibsupc++ ]
 	;
 
 SimpleTest MenuBeginningTest :
 	MenuBeginningTest.cpp
-	: be $(TARGET_LIBSUPC++)
+	: be [ TargetLibsupc++ ]
 	;
 
 
 Application MenuTriggerTest :
 	MenuTriggerTest.cpp
-	: be $(TARGET_LIBSUPC++)
+	: be [ TargetLibsupc++ ]
 ;
 
 
@@ -148,33 +158,34 @@ SimpleTest WidthBufferTest :
 
 SimpleTest ClippingPlusRedraw :
 	ClippingPlusRedraw.cpp
-	: be $(TARGET_LIBSUPC++)
+	: be [ TargetLibsupc++ ]
 ;
 
 
 SimpleTest SetDiskModeTest :
 	SetDiskModeTest.cpp
-	: be $(TARGET_LIBSUPC++)
+	: be [ TargetLibsupc++ ]
 ;
 
 SimpleTest SetBorderScrollViewTest :
 	ScrollViewSetBorderTest.cpp
 	ScrollView.cpp
-	: be $(TARGET_LIBSUPC++)
+	: be [ TargetLibsupc++ ]
 ;
 
 SimpleTest TextViewTest :
-	TextViewTest.cpp
-	: be $(TARGET_LIBSUPC++)
+	TextViewTestManual.cpp
+	: be [ TargetLibsupc++ ]
 	;
 
 SimpleTest WindowStackTest :
 	WindowStackTest.cpp
-	: be $(TARGET_LIBSUPC++)
+	: be [ TargetLibsupc++ ]
 	;
 
 SEARCH on [ FGristFiles
-		ScrollView.cpp CheckBox.cpp ChannelSlider.cpp ChannelControl.cpp Slider.cpp Control.cpp
+		ScrollView.cpp CheckBox.cpp ChannelSlider.cpp ChannelControl.cpp
+		Slider.cpp Control.cpp
 	] = [ FDirName $(HAIKU_TOP) src kits interface ] ;
 
 SubInclude HAIKU_TOP src tests kits interface bprintjob ;

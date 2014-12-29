@@ -12,9 +12,11 @@
 #define _DATE_TIME_EDIT_H
 
 
+#include <DateFormat.h>
 #include <DateTime.h>
 #include <Locale.h>
 #include <String.h>
+#include <TimeFormat.h>
 
 #include "SectionEdit.h"
 
@@ -50,6 +52,7 @@ private:
 			int32				_SectionValue(int32 index) const;
 
 			BDateTime			fTime;
+			BTimeFormat			fTimeFormat;
 			bigtime_t			fLastKeyDownTime;
 			int32				fLastKeyDownInt;
 
@@ -94,6 +97,7 @@ private:
 			int32				_SectionValue(int32 index) const;
 			
 			BDate				fDate;
+			BDateFormat			fDateFormat;
 			bigtime_t			fLastKeyDownTime;
 			int32				fLastKeyDownInt;
 

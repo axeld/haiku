@@ -10,7 +10,6 @@ SubDirC++Flags
 	-D_BUILDING_tracker=1
 #	-D_INCLUDES_CLASS_DEVICE_MAP=1
 	-D_SUPPORTS_RESOURCES=1
-	-D_SUPPORTS_FEATURE_SCRIPTING=1
 #	-D_SILENTLY_CORRECT_FILE_NAMES=1
 	;
 
@@ -98,11 +97,10 @@ for architectureObject in [ MultiArchSubDirSetup ] {
 			VirtualDirectoryManager.cpp
 			VirtualDirectoryPoseView.cpp
 			VirtualDirectoryWindow.cpp
-			VolumeWindow.cpp
 			WidgetAttributeText.cpp
 
 			:
-			be translation $(vectorIconLibs) $(TARGET_LIBSTDC++) localestub
+			be translation $(vectorIconLibs) [ TargetLibstdc++ ] localestub
 			[ MultiArchDefaultGristFiles libshared.a ]
 			[ MultiArchDefaultGristFiles libshortcuts_shared.a ]
 			;
@@ -143,7 +141,6 @@ DoCatalogs libtracker.so :
 	Tracker.cpp
 	TrackerInitialState.cpp
 	TrackerSettingsWindow.cpp
-	VolumeWindow.cpp
 	WidgetAttributeText.cpp
 ;
 

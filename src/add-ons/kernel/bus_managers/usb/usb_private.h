@@ -211,6 +211,10 @@ virtual void							FreeDevice(Device *device);
 virtual	status_t						Start();
 virtual	status_t						Stop();
 
+virtual	status_t						StartDebugTransfer(Transfer *transfer);
+virtual	status_t						CheckDebugTransfer(Transfer *transfer);
+virtual	void							CancelDebugTransfer(Transfer *transfer);
+
 virtual	status_t						SubmitTransfer(Transfer *transfer);
 virtual	status_t						CancelQueuedTransfers(Pipe *pipe,
 											bool force);
@@ -579,7 +583,8 @@ public:
 											uint8 hubPort,
 											usb_device_descriptor &desc,
 											int8 deviceAddress,
-											usb_speed speed, bool isRootHub);
+											usb_speed speed, bool isRootHub,
+											void *controllerCookie = NULL);
 virtual									~Hub();
 
 virtual	status_t						Changed(change_item **changeList,
@@ -679,6 +684,10 @@ public:
 
 		void						SetCallback(usb_callback_func callback,
 										void *cookie);
+		usb_callback_func			Callback() const
+										{ return fCallback; }
+		void *						CallbackCookie() const
+										{ return fCallbackCookie; }
 
 		void						Finished(uint32 status,
 										size_t actualLength);

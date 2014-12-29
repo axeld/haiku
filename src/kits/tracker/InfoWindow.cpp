@@ -47,6 +47,7 @@ All rights reserved.
 #include <Font.h>
 #include <Locale.h>
 #include <MenuField.h>
+#include <MessageFormat.h>
 #include <Mime.h>
 #include <NodeInfo.h>
 #include <NodeMonitor.h>
@@ -304,7 +305,7 @@ BInfoWindow::BInfoWindow(Model* model, int32 group_index,
 	TTracker::WatchNode(model->NodeRef(), B_WATCH_ALL | B_WATCH_MOUNT, this);
 
 	// window list is Locked by Tracker around this constructor
-	if (list)
+	if (list != NULL)
 		list->AddItem(this);
 
 	AddShortcut('E', 0, new BMessage(kEditItem));
@@ -581,7 +582,9 @@ BInfoWindow::MessageReceived(BMessage* message)
 				BVolumeRoster().GetBootVolume(&boot);
 				BVolume volume(fModel->NodeRef()->device);
 				if (volume != boot) {
-					dynamic_cast<TTracker*>(be_app)->SaveAllPoseLocations();
+					TTracker* tracker = dynamic_cast<TTracker*>(be_app);
+					if (tracker != NULL)
+						tracker->SaveAllPoseLocations();
 
 					BMessage unmountMessage(kUnmountVolume);
 					unmountMessage.AddInt32("device_id", volume.Device());
@@ -597,15 +600,15 @@ BInfoWindow::MessageReceived(BMessage* message)
 		case B_NODE_MONITOR:
 			switch (message->FindInt32("opcode")) {
 				case B_ENTRY_REMOVED:
-					{
-						node_ref itemNode;
-						message->FindInt32("device", &itemNode.device);
-						message->FindInt64("node", &itemNode.node);
-						// our window itself may be deleted
-						if (*TargetModel()->NodeRef() == itemNode)
-							Close();
-						break;
-					}
+				{
+					node_ref itemNode;
+					message->FindInt32("device", &itemNode.device);
+					message->FindInt64("node", &itemNode.node);
+					// our window itself may be deleted
+					if (*TargetModel()->NodeRef() == itemNode)
+						Close();
+					break;
+				}
 
 				case B_ENTRY_MOVED:
 				case B_STAT_CHANGED:
@@ -640,11 +643,12 @@ BInfoWindow::MessageReceived(BMessage* message)
 		case kPermissionsSelected:
 			if (fPermissionsView == NULL) {
 				// Only true on first call.
-				fPermissionsView
-					= new FilePermissionsView(BRect(kBorderWidth + 1,
-					fAttributeView->Bounds().bottom,
-					fAttributeView->Bounds().right,
-					fAttributeView->Bounds().bottom+80), fModel);
+				fPermissionsView = new FilePermissionsView(
+					BRect(kBorderWidth + 1,
+						fAttributeView->Bounds().bottom,
+						fAttributeView->Bounds().right,
+						fAttributeView->Bounds().bottom + 80),
+					fModel);
 
 				ResizeBy(0, fPermissionsView->Bounds().Height());
 				fAttributeView->AddChild(fPermissionsView);
@@ -671,44 +675,25 @@ BInfoWindow::MessageReceived(BMessage* message)
 void
 BInfoWindow::GetSizeString(BString &result, off_t size, int32 fileCount)
 {
+	static BMessageFormat sizeFormat(B_TRANSLATE(
+		"{0, plural, one{(# byte)} other{(# bytes)}}"));
+	static BMessageFormat countFormat(B_TRANSLATE(
+		"{0, plural, one{for # file} other{for # files}}"));
+
 	char sizeBuffer[128];
 	result << string_for_size((double)size, sizeBuffer, sizeof(sizeBuffer));
 
-	// when we show the byte size, format it with a thousands delimiter
-	// TODO: use BCountry::FormatNumber
 	if (size >= kKBSize) {
-		char numStr[128];
-		snprintf(numStr, sizeof(numStr), "%" B_PRIdOFF, size);
-		BString bytes;
-
-		uint32 length = strlen(numStr);
-		if (length >= 4) {
-			uint32 charsTillComma = length % 3;
-			if (charsTillComma == 0)
-				charsTillComma = 3;
-
-			uint32 numberIndex = 0;
-
-			while (numStr[numberIndex]) {
-				bytes += numStr[numberIndex++];
-				if (--charsTillComma == 0 && numStr[numberIndex]) {
-					bytes += ',';
-					charsTillComma = 3;
-				}
-			}
-		}
-
-		result << " " << B_TRANSLATE("(%bytes bytes)");
+		result << " ";
+				
+		sizeFormat.Format(result, size);
 			// "bytes" translation could come from string_for_size
 			// which could be part of the localekit itself
-		result.ReplaceFirst("%bytes", bytes);
 	}
 
 	if (fileCount != 0) {
-		result << " " << B_TRANSLATE("for %num files");
-		BString countString;
-		countString << fileCount;
-		result.ReplaceFirst("%num", countString);
+		result << " ";
+		countFormat.Format(result, fileCount);
 	}
 }
 
@@ -1168,11 +1153,9 @@ AttributeView::ModelChanged(Model* model, BMessage* message)
 			if (message->FindString("attr", &attrName) == B_OK) {
 				if (strcmp(attrName, kAttrLargeIcon) == 0
 					|| strcmp(attrName, kAttrIcon) == 0) {
-
 					IconCache::sIconCache->IconChanged(model->ResolveIfLink());
 					Invalidate();
 				} else if (strcmp(attrName, kAttrMIMEType) == 0) {
-
 					if (model->OpenNode() == B_OK) {
 						model->AttrChanged(attrName);
 						InitStrings(model);
@@ -1545,7 +1528,7 @@ AttributeView::OpenLinkTarget()
 	if (entry.InitCheck() != B_OK || !entry.Exists()) {
 		// Open a file dialog panel to allow the user to relink.
 		BInfoWindow* window = dynamic_cast<BInfoWindow*>(Window());
-		if (window)
+		if (window != NULL)
 			window->OpenFilePanel(fModel->EntryRef());
 	} else {
 		entry_ref ref;
@@ -2118,7 +2101,9 @@ AttributeView::BuildContextMenu(BMenu* parent)
 		// setup a navigation menu item which will dynamically load items
 		// as menu items are traversed
 		BNavMenu* navMenu = dynamic_cast<BNavMenu*>(navigationItem->Submenu());
-		navMenu->SetNavDir(&ref);
+		if (navMenu != NULL)
+			navMenu->SetNavDir(&ref);
+
 		navigationItem->SetLabel(model.Name());
 		navigationItem->SetEntry(&entry);
 

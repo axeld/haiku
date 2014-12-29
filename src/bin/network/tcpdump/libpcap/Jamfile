@@ -26,6 +26,3 @@ StaticLibrary libpcap.a :
 	scanner.l
 	version.c
 ;
-
-# scanner.l includes the generated grammar.h
-Includes [ FGristFiles scanner.l ] : [ FGristFiles grammar.h ] ;

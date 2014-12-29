@@ -1,5 +1,5 @@
 /*
- * Copyright 2007-2013, Haiku, Inc. All rights reserved.
+ * Copyright 2007-2014, Haiku, Inc. All rights reserved.
  * Copyright 2001-2002 Dr. Zoidberg Enterprises. All rights reserved.
  * Copyright 2011, Clemens Zeidler <haiku@clemens-zeidler.de>
  * Distributed under the terms of the MIT License.
@@ -20,6 +20,7 @@
 #include <FindDirectory.h>
 #include <fs_index.h>
 #include <IconUtils.h>
+#include <MessageFormat.h>
 #include <NodeMonitor.h>
 #include <Notification.h>
 #include <Path.h>
@@ -388,16 +389,12 @@ MailDaemonApplication::MessageReceived(BMessage* msg)
 
 		case 'numg':
 		{
+			static BMessageFormat format(B_TRANSLATE("{0, plural, "
+				"one{# new message} other{# new messages}} for %name\n"));
+
 			int32 numMessages = msg->FindInt32("num_messages");
-			BString numString;
-
-			if (numMessages > 1)
-				fAlertString << B_TRANSLATE("%num new messages for %name\n");
-			else
-				fAlertString << B_TRANSLATE("%num new message for %name\n");
-
-			numString << numMessages;
-			fAlertString.ReplaceFirst("%num", numString);
+			fAlertString.Truncate(0);
+			format.Format(fAlertString, numMessages);
 			fAlertString.ReplaceFirst("%name", msg->FindString("name"));
 			break;
 		}
@@ -416,6 +413,7 @@ MailDaemonApplication::MessageReceived(BMessage* msg)
 			}
 
 			_UpdateNewMessagesNotification();
+
 			if (fNotifyMode != B_MAIL_SHOW_STATUS_WINDOW_NEVER)
 				fNotification->Send();
 			break;
@@ -836,14 +834,10 @@ MailDaemonApplication::_UpdateNewMessagesNotification()
 {
 	BString title;
 	if (fNewMessages > 0) {
-		if (fNewMessages != 1)
-			title << B_TRANSLATE("%num new messages.");
-		else
-			title << B_TRANSLATE("%num new message.");
+		BMessageFormat format(B_TRANSLATE(
+			"{0, plural, one{# new message} other{# new messages}}"));
 
-		BString numString;
-		numString << fNewMessages;
-		title.ReplaceFirst("%num", numString);
+		format.Format(title, fNewMessages);
 	} else
 		title = B_TRANSLATE("No new messages");
 

@@ -72,6 +72,7 @@ struct hda_controller {
 	vuint8*			regs;
 	uint32			irq;
 	bool			msi;
+	bool			dma_snooping;
 
 	uint16			codec_status;
 	uint32			num_input_streams;
@@ -122,6 +123,30 @@ struct hda_controller {
 	void Write32(uint32 reg, uint32 value)
 	{
 		*(vuint32*)(regs + reg) = value;
+	}
+
+	void ReadModifyWrite8(uint32 reg, uint8 mask, uint8 value)
+	{
+		uint8 temp = Read8(reg);
+		temp &= ~mask;
+		temp |= value;
+		Write8(reg, temp);
+	}
+
+	void ReadModifyWrite16(uint32 reg, uint16 mask, uint16 value)
+	{
+		uint16 temp = Read16(reg);
+		temp &= ~mask;
+		temp |= value;
+		Write16(reg, temp);
+	}
+
+	void ReadModifyWrite32(uint32 reg, uint32 mask, uint32 value)
+	{
+		uint32 temp = Read32(reg);
+		temp &= ~mask;
+		temp |= value;
+		Write32(reg, temp);
 	}
 };
 

@@ -45,7 +45,7 @@ struct device_info
 };
 
 
-extern "C" BMediaAddOn * 
+extern "C" BMediaAddOn *
 make_media_addon(image_id id)
 {
 	return new DVBMediaAddon(id);
@@ -53,7 +53,7 @@ make_media_addon(image_id id)
 
 
 DVBMediaAddon::DVBMediaAddon(image_id id)
- :	BMediaAddOn(id)
+	: BMediaAddOn(id)
 {
 	ScanFolder("/dev/dvb");
 }
@@ -68,10 +68,12 @@ DVBMediaAddon::~DVBMediaAddon()
 status_t
 DVBMediaAddon::InitCheck(const char ** out_failure_text)
 {
+	debugger("");
 	if (!fDeviceList.CountItems()) {
 		*out_failure_text = "No supported device found";
 		return B_ERROR;
 	}
+
 	return B_OK;
 }
 

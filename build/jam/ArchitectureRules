@@ -29,7 +29,7 @@ rule ArchitectureSetup architecture
 	# http://www.freelists.org/post/haiku-development/hrev45320-Yet-another-nonobvious-effect-of-ftreevrp-optimization
 	if $(gccVersion[1]) >= 3 {
 		gccBaseFlags += -fno-strict-aliasing ;
-		if $(HAIKU_CC_IS_CLANG_$(architecture)) = 0 {
+		if $(HAIKU_CC_IS_CLANG_$(architecture)) != 1 {
 			gccBaseFlags += -fno-tree-vrp ;
 		}
 	}
@@ -54,20 +54,11 @@ rule ArchitectureSetup architecture
 	}
 	HAIKU_GCC_BASE_FLAGS_$(architecture) = $(gccBaseFlags) ;
 
-	# override gcc 2.95.3's header directory -- strictly necessary only when
-	# using the BeOS native compiler (since its headers are incompatible), but
-	# it doesn't harm for the cross-compiler either.
-	if $(gccVersion[1]) = 2 {
-		HAIKU_GCC_HEADERS_DIR_$(architecture)
-			= [ FDirName $(HAIKU_TOP) headers build gcc-2.95.3 ] ;
-	}
-
 	# initial state for flags etc.
 	HAIKU_C++_$(architecture) ?= $(HAIKU_CC_$(architecture)) ;
 	HAIKU_LINK_$(architecture) = $(HAIKU_CC_$(architecture)) ;
 	HAIKU_LINKFLAGS_$(architecture) = $(gccBaseFlags) ;
 
-	HAIKU_HDRS_$(architecture) = [ FStandardHeaders $(architecture) ] ;
 	HAIKU_CCFLAGS_$(architecture) += $(gccBaseFlags) -nostdinc ;
 	HAIKU_C++FLAGS_$(architecture) += $(gccBaseFlags) -nostdinc ;
 
@@ -163,48 +154,6 @@ rule ArchitectureSetup architecture
 	HAIKU_PRIVATE_SYSTEM_HEADERS_$(architecture)
 		= [ PrivateHeaders $(DOT) system system/arch/$(cpu) ] ;
 
-	# Add some grist to the libgcc objects
-	HAIKU_GCC_LIBGCC_OBJECTS_$(architecture)
-		= $(HAIKU_GCC_LIBGCC_OBJECTS_$(architecture):G=libgcc!$(architecture)) ;
-
-	# List of libgcc objects we don't want to keep
-	HAIKU_GCC_LIBGCC_OBJECTS_EXCLUDES_$(architecture)
-		= eabi.o ;
-
-	# the C++ standard library
-	HAIKU_BUILD_SHARED_LIBSTDC++_$(architecture) = ;
-	if $(HAIKU_SHARED_LIBSTDC++_$(architecture)) {
-		HAIKU_LIBSTDC++_$(architecture)
-			= $(HAIKU_SHARED_LIBSTDC++_$(architecture)) ;
-	} else {
-		# no shared library available with the compiler -- build it
-		if $(gccVersion[1]) = 2 {
-			HAIKU_LIBSTDC++_$(architecture) = libstdc++.r4.so ;
-		} else {
-			HAIKU_LIBSTDC++_$(architecture) = <$(architecture)>libstdc++.so ;
-		}
-		HAIKU_SHARED_LIBSTDC++_$(architecture)
-			= $(HAIKU_LIBSTDC++_$(architecture)) ;
-		HAIKU_BUILD_SHARED_LIBSTDC++_$(architecture) = 1 ;
-	}
-
-	# the C++ support (runtime) library
-	HAIKU_BUILD_SHARED_LIBSUPC++_$(architecture) = ;
-	if $(HAIKU_SHARED_LIBSUPC++_$(architecture)) {
-		HAIKU_LIBSUPC++_$(architecture)
-			= $(HAIKU_SHARED_LIBSUPC++_$(architecture)) ;
-	} else {
-		# no shared library available with the compiler -- build it for gcc 4
-		if $(gccVersion[1]) != 2 {
-			HAIKU_SHARED_LIBSUPC++_$(architecture)
-				= <$(architecture)>libsupc++.so ;
-			HAIKU_BUILD_SHARED_LIBSUPC++_$(architecture) = 1 ;
-		}
-
-		HAIKU_LIBSUPC++_$(architecture)
-			= $(HAIKU_SHARED_LIBSUPC++_$(architecture)) ;
-	}
-
 	# library and executable glue code
 	local commonGlueCode =
 		<src!system!glue!$(architecture)>init_term_dyn.o
@@ -213,23 +162,23 @@ rule ArchitectureSetup architecture
 		;
 	HAIKU_LIBRARY_BEGIN_GLUE_CODE_$(architecture) =
 		<src!system!glue!arch!$(HAIKU_ARCH)!$(architecture)>crti.o
-		<$(architecture)>crtbegin.o
+		<$(architecture)>crtbeginS.o
 		<src!system!glue!$(architecture)>init_term_dyn.o
 		;
 	HAIKU_LIBRARY_END_GLUE_CODE_$(architecture) =
-		<$(architecture)>crtend.o
+		<$(architecture)>crtendS.o
 		<src!system!glue!arch!$(HAIKU_ARCH)!$(architecture)>crtn.o
 		;
 	HAIKU_EXECUTABLE_BEGIN_GLUE_CODE_$(architecture) =
 		<src!system!glue!arch!$(HAIKU_ARCH)!$(architecture)>crti.o
-		<$(architecture)>crtbegin.o
+		<$(architecture)>crtbeginS.o
 		<src!system!glue!$(architecture)>start_dyn.o
 		<src!system!glue!$(architecture)>init_term_dyn.o
 		;
 	HAIKU_EXECUTABLE_END_GLUE_CODE_$(architecture)
 		= $(HAIKU_LIBRARY_END_GLUE_CODE_$(architecture)) ;
 
-	SEARCH on <$(architecture)>crtbegin.o <$(architecture)>crtend.o
+	SEARCH on <$(architecture)>crtbeginS.o <$(architecture)>crtendS.o
 		= $(HAIKU_GCC_LIB_DIR_$(architecture)) ;
 
 	# init library name map
@@ -245,10 +194,6 @@ rule ArchitectureSetup architecture
 		HAIKU_LIBRARY_NAME_MAP_$(architecture)_$(i)
 			= $(library:G=$(libraryGrist)) ;
 	}
-	HAIKU_LIBRARY_NAME_MAP_$(architecture)_libstdc++
-		= $(HAIKU_LIBSTDC++_$(architecture)) ;
-	HAIKU_LIBRARY_NAME_MAP_$(architecture)_libsupc++
-		= $(HAIKU_LIBSUPC++_$(architecture)) ;
 	HAIKU_LIBRARY_NAME_MAP_$(architecture)_localestub
 		= <$(architecture)>liblocalestub.a ;
 	if $(architecture) = $(HAIKU_PACKAGING_ARCHS[1]) {
@@ -323,7 +268,7 @@ rule KernelArchitectureSetup architecture
 			HAIKU_BOOT_PLATFORM = bios_ia32 ;
 			HAIKU_BOOT_FLOPPY_IMAGE_SIZE = 2880 ; # in kB
 			# offset in floppy image (>= sizeof(haiku_loader))
-			HAIKU_BOOT_ARCHIVE_IMAGE_OFFSET = 300 ; # in kB
+			HAIKU_BOOT_ARCHIVE_IMAGE_OFFSET = 320 ; # in kB
 
 			# nasm is required for target arch x86
 			if ! $(HAIKU_NASM) {
@@ -335,7 +280,7 @@ rule KernelArchitectureSetup architecture
 			HAIKU_BOOT_PLATFORM = bios_ia32 ;
 			HAIKU_BOOT_FLOPPY_IMAGE_SIZE = 2880 ; # in kB
 			# offset in floppy image (>= sizeof(haiku_loader))
-			HAIKU_BOOT_ARCHIVE_IMAGE_OFFSET = 300 ; # in kB
+			HAIKU_BOOT_ARCHIVE_IMAGE_OFFSET = 320 ; # in kB
 
 			# x86_64 kernel source is under arch/x86.
 			HAIKU_KERNEL_ARCH = x86 ;
@@ -393,7 +338,7 @@ rule KernelArchitectureSetup architecture
 
 	local g++BaseFlags = $(gccBaseFlags) -fno-exceptions ;
 
-	if $(gccVersion[1]) >= 3 && $(HAIKU_CC_IS_CLANG_$(architecture)) = 0 {
+	if $(gccVersion[1]) >= 3 && $(HAIKU_CC_IS_CLANG_$(architecture)) != 1 {
 		g++BaseFlags += -fno-use-cxa-atexit ;
 	}
 
@@ -472,10 +417,9 @@ rule KernelArchitectureSetup architecture
 		# compiling (part of) the boot loader.
 
 	# kernel add-on glue code
-	HAIKU_KERNEL_ADDON_BEGIN_GLUE_CODE = <$(architecture)>crtbegin.o
+	HAIKU_KERNEL_ADDON_BEGIN_GLUE_CODE = <$(architecture)>crtbeginS.o
 		<src!system!glue!$(architecture)>haiku_version_glue.o ;
-	HAIKU_KERNEL_ADDON_END_GLUE_CODE
-		= $(HAIKU_GCC_LIBGCC_$(architecture)) <$(architecture)>crtend.o ;
+	HAIKU_KERNEL_ADDON_END_GLUE_CODE = <$(architecture)>crtendS.o ;
 }
 
 
@@ -501,7 +445,7 @@ rule ArchitectureSetupWarnings architecture
 
 	rule EnableWerror dirTokens : scope {
 		# Clang gives way more warnings than GCC, so that code won't compile
-		# -Werror when using Clang.
+		# with -Werror when using Clang.
 		if $(HAIKU_CC_IS_CLANG_$(architecture)) != 1 {
 			SetConfigVar WARNINGS : HAIKU_TOP $(dirTokens) : treatAsErrors
 				: $(scope) ;
@@ -526,39 +470,29 @@ rule ArchitectureSetupWarnings architecture
 			-integrated-as -fgnu89-inline -fheinous-gnu-extensions : global ;
 	}
 
-	EnableWerror src add-ons accelerants 3dfx ;
-	EnableWerror src add-ons accelerants ati ;
-	EnableWerror src add-ons accelerants common ;
-	EnableWerror src add-ons accelerants et6x00 ;
-#	EnableWerror src add-ons accelerants intel_extreme ;
-#	EnableWerror src add-ons accelerants matrox ;
-	EnableWerror src add-ons accelerants neomagic ;
-#	EnableWerror src add-ons accelerants nvidia ;
-	EnableWerror src add-ons accelerants nvidia_gpgpu ;
-#	EnableWerror src add-ons accelerants radeon ;
-#	EnableWerror src add-ons accelerants radeon_hd ;
-	EnableWerror src add-ons accelerants s3 ;
-	EnableWerror src add-ons accelerants skeleton ;
-	EnableWerror src add-ons accelerants vesa ;
-	EnableWerror src add-ons accelerants via ;
-	EnableWerror src add-ons accelerants vmware ;
+	EnableWerror src add-ons accelerants ;
 	EnableWerror src add-ons bluetooth ;
 	EnableWerror src add-ons decorators ;
 	EnableWerror src add-ons disk_systems ;
 	EnableWerror src add-ons input_server devices ;
-#	EnableWerror src add-ons input_server filters ;
-#	EnableWerror src add-ons input_server methods ;
+	EnableWerror src add-ons input_server filters ;
+#	EnableWerror src add-ons input_server methods pen ;
+	EnableWerror src add-ons input_server methods t9 ;
 	EnableWerror src add-ons kernel bluetooth ;
 #	EnableWerror src add-ons kernel bus_managers acpi ;
 	EnableWerror src add-ons kernel bus_managers agp_gart ;
 	EnableWerror src add-ons kernel bus_managers ata ;
 	EnableWerror src add-ons kernel bus_managers config_manager ;
 #	EnableWerror src add-ons kernel bus_managers firewire ;
+	EnableWerror src add-ons kernel bus_managers ide ;
 	EnableWerror src add-ons kernel bus_managers isa ;
 	EnableWerror src add-ons kernel bus_managers pci ;
 #	EnableWerror src add-ons kernel bus_managers ps2 ; # gcc2
+	EnableWerror src add-ons kernel bus_managers random ;
 	EnableWerror src add-ons kernel bus_managers scsi ;
+	EnableWerror src add-ons kernel bus_managers tty ;
 	EnableWerror src add-ons kernel bus_managers usb ;
+	EnableWerror src add-ons kernel bus_managers virtio ;
 	EnableWerror src add-ons kernel busses agp_gart ;
 	EnableWerror src add-ons kernel busses ata ;
 	EnableWerror src add-ons kernel busses scsi ;
@@ -761,11 +695,11 @@ rule MultiArchSubDirSetup architectures
 	# packaging architectures, if <architectures> is empty) an object is
 	# prepared that can be used for an "on ... { ... }" block to set up subdir
 	# variables for the respective packaging architecture. Most notably
-	# TARGET_PACKAGING_ARCH, TARGET_ARCH, TARGET_LIBSUPC++, and TARGET_LIBSTDC++
-	# are set to the values for the respective packaging architecture. The
-	# per-subdir variables SOURCE_GRIST, LOCATE_TARGET, LOCATE_SOURCE,
-	# SEARCH_SOURCE, *_LOCATE_TARGET, are reset. All SUBDIR* and config
-	# variables are set to the values they had when this rule was invoked.
+	# TARGET_PACKAGING_ARCH, TARGET_ARCH are set to the values for the
+	# respective packaging architecture. The per-subdir variables SOURCE_GRIST,
+	# LOCATE_TARGET, LOCATE_SOURCE, SEARCH_SOURCE, *_LOCATE_TARGET, are reset.
+	# All SUBDIR* and config variables are set to the values they had when this
+	# rule was invoked.
 
 	local result ;
 	architectures ?= $(TARGET_PACKAGING_ARCHS) ;
@@ -783,7 +717,7 @@ rule MultiArchSubDirSetup architectures
 		TARGET_PACKAGING_ARCH on $(architectureObject) = $(architecture) ;
 
 		local var ;
-		for var in TARGET_ARCH TARGET_LIBSUPC++ TARGET_LIBSTDC++ {
+		for var in TARGET_ARCH {
 			$(var) on $(architectureObject) = $($(var)_$(architecture)) ;
 		}
 

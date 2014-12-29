@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <strings.h>
 
 #include <Debug.h>
 #include <StringList.h>
@@ -470,6 +471,25 @@ BString::SetToFormatVarArgs(const char* format, va_list args)
 
 	UnlockBuffer(bytes);
 	return *this;
+}
+
+
+int
+BString::ScanWithFormat(const char* format, ...)
+{
+	va_list args;
+	va_start(args, format);
+	int result = ScanWithFormatVarArgs(format, args);
+	va_end(args);
+
+	return result;
+}
+
+
+int
+BString::ScanWithFormatVarArgs(const char* format, va_list args)
+{
+	return vsscanf(fPrivateData, format, args);
 }
 
 

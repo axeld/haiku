@@ -101,8 +101,12 @@ protected:
 			typedef DoublyLinkedList<PackageAttribute> PackageAttributeList;
 
 protected:
-			status_t			Init(const char* fileName, size_t headerSize,
+			status_t			Init(BPositionIO* file, bool keepFile,
+									const char* fileName,
 									const BPackageWriterParameters& parameters);
+			status_t			InitHeapReader(size_t headerSize);
+
+			void				SetCompression(uint32 compression);
 
 			void				RegisterPackageInfo(
 									PackageAttributeList& attributeList,
@@ -149,8 +153,9 @@ protected:
 									off_t offset);
 									// writes to the file directly
 
-	inline	int					FD() const;
+	inline	BPositionIO*		File() const;
 	inline	uint32				Flags() const;
+	inline	const BPackageWriterParameters& Parameters() const;
 
 	inline	const PackageAttributeList&	PackageAttributes() const;
 	inline	PackageAttributeList&	PackageAttributes();
@@ -186,7 +191,8 @@ private:
 			BErrorOutput*		fErrorOutput;
 			const char*			fFileName;
 			BPackageWriterParameters fParameters;
-			int					fFD;
+			BPositionIO*		fFile;
+			bool				fOwnsFile;
 			bool				fFinished;
 
 			StringCache			fPackageStringCache;
@@ -216,10 +222,10 @@ WriterImplBase::WriteBuffer(const void* data, size_t size)
 }
 
 
-inline int
-WriterImplBase::FD() const
+inline BPositionIO*
+WriterImplBase::File() const
 {
-	return fFD;
+	return fFile;
 }
 
 
@@ -227,6 +233,13 @@ inline uint32
 WriterImplBase::Flags() const
 {
 	return fParameters.Flags();
+}
+
+
+inline const BPackageWriterParameters&
+WriterImplBase::Parameters() const
+{
+	return fParameters;
 }
 
 

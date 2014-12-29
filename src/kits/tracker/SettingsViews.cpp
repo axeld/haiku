@@ -74,7 +74,7 @@ static void
 send_bool_notices(uint32 what, const char* name, bool value)
 {
 	TTracker* tracker = dynamic_cast<TTracker*>(be_app);
-	if (!tracker)
+	if (tracker == NULL)
 		return;
 
 	BMessage message;
@@ -175,7 +175,15 @@ SettingsView::IsRevertable() const
 
 DesktopSettingsView::DesktopSettingsView()
 	:
-	SettingsView("DesktopSettingsView")
+	SettingsView("DesktopSettingsView"),
+	fShowDisksIconRadioButton(NULL),
+	fMountVolumesOntoDesktopRadioButton(NULL),
+	fMountSharedVolumesOntoDesktopCheckBox(NULL),
+	fShowDisksIcon(false),
+	fMountVolumesOntoDesktop(false),
+	fMountSharedVolumesOntoDesktop(false),
+	fIntegrateNonBootBeOSDesktops(false),
+	fEjectWhenUnmounting(false)
 {
 	fShowDisksIconRadioButton = new BRadioButton("",
 		B_TRANSLATE("Show Disks icon"),
@@ -189,10 +197,6 @@ DesktopSettingsView::DesktopSettingsView()
 		B_TRANSLATE("Show shared volumes on Desktop"),
 		new BMessage(kVolumesOnDesktopChanged));
 
-	fMountButton = new BButton("",
-		B_TRANSLATE("Mount settings" B_UTF8_ELLIPSIS),
-		new BMessage(kRunAutomounterSettings));
-
 	const float spacing = be_control_look->DefaultItemSpacing();
 
 	BLayoutBuilder::Group<>(this, B_VERTICAL, 0)
@@ -203,13 +207,7 @@ DesktopSettingsView::DesktopSettingsView()
 			.SetInsets(spacing * 2, 0, 0, 0)
 			.End()
 		.AddGlue()
-		.AddGroup(B_HORIZONTAL)
-			.Add(fMountButton)
-			.AddGlue()
-			.End()
 		.SetInsets(spacing);
-
-	fMountButton->SetTarget(be_app);
 }
 
 
@@ -226,7 +224,7 @@ void
 DesktopSettingsView::MessageReceived(BMessage* message)
 {
 	TTracker* tracker = dynamic_cast<TTracker*>(be_app);
-	if (!tracker)
+	if (tracker == NULL)
 		return;
 
 	TrackerSettings settings;
@@ -352,7 +350,7 @@ void
 DesktopSettingsView::_SendNotices()
 {
 	TTracker* tracker = dynamic_cast<TTracker*>(be_app);
-	if (!tracker)
+	if (tracker == NULL)
 		return;
 
 	// Construct the notification message:
@@ -414,7 +412,19 @@ DesktopSettingsView::IsRevertable() const
 
 WindowsSettingsView::WindowsSettingsView()
 	:
-	SettingsView("WindowsSettingsView")
+	SettingsView("WindowsSettingsView"),
+	fShowFullPathInTitleBarCheckBox(NULL),
+	fSingleWindowBrowseCheckBox(NULL),
+	fShowNavigatorCheckBox(NULL),
+	fOutlineSelectionCheckBox(NULL),
+	fSortFolderNamesFirstCheckBox(NULL),
+	fTypeAheadFilteringCheckBox(NULL),
+	fShowFullPathInTitleBar(false),
+	fSingleWindowBrowse(false),
+	fShowNavigator(false),
+	fTransparentSelection(false),
+	fSortFolderNamesFirst(false),
+	fTypeAheadFiltering(false)
 {
 	fShowFullPathInTitleBarCheckBox = new BCheckBox("",
 		B_TRANSLATE("Show folder location in title tab"),
@@ -561,7 +571,7 @@ void
 WindowsSettingsView::SetDefaults()
 {
 	TTracker* tracker = dynamic_cast<TTracker*>(be_app);
-	if (!tracker)
+	if (tracker == NULL)
 		return;
 
 	TrackerSettings settings;
@@ -621,7 +631,7 @@ void
 WindowsSettingsView::Revert()
 {
 	TTracker* tracker = dynamic_cast<TTracker*>(be_app);
-	if (!tracker)
+	if (tracker == NULL)
 		return;
 
 	TrackerSettings settings;
@@ -775,8 +785,9 @@ void
 SpaceBarSettingsView::MessageReceived(BMessage* message)
 {
 	TTracker* tracker = dynamic_cast<TTracker*>(be_app);
-	if (!tracker)
+	if (tracker == NULL)
 		return;
+
 	TrackerSettings settings;
 
 	switch (message->what) {
@@ -829,7 +840,10 @@ SpaceBarSettingsView::MessageReceived(BMessage* message)
 					break;
 			}
 
-			Window()->PostMessage(kSettingsContentsModified);
+			BWindow* window = Window();
+			if (window != NULL)
+				window->PostMessage(kSettingsContentsModified);
+
 			tracker->PostMessage(kSpaceBarColorChanged);
 			break;
 		}

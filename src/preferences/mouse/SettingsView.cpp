@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2011 Haiku Inc. All rights reserved.
+ * Copyright 2003-2014 Haiku Inc. All rights reserved.
  * Distributed under the terms of the MIT License.
  *
  * Authors:
@@ -24,6 +24,7 @@
 #include <MenuField.h>
 #include <MenuItem.h>
 #include <PopUpMenu.h>
+#include <SeparatorView.h>
 #include <Slider.h>
 #include <TextControl.h>
 #include <TranslationUtils.h>
@@ -47,6 +48,7 @@ mouse_mode_to_index(mode_mouse mode)
 			return 2;
 	}
 }
+
 
 static int32
 focus_follows_mouse_mode_to_index(mode_focus_follows_mouse mode)
@@ -83,41 +85,38 @@ SettingsView::SettingsView(MouseSettings& settings)
 
 	BMenuField* typeField = new BMenuField(B_TRANSLATE("Mouse type:"),
 		fTypeMenu);
-	typeField->SetAlignment(B_ALIGN_RIGHT);
+	typeField->SetAlignment(B_ALIGN_LEFT);
 
 	// Create the "Double-click speed slider...
 	fClickSpeedSlider = new BSlider("double_click_speed",
 		B_TRANSLATE("Double-click speed"), new BMessage(kMsgDoubleClickSpeed),
 		0, 1000, B_HORIZONTAL);
 	fClickSpeedSlider->SetHashMarks(B_HASH_MARKS_BOTTOM);
-	fClickSpeedSlider->SetHashMarkCount(5);
-	fClickSpeedSlider->SetLimitLabels(B_TRANSLATE("Slow"),
-		B_TRANSLATE("Fast"));
+	fClickSpeedSlider->SetHashMarkCount(7);
 
 	// Create the "Mouse Speed" slider...
 	fMouseSpeedSlider = new BSlider("mouse_speed", B_TRANSLATE("Mouse speed"),
 		new BMessage(kMsgMouseSpeed), 0, 1000, B_HORIZONTAL);
 	fMouseSpeedSlider->SetHashMarks(B_HASH_MARKS_BOTTOM);
 	fMouseSpeedSlider->SetHashMarkCount(7);
-	fMouseSpeedSlider->SetLimitLabels(B_TRANSLATE("Slow"),
-		B_TRANSLATE("Fast"));
 
 	// Create the "Mouse Acceleration" slider...
 	fAccelerationSlider = new BSlider("mouse_acceleration",
 		B_TRANSLATE("Mouse acceleration"),
 		new BMessage(kMsgAccelerationFactor), 0, 1000, B_HORIZONTAL);
 	fAccelerationSlider->SetHashMarks(B_HASH_MARKS_BOTTOM);
-	fAccelerationSlider->SetHashMarkCount(5);
-	fAccelerationSlider->SetLimitLabels(B_TRANSLATE("Slow"),
-		B_TRANSLATE("Fast"));
+	fAccelerationSlider->SetHashMarkCount(7);
 
 	// Mouse image...
 	fMouseView = new MouseView(fSettings);
 
 	// Create the "Double-click test area" text box...
+	const char* label = B_TRANSLATE("Double-click test area");
 	BTextControl* doubleClickTextControl = new BTextControl(NULL,
-		B_TRANSLATE("Double-click test area"), NULL);
+		label, NULL);
 	doubleClickTextControl->SetAlignment(B_ALIGN_LEFT, B_ALIGN_CENTER);
+	doubleClickTextControl->SetExplicitMinSize(
+		BSize(StringWidth(label), B_SIZE_UNSET));
 
 	// Add the "Mouse focus mode" pop up menu
 	fFocusMenu = new BPopUpMenu(B_TRANSLATE("Click to focus and raise"));
@@ -145,8 +144,8 @@ SettingsView::SettingsView(MouseSettings& settings)
 
 	const char *focusFollowsMouseLabels[] = {B_TRANSLATE_MARK("Normal"),
 		B_TRANSLATE_MARK("Warp"), B_TRANSLATE_MARK("Instant warp")};
-	const mode_focus_follows_mouse focusFollowsMouseModes[] =
-		{B_NORMAL_FOCUS_FOLLOWS_MOUSE, B_WARP_FOCUS_FOLLOWS_MOUSE,
+	const mode_focus_follows_mouse focusFollowsMouseModes[]
+		= {B_NORMAL_FOCUS_FOLLOWS_MOUSE, B_WARP_FOCUS_FOLLOWS_MOUSE,
 			B_INSTANT_WARP_FOCUS_FOLLOWS_MOUSE};
 
 	for (int i = 0; i < 3; i++) {
@@ -167,29 +166,35 @@ SettingsView::SettingsView(MouseSettings& settings)
 		new BMessage(kMsgAcceptFirstClick));
 
 	// dividers
-	BBox* hdivider = new BBox(
-		BRect(0, 0, 1, 1), B_EMPTY_STRING, B_FOLLOW_ALL_SIDES,
-			B_WILL_DRAW | B_FRAME_EVENTS, B_FANCY_BORDER);
-	hdivider->SetExplicitMaxSize(BSize(1, B_SIZE_UNLIMITED));
+	// This one is a vertical line for B_HORIZONTAL
+	BSeparatorView* hdivider = new BSeparatorView(B_VERTICAL, B_FANCY_BORDER);
 
-	BBox* vdivider = new BBox(
-		BRect(0, 0, 1, 1), B_EMPTY_STRING, B_FOLLOW_ALL_SIDES,
-			B_WILL_DRAW | B_FRAME_EVENTS, B_FANCY_BORDER);
-	vdivider->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, 1));
+	// This one is a horizontal line for B_VERTICAL
+	BSeparatorView* vdivider = new BSeparatorView(B_HORIZONTAL, B_FANCY_BORDER);
 
 	// Build the layout
-	SetLayout(new BGroupLayout(B_HORIZONTAL));
+	SetLayout(new BGroupLayout(B_VERTICAL));
 
-	AddChild(BGroupLayoutBuilder(B_VERTICAL, 10)
-		.AddGroup(B_HORIZONTAL, 10)
-			.AddGroup(B_VERTICAL, 10, 1)
-				.AddGroup(B_HORIZONTAL, 10)
+	// Layout is :
+	// A | B
+	// -----
+	//   C
+
+	AddChild(BGroupLayoutBuilder(B_VERTICAL, B_USE_SMALL_SPACING)
+
+		// Horizontal : A|B
+		.AddGroup(B_HORIZONTAL, B_USE_SMALL_SPACING)
+
+			// Vertical block A: mouse type/view/test
+			.AddGroup(B_VERTICAL, 10)
+				.AddGroup(B_HORIZONTAL, 0)
 					.AddGlue()
 					.Add(typeField)
 					.AddGlue()
 				.End()
 				.AddGlue()
-				.Add(BGroupLayoutBuilder(B_HORIZONTAL, 10)
+
+				.Add(BGroupLayoutBuilder(B_HORIZONTAL, 0)
 					.AddGlue()
 					.Add(fMouseView)
 					.AddGlue()
@@ -197,8 +202,11 @@ SettingsView::SettingsView(MouseSettings& settings)
 				.AddGlue()
 				.Add(doubleClickTextControl)
 			.End()
+
 			.Add(hdivider)
-			.AddGroup(B_VERTICAL, 5, 3)
+
+			// Vertical block B: speed settings
+			.AddGroup(B_VERTICAL, B_USE_DEFAULT_SPACING, 3)
 				.Add(BGroupLayoutBuilder(B_HORIZONTAL, 0)
 					.Add(fClickSpeedSlider)
 				)
@@ -210,15 +218,19 @@ SettingsView::SettingsView(MouseSettings& settings)
 				)
 			.End()
 		.End()
+
 		.Add(vdivider)
-		.AddGroup(B_HORIZONTAL, 10)
+
+		// Horizontal Block C: focus mode
+		.AddGroup(B_HORIZONTAL, B_USE_SMALL_SPACING)
 			.Add(focusField)
 			.AddGlue()
 			.AddGroup(B_VERTICAL, 0)
 				.Add(fAcceptFirstClickBox)
 			.End()
 		.End()
-		.SetInsets(5, 5, 5, 5)
+		.SetInsets(B_USE_SMALL_SPACING, B_USE_SMALL_SPACING,
+			B_USE_SMALL_SPACING, B_USE_SMALL_SPACING)
 	);
 }
 

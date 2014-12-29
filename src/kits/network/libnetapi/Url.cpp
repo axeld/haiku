@@ -17,7 +17,11 @@
 #include <MimeType.h>
 #include <Roster.h>
 
+#include <ICUWrapper.h>
 #include <RegExp.h>
+
+#include <unicode/idna.h>
+#include <unicode/stringpiece.h>
 
 
 static const char* kArchivedUrl = "be:url string";
@@ -66,17 +70,35 @@ BUrl::BUrl(const BUrl& other)
 	:
 	BArchivable(),
 	fUrlString(),
-	fProtocol(),
-	fUser(),
-	fPassword(),
-	fHost(),
-	fPort(0),
-	fPath(),
-	fRequest(),
-	fHasHost(false),
-	fHasFragment(false)
+	fProtocol(other.fProtocol),
+	fUser(other.fUser),
+	fPassword(other.fPassword),
+	fHost(other.fHost),
+	fPort(other.fPort),
+	fPath(other.fPath),
+	fRequest(other.fRequest),
+	fFragment(other.fFragment),
+	fUrlStringValid(other.fUrlStringValid),
+	fAuthorityValid(other.fAuthorityValid),
+	fUserInfoValid(other.fUserInfoValid),
+	fHasProtocol(other.fHasProtocol),
+	fHasUserName(other.fHasUserName),
+	fHasPassword(other.fHasPassword),
+	fHasHost(other.fHasHost),
+	fHasPort(other.fHasPort),
+	fHasPath(other.fHasPath),
+	fHasRequest(other.fHasRequest),
+	fHasFragment(other.fHasFragment)
 {
-	*this = other;
+	if (fUrlStringValid)
+		fUrlString = other.fUrlString;
+
+	if (fAuthorityValid)
+		fAuthority = other.fAuthority;
+
+	if (fUserInfoValid)
+		fUserInfo = other.fUserInfo;
+
 }
 
 
@@ -576,6 +598,50 @@ BUrl::UrlDecode(bool strict)
 }
 
 
+status_t
+BUrl::IDNAToAscii()
+{
+	UErrorCode err = U_ZERO_ERROR;
+	icu::IDNA* converter = icu::IDNA::createUTS46Instance(0, err);
+	icu::IDNAInfo info;
+
+	BString result;
+	BStringByteSink sink(&result);
+	converter->nameToASCII_UTF8(icu::StringPiece(fHost.String()), sink, info,
+		err);
+
+	delete converter;
+
+	if (U_FAILURE(err))
+		return B_ERROR;
+
+	fHost = result;
+	return B_OK;
+}
+
+
+status_t
+BUrl::IDNAToUnicode()
+{
+	UErrorCode err = U_ZERO_ERROR;
+	icu::IDNA* converter = icu::IDNA::createUTS46Instance(0, err);
+	icu::IDNAInfo info;
+
+	BString result;
+	BStringByteSink sink(&result);
+	converter->nameToUnicodeUTF8(icu::StringPiece(fHost.String()), sink, info,
+		err);
+
+	delete converter;
+
+	if (U_FAILURE(err))
+		return B_ERROR;
+
+	fHost = result;
+	return B_OK;
+}
+
+
 // #pragma mark - utility functionality
 
 
@@ -713,35 +779,35 @@ BUrl::operator!=(BUrl& other) const
 const BUrl&
 BUrl::operator=(const BUrl& other)
 {
-	fUrlStringValid		= other.fUrlStringValid;
+	fUrlStringValid = other.fUrlStringValid;
 	if (fUrlStringValid)
-		fUrlString			= other.fUrlString;
+		fUrlString = other.fUrlString;
 
-	fAuthorityValid		= other.fAuthorityValid;
+	fAuthorityValid = other.fAuthorityValid;
 	if (fAuthorityValid)
-		fAuthority			= other.fAuthority;
+		fAuthority = other.fAuthority;
 
-	fUserInfoValid		= other.fUserInfoValid;
+	fUserInfoValid = other.fUserInfoValid;
 	if (fUserInfoValid)
-		fUserInfo			= other.fUserInfo;
+		fUserInfo = other.fUserInfo;
 
-	fProtocol			= other.fProtocol;
-	fUser				= other.fUser;
-	fPassword			= other.fPassword;
-	fHost				= other.fHost;
-	fPort				= other.fPort;
-	fPath				= other.fPath;
-	fRequest			= other.fRequest;
-	fFragment			= other.fFragment;
+	fProtocol = other.fProtocol;
+	fUser = other.fUser;
+	fPassword = other.fPassword;
+	fHost = other.fHost;
+	fPort = other.fPort;
+	fPath = other.fPath;
+	fRequest = other.fRequest;
+	fFragment = other.fFragment;
 
-	fHasProtocol		= other.fHasProtocol;
-	fHasUserName		= other.fHasUserName;
-	fHasPassword		= other.fHasPassword;
-	fHasHost			= other.fHasHost;
-	fHasPort			= other.fHasPort;
-	fHasPath			= other.fHasPath;
-	fHasRequest			= other.fHasRequest;
-	fHasFragment		= other.fHasFragment;
+	fHasProtocol = other.fHasProtocol;
+	fHasUserName = other.fHasUserName;
+	fHasPassword = other.fHasPassword;
+	fHasHost = other.fHasHost;
+	fHasPort = other.fHasPort;
+	fHasPath = other.fHasPath;
+	fHasRequest = other.fHasRequest;
+	fHasFragment = other.fHasFragment;
 
 	return *this;
 }
@@ -1004,14 +1070,25 @@ BUrl::_DoUrlDecodeChunk(const BString& chunk, bool strict)
 	for (int32 i = 0; i < chunk.Length(); i++) {
 		if (chunk[i] == '+' && !strict)
 			result << ' ';
-		else if (chunk[i] != '%')
-			result << chunk[i];
 		else {
-			char hexString[] = { chunk[i + 1], chunk[i + 2], 0 };
-			result << (char)strtol(hexString, NULL, 16);
+			char decoded = 0;
+			char* out = NULL;
+			char hexString[3];
 
-			i += 2;
-		}
+			if (chunk[i] == '%' && i < chunk.Length() - 2
+				&& isxdigit(chunk[i + 1]) && isxdigit(chunk[i+2])) {
+				hexString[0] = chunk[i + 1];
+				hexString[1] = chunk[i + 2];
+				hexString[2] = 0;
+				decoded = (char)strtol(hexString, &out, 16);
+			}
+
+			if (out == hexString + 2) {
+				i += 2;
+				result << decoded;
+			} else
+				result << chunk[i];
+		} 
 	}
 	return result;
 }
