@@ -9,6 +9,9 @@
  */
 
 
+#include <StringForSize.h>
+	// Must be first, or the BPrivate namespaces are confused
+
 #include "PackageManager.h"
 
 #include <package/CommitTransactionResult.h>
