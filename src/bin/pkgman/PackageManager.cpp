@@ -1,10 +1,11 @@
 /*
- * Copyright 2013-2014, Haiku, Inc. All Rights Reserved.
+ * Copyright 2013-2015, Haiku, Inc. All Rights Reserved.
  * Distributed under the terms of the MIT License.
  *
  * Authors:
- *		Ingo Weinhold <ingo_weinhold@gmx.de>
+ *		Axel Dörfler <axeld@pinc-software.de>
  *		Rene Gollent <rene@gollent.com>
+ *		Ingo Weinhold <ingo_weinhold@gmx.de>
  */
 
 
@@ -176,7 +177,7 @@ PackageManager::ProgressPackageDownloadStarted(const char* packageName)
 
 void
 PackageManager::ProgressPackageDownloadActive(const char* packageName,
-	float completionPercentage)
+	float completionPercentage, off_t bytes, off_t totalBytes)
 {
 	static const char* progressChars[] = {
 		"\xE2\x96\x8F",
@@ -189,7 +190,7 @@ PackageManager::ProgressPackageDownloadActive(const char* packageName,
 		"\xE2\x96\x88",
 	};
 
-	const int width = 70;
+	const int width = 65;
 
 	int position;
 	int ipart = (int)(completionPercentage * width);
@@ -210,8 +211,12 @@ PackageManager::ProgressPackageDownloadActive(const char* packageName,
 		}
 	}
 
-	// Also print the progress percentage
-	printf(" %3d%%", (int)(completionPercentage * 100));
+	// Also print the progress percentage, and downloaded size
+	char byteBuffer[32];
+	char totalBuffer[32];
+	printf(" %3d%% (%s/%s)", (int)(completionPercentage * 100),
+		string_for_size(bytes, byteBuffer, sizeof(byteBuffer)),
+		string_for_size(totalBytes, totalBuffer, sizeof(totalBuffer)));
 
 	fflush(stdout);
 }
