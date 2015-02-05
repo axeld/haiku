@@ -33,7 +33,11 @@ public:
 private:
 			void 				_Init();
 			void				_PopulateBitmaps(const char* mediaType);
+			void				_UpdateState();
+			BBitmap*			_StateIcon() const;
+			const char*			_StateText() const;
 
+private:
 			BBitmap* 			fIcon;
 			BBitmap*			fIconOffline;
 			BBitmap*			fIconPending;
@@ -45,6 +49,11 @@ private:
 			float				fFirstlineOffset;
 			float				fSecondlineOffset;
 			float				fThirdlineOffset;
+
+			bool				fDisabled;
+			bool				fHasLink;
+			bool				fConnecting;
+			BString				fAddress[2];
 };
 
 

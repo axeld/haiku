@@ -124,6 +124,12 @@ NetworkWindow::NetworkWindow()
 
 	fAddOnView = NULL;
 
+	// Set preferred size of the list view from its contents
+	float width;
+	float height;
+	fListView->GetPreferredSize(&width, &height);
+	fListView->SetExplicitPreferredSize(BSize(width, std::min(height, 400.f)));
+
 	CenterOnScreen();
 }
 
