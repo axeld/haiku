@@ -50,6 +50,7 @@ private:
 			float				fSecondlineOffset;
 			float				fThirdlineOffset;
 
+			BString				fDeviceName;
 			bool				fDisabled;
 			bool				fHasLink;
 			bool				fConnecting;

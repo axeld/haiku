@@ -28,7 +28,7 @@
 
 
 #undef B_TRANSLATION_CONTEXT
-#define B_TRANSLATION_CONTEXT "InterfacesListView"
+#define B_TRANSLATION_CONTEXT "InterfaceListItem"
 
 
 InterfaceListItem::InterfaceListItem(const char* name)
@@ -95,7 +95,7 @@ InterfaceListItem::DrawItem(BView* owner, BRect /*bounds*/, bool complete)
 
 	statePoint -= BPoint(be_plain_font->StringWidth(stateText) + 4.0f, 0);
 
-	if (disabled) {
+	if (fDisabled) {
 		list->SetDrawingMode(B_OP_ALPHA);
 		list->SetBlendingMode(B_CONSTANT_ALPHA, B_ALPHA_OVERLAY);
 		list->SetHighColor(0, 0, 0, 32);
@@ -125,10 +125,7 @@ InterfaceListItem::DrawItem(BView* owner, BRect /*bounds*/, bool complete)
 
 	list->SetFont(be_bold_font);
 
-	BString name = Name();
-	name.RemoveFirst("/dev/net/");
-
-	list->DrawString(name, namePoint);
+	list->DrawString(fDeviceName, namePoint);
 	list->SetFont(be_plain_font);
 	list->DrawString(stateText, statePoint);
 
@@ -170,7 +167,11 @@ InterfaceListItem::Update(BView* owner, const BFont* font)
 	fSecondlineOffset = fFirstlineOffset + lineHeight;
 	fThirdlineOffset = fFirstlineOffset + (lineHeight * 2);
 
-	SetWidth();
+	_UpdateState();
+
+	SetWidth(fIcon->Bounds().Width() + 24
+		+ be_bold_font->StringWidth(fDeviceName.String())
+		+ owner->StringWidth(_StateText()));
 	SetHeight(std::max(3 * lineHeight + 4, fIcon->Bounds().Height() + 8));
 		// either to the text height or icon height, whichever is taller
 }
@@ -266,12 +267,15 @@ InterfaceListItem::_PopulateBitmaps(const char* mediaType)
 void
 InterfaceListItem::_UpdateState()
 {
+	fDeviceName = Name();
+	fDeviceName.RemoveFirst("/dev/net/");
+
 	fDisabled = (fInterface.Flags() & IFF_UP) == 0;
 	fHasLink = fInterface.HasLink();
-	fConnecting = (fInterfaceFlags() & IFF_CONFIGURING) != 0;
+	fConnecting = (fInterface.Flags() & IFF_CONFIGURING) != 0;
 
 	int32 count = fInterface.CountAddresses();
-	int32 addressIndex = 0;
+	size_t addressIndex = 0;
 	for (int32 index = 0; index < count; index++) {
 		if (addressIndex >= sizeof(fAddress) / sizeof(fAddress[0]))
 			break;
@@ -286,12 +290,10 @@ InterfaceListItem::_UpdateState()
 BBitmap*
 InterfaceListItem::_StateIcon() const
 {
-	if (fDisabled) {
-		interfaceState = "disabled";
-		stateIcon = fIconOffline;
-	} else if (!fHasLink) {
-		interfaceState = "no link";
-		stateIcon = fIconOffline;
+	if (fDisabled)
+		return fIconOffline;
+	if (!fHasLink)
+		return fIconOffline;
 	// TODO!
 //	} else if ((fSettings->IPAddr(AF_INET).IsEmpty()
 //		&& fSettings->IPAddr(AF_INET6).IsEmpty())
@@ -299,22 +301,19 @@ InterfaceListItem::_StateIcon() const
 //		|| fSettings->AutoConfigure(AF_INET6))) {
 //		interfaceState = "connecting" B_UTF8_ELLIPSIS;
 //		stateIcon = fIconPending;
-	} else {
-		interfaceState = "connected";
-		stateIcon = fIconOnline;
-	}
+
+	return fIconOnline;
 }
 
 
 const char*
 InterfaceListItem::_StateText() const
 {
-	if (fDisabled) {
-		interfaceState = "disabled";
-		stateIcon = fIconOffline;
-	} else if (!fInterface.HasLink()) {
-		interfaceState = "no link";
-		stateIcon = fIconOffline;
+	if (fDisabled)
+		return B_TRANSLATE("disabled");
+	if (!fInterface.HasLink())
+		return B_TRANSLATE("no link");
+
 	// TODO!
 //	} else if ((fSettings->IPAddr(AF_INET).IsEmpty()
 //		&& fSettings->IPAddr(AF_INET6).IsEmpty())
@@ -322,8 +321,6 @@ InterfaceListItem::_StateText() const
 //		|| fSettings->AutoConfigure(AF_INET6))) {
 //		interfaceState = "connecting" B_UTF8_ELLIPSIS;
 //		stateIcon = fIconPending;
-	} else {
-		interfaceState = "connected";
-		stateIcon = fIconOnline;
-	}
+
+	return B_TRANSLATE("connected");
 }
