@@ -1444,7 +1444,7 @@ BNetworkServiceSettings::BNetworkServiceSettings(const BMessage& message)
 	if (message.FindString("type", &string) == B_OK)
 		fType = parse_type(string);
 	else
-		fType = type_for_protocol(serviceProtocol);
+		fType = type_for_protocol(fProtocol);
 
 	fStandAlone = message.GetBool("stand_alone");
 
@@ -1656,7 +1656,7 @@ BNetworkServiceSettings::GetMessage(BMessage& data) const
 
 	for (int32 i = 0; i < fArguments.CountStrings(); i++) {
 		if (status == B_OK)
-			status = data.AddMessage("launch", fArguments.StringAt(i));
+			status = data.AddString("launch", fArguments.StringAt(i));
 		if (status != B_OK)
 			break;
 	}
