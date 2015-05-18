@@ -82,7 +82,6 @@ StdBinCommands
 	catattr.cpp
 	checkfs.cpp
 	clipboard.cpp
-	clockconfig.cpp
 	df.cpp
 	diskimage.cpp
 	dpms.cpp
