@@ -78,6 +78,7 @@ StdBinCommands
 
 # standard commands that need libbe.so
 StdBinCommands
+	autologin.cpp
 	beep.cpp
 	catattr.cpp
 	checkfs.cpp
