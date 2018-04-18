@@ -204,6 +204,22 @@ struct advisory_locking {
 	}
 };
 
+struct AdvisoryLocker {
+								AdvisoryLocker();
+								AdvisoryLocker(struct vnode* vnode);
+								~AdvisoryLocker();
+
+			void				Unset();
+			advisory_locking*	SetTo(struct vnode* vnode);
+			status_t			Create(struct vnode* vnode);
+
+			advisory_locking*	Get() { return fLocking; }
+			void				Detach() { fLocking = NULL; }
+
+private:
+	advisory_locking*	fLocking;
+};
+
 /*!	\brief Guards sMountsTable.
 
 	The holder is allowed to read/write access the sMountsTable.
@@ -1486,28 +1502,48 @@ vnode_low_resource_handler(void* /*data*/, uint32 resources, int32 level)
 }
 
 
-static inline void
-put_advisory_locking(struct advisory_locking* locking)
+AdvisoryLocker::AdvisoryLocker()
+	:
+	fLocking(NULL)
 {
-	release_sem(locking->lock);
+}
+
+
+AdvisoryLocker::AdvisoryLocker(struct vnode* vnode)
+{
+	SetTo(vnode);
+}
+
+
+AdvisoryLocker::~AdvisoryLocker()
+{
+	Unset();
+}
+
+
+void
+AdvisoryLocker::Unset()
+{
+	if (fLocking != NULL) {
+		release_sem(fLocking->lock);
+		fLocking = NULL;
+	}
 }
 
 
 /*!	Returns the advisory_locking object of the \a vnode in case it
 	has one, and locks it.
-	You have to call put_advisory_locking() when you're done with
-	it.
 	Note, you must not have the vnode mutex locked when calling
 	this function.
 */
-static struct advisory_locking*
-get_advisory_locking(struct vnode* vnode)
+advisory_locking*
+AdvisoryLocker::SetTo(struct vnode* vnode)
 {
 	rw_lock_read_lock(&sVnodeLock);
 	vnode->Lock();
 
-	struct advisory_locking* locking = vnode->advisory_locking;
-	sem_id lock = locking != NULL ? locking->lock : B_ERROR;
+	fLocking = vnode->advisory_locking;
+	sem_id lock = fLocking != NULL ? fLocking->lock : B_ERROR;
 
 	vnode->Unlock();
 	rw_lock_read_unlock(&sVnodeLock);
@@ -1521,7 +1557,7 @@ get_advisory_locking(struct vnode* vnode)
 		return NULL;
 	}
 
-	return locking;
+	return fLocking;
 }
 
 
@@ -1531,8 +1567,8 @@ get_advisory_locking(struct vnode* vnode)
 	object from someone else in the mean time, you'll still get this
 	one locked then.
 */
-static status_t
-create_advisory_locking(struct vnode* vnode)
+status_t
+AdvisoryLocker::Create(struct vnode* vnode)
 {
 	if (vnode == NULL)
 		return B_FILE_ERROR;
@@ -1540,7 +1576,7 @@ create_advisory_locking(struct vnode* vnode)
 	ObjectDeleter<advisory_locking> lockingDeleter;
 	struct advisory_locking* locking = NULL;
 
-	while (get_advisory_locking(vnode) == NULL) {
+	while (SetTo(vnode) == NULL) {
 		// no locking object set on the vnode yet, create one
 		if (locking == NULL) {
 			locking = new(std::nothrow) advisory_locking;
@@ -1594,13 +1630,13 @@ test_advisory_lock(struct vnode* vnode, struct flock* flock)
 {
 	flock->l_type = F_UNLCK;
 
-	struct advisory_locking* locking = get_advisory_locking(vnode);
-	if (locking == NULL)
+	AdvisoryLocker locker(vnode);
+	if (locker.Get() != NULL)
 		return B_OK;
 
 	team_id team = team_get_current_team_id();
 
-	LockList::Iterator iterator = locking->locks.GetIterator();
+	LockList::Iterator iterator = locker.Get()->locks.GetIterator();
 	while (iterator.HasNext()) {
 		struct advisory_lock* lock = iterator.Next();
 
@@ -1618,7 +1654,6 @@ test_advisory_lock(struct vnode* vnode, struct flock* flock)
 		}
 	}
 
-	put_advisory_locking(locking);
 	return B_OK;
 }
 
@@ -1631,7 +1666,8 @@ release_advisory_lock(struct vnode* vnode, struct flock* flock)
 {
 	FUNCTION(("release_advisory_lock(vnode = %p, flock = %p)\n", vnode, flock));
 
-	struct advisory_locking* locking = get_advisory_locking(vnode);
+	AdvisoryLocker advisoryLocker(vnode);
+	struct advisory_locking* locking = advisoryLocker.Get();
 	if (locking == NULL)
 		return B_OK;
 
@@ -1671,7 +1707,6 @@ release_advisory_lock(struct vnode* vnode, struct flock* flock)
 				if (secondLock == NULL) {
 					// TODO: we should probably revert the locks we already
 					// changed... (ie. allocate upfront)
-					put_advisory_locking(locking);
 					return B_NO_MEMORY;
 				}
 
@@ -1698,12 +1733,12 @@ release_advisory_lock(struct vnode* vnode, struct flock* flock)
 	bool removeLocking = locking->locks.IsEmpty();
 	release_sem_etc(locking->wait_sem, 1, B_RELEASE_ALL);
 
-	put_advisory_locking(locking);
+	advisoryLocker.Unset();
 
 	if (removeLocking) {
 		// We can remove the whole advisory locking structure; it's no
 		// longer used
-		locking = get_advisory_locking(vnode);
+		locking = advisoryLocker.SetTo(vnode);
 		if (locking != NULL) {
 			ReadLocker locker(sVnodeLock);
 			AutoLocker<Vnode> nodeLocker(vnode);
@@ -1716,12 +1751,12 @@ release_advisory_lock(struct vnode* vnode, struct flock* flock)
 
 				// we've detached the locking from the vnode, so we can
 				// safely delete it
+				advisoryLocker.Detach();
 				delete locking;
 			} else {
 				// the locking is in use again
 				nodeLocker.Unlock();
 				locker.Unlock();
-				release_sem_etc(locking->lock, 1, B_DO_NOT_RESCHEDULE);
 			}
 		}
 	}
@@ -1751,12 +1786,13 @@ acquire_advisory_lock(struct vnode* vnode, pid_t session, struct flock* flock,
 
 	// TODO: do deadlock detection!
 
+	AdvisoryLocker locker;
 	struct advisory_locking* locking;
 
 	while (true) {
 		// if this vnode has an advisory_locking structure attached,
 		// lock that one and search for any colliding file lock
-		status = create_advisory_locking(vnode);
+		status = locker.Create(vnode);
 		if (status != B_OK)
 			return status;
 
@@ -1785,10 +1821,10 @@ acquire_advisory_lock(struct vnode* vnode, pid_t session, struct flock* flock,
 
 		// We need to wait. Do that or fail now, if we've been asked not to.
 
-		if (!wait) {
-			put_advisory_locking(locking);
+		if (!wait)
 			return session != -1 ? B_WOULD_BLOCK : B_PERMISSION_DENIED;
-		}
+
+		locker.Detach();
 
 		status = switch_sem_etc(locking->lock, waitForLock, 1,
 			B_CAN_INTERRUPT, 0);
@@ -1803,10 +1839,8 @@ acquire_advisory_lock(struct vnode* vnode, pid_t session, struct flock* flock,
 
 	struct advisory_lock* lock = (struct advisory_lock*)malloc(
 		sizeof(struct advisory_lock));
-	if (lock == NULL) {
-		put_advisory_locking(locking);
+	if (lock == NULL)
 		return B_NO_MEMORY;
-	}
 
 	lock->team = team_get_current_team_id();
 	lock->session = session;
@@ -1816,7 +1850,6 @@ acquire_advisory_lock(struct vnode* vnode, pid_t session, struct flock* flock,
 	lock->shared = shared;
 
 	locking->locks.Add(lock);
-	put_advisory_locking(locking);
 
 	return status;
 }
