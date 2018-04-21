@@ -184,23 +184,19 @@ typedef DoublyLinkedList<advisory_lock> LockList;
 
 
 struct advisory_locking {
-	sem_id			lock;
-	sem_id			wait_sem;
+	mutex			lock;
+	ConditionVariable wait_condition;
 	LockList		locks;
 
 	advisory_locking()
-		:
-		lock(-1),
-		wait_sem(-1)
 	{
+		mutex_init(&lock, "advisory locking");
+		wait_condition.Init(this, "advisory locking");
 	}
 
 	~advisory_locking()
 	{
-		if (lock >= 0)
-			delete_sem(lock);
-		if (wait_sem >= 0)
-			delete_sem(wait_sem);
+		mutex_destroy(&lock);
 	}
 };
 
@@ -1525,7 +1521,7 @@ void
 AdvisoryLocker::Unset()
 {
 	if (fLocking != NULL) {
-		release_sem(fLocking->lock);
+		mutex_unlock(&fLocking->lock);
 		fLocking = NULL;
 	}
 }
@@ -1583,14 +1579,6 @@ AdvisoryLocker::Create(struct vnode* vnode)
 			if (locking == NULL)
 				return B_NO_MEMORY;
 			lockingDeleter.SetTo(locking);
-
-			locking->wait_sem = create_sem(0, "advisory lock");
-			if (locking->wait_sem < 0)
-				return locking->wait_sem;
-
-			locking->lock = create_sem(0, "advisory locking");
-			if (locking->lock < 0)
-				return locking->lock;
 		}
 
 		// set our newly created locking object
@@ -1731,7 +1719,7 @@ release_advisory_lock(struct vnode* vnode, struct flock* flock)
 	}
 
 	bool removeLocking = locking->locks.IsEmpty();
-	release_sem_etc(locking->wait_sem, 1, B_RELEASE_ALL);
+	locking->wait_condition.NotifyAll();
 
 	advisoryLocker.Unset();
 
@@ -1798,7 +1786,7 @@ acquire_advisory_lock(struct vnode* vnode, pid_t session, struct flock* flock,
 
 		locking = vnode->advisory_locking;
 		team_id team = team_get_current_team_id();
-		sem_id waitForLock = -1;
+		bool waitForLock = false;
 
 		// test for collisions
 		LockList::Iterator iterator = locking->locks.GetIterator();
@@ -1810,13 +1798,13 @@ acquire_advisory_lock(struct vnode* vnode, pid_t session, struct flock* flock,
 				// locks do overlap
 				if (!shared || !lock->shared) {
 					// we need to wait
-					waitForLock = locking->wait_sem;
+					waitForLock = true;
 					break;
 				}
 			}
 		}
 
-		if (waitForLock < 0)
+		if (!waitForLock)
 			break;
 
 		// We need to wait. Do that or fail now, if we've been asked not to.
@@ -1824,10 +1812,11 @@ acquire_advisory_lock(struct vnode* vnode, pid_t session, struct flock* flock,
 		if (!wait)
 			return session != -1 ? B_WOULD_BLOCK : B_PERMISSION_DENIED;
 
-		locker.Detach();
+		ConditionVariableEntry entry;
+		locking->wait_condition.Add(&entry);
+		locker.Unset();
 
-		status = switch_sem_etc(locking->lock, waitForLock, 1,
-			B_CAN_INTERRUPT, 0);
+		status = entry.Wait(B_CAN_INTERRUPT);
 		if (status != B_OK && status != B_BAD_SEM_ID)
 			return status;
 
@@ -3015,8 +3004,7 @@ _dump_advisory_locking(advisory_locking* locking)
 	if (locking == NULL)
 		return;
 
-	kprintf("   lock:        %" B_PRId32, locking->lock);
-	kprintf("   wait_sem:    %" B_PRId32, locking->wait_sem);
+	locking->wait_condition.Dump();
 
 	int32 index = 0;
 	LockList::Iterator iterator = locking->locks.GetIterator();
