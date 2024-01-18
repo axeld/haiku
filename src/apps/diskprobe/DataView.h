@@ -1,11 +1,12 @@
 /*
- * Copyright 2004-2018, Axel Dörfler, axeld@pinc-software.de.
+ * Copyright 2004-2024, Axel Dörfler, axeld@pinc-software.de.
  * Distributed under the terms of the MIT License.
  */
 #ifndef DATA_VIEW_H
 #define DATA_VIEW_H
 
 
+#include <ObjectList.h>
 #include <Path.h>
 #include <String.h>
 #include <View.h>
@@ -24,6 +25,13 @@ enum view_focus {
 	kNoFocus,
 	kHexFocus,
 	kAsciiFocus
+};
+
+
+struct highlight_range {
+	rgb_color	color;
+	int32		start;
+	int32		end;
 };
 
 
@@ -68,21 +76,26 @@ public:
 			void				SetBase(base_type type);
 
 			const uint8*		DataAt(int32 start);
+			size_t				DataSize() const { return fDataSize; }
 
 	static	int32				WidthForFontSize(float size);
 
 private:
 			BRect				DataBounds(bool inView = false) const;
-			BRect				SelectionFrame(view_focus which, int32 start,
+			BRect				RangeFrame(view_focus which, int32 start,
 									int32 end);
 			int32				PositionAt(view_focus focus, BPoint point,
 									view_focus* _newFocus = NULL);
 
 			void				DrawSelectionFrame(view_focus which);
+			void				_DrawRangeBlock(view_focus which,
+									int32 blockStart, int32 blockEnd);
+
 			void				DrawSelectionBlock(view_focus which,
 									int32 start, int32 end);
 			void				DrawSelectionBlock(view_focus which);
 			void				DrawSelection(bool frameOnly = false);
+			void				_DrawHighlightRanges(int32 lineNum);
 			void				SetActive(bool active);
 			void				SetFocus(view_focus which);
 
@@ -97,6 +110,7 @@ private:
 
 private:
 			DataEditor&			fEditor;
+			BObjectList<highlight_range> fHighlightRanges;
 			uint8*				fData;
 			size_t				fDataSize;
 			off_t				fFileSize;

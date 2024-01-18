@@ -94,7 +94,8 @@ is_valid_utf8(uint8 *data, size_t size)
 
 
 DataView::DataView(DataEditor &editor)
-	: BView("dataView", B_WILL_DRAW | B_NAVIGABLE | B_FRAME_EVENTS),
+	:
+	BView("dataView", B_WILL_DRAW | B_NAVIGABLE | B_FRAME_EVENTS),
 	fEditor(editor),
 	fFocus(kHexFocus),
 	fBase(kHexBase),
@@ -410,6 +411,7 @@ DataView::Draw(BRect updateRect)
 			kVerticalSpace + lineNum * fFontHeight,
 			location.x - kHorizontalSpace / 2 + Bounds().right,
 			kVerticalSpace + (lineNum + 1) * fFontHeight), B_SOLID_LOW);
+		_DrawHighlightRanges(lineNum);
 
 		ConvertLine(line, i, fData + i, fSizeInView - i);
 		DrawString(line, location);
@@ -499,7 +501,7 @@ DataView::PositionAt(view_focus focus, BPoint point, view_focus *_newFocus)
 
 
 BRect
-DataView::SelectionFrame(view_focus which, int32 start, int32 end)
+DataView::RangeFrame(view_focus which, int32 start, int32 end)
 {
 	float spacing = 0;
 	float width = fCharWidth;
@@ -547,7 +549,7 @@ DataView::DrawSelectionFrame(view_focus which)
 	if (end > first + (int32)kBlockSize - 1)
 		end = first + kBlockSize - 1;
 
-	BRect firstLine = SelectionFrame(which, first + start, end);
+	BRect firstLine = RangeFrame(which, first + start, end);
 	firstLine.right += spacing;
 	first += kBlockSize;
 
@@ -560,12 +562,12 @@ DataView::DrawSelectionFrame(view_focus which)
 		if (end == kBlockSize - 1)
 			last += kBlockSize;
 		if (last > first) {
-			block = SelectionFrame(which, first, last - 1);
+			block = RangeFrame(which, first, last - 1);
 			block.right += spacing;
 			drawBlock = true;
 		}
 		if (end != kBlockSize - 1) {
-			lastLine = SelectionFrame(which, last, last + end);
+			lastLine = RangeFrame(which, last, last + end);
 			lastLine.right += spacing;
 			drawLastLine = true;
 		}
@@ -643,14 +645,10 @@ DataView::DrawSelectionFrame(view_focus which)
 
 
 void
-DataView::DrawSelectionBlock(view_focus which, int32 blockStart, int32 blockEnd)
+DataView::_DrawRangeBlock(view_focus which, int32 blockStart, int32 blockEnd)
 {
 	if (fFileSize == 0)
 		return;
-
-	// draw first line
-
-	SetDrawingMode(B_OP_INVERT);
 
 	int32 start = blockStart % kBlockSize;
 	int32 first = (blockStart / kBlockSize) * kBlockSize;
@@ -659,7 +657,7 @@ DataView::DrawSelectionBlock(view_focus which, int32 blockStart, int32 blockEnd)
 	if (end > first + (int32)kBlockSize - 1)
 		end = first + kBlockSize - 1;
 
-	FillRect(SelectionFrame(which, first + start, end));
+	FillRect(RangeFrame(which, first + start, end));
 	first += kBlockSize;
 
 	// draw block (and last line) if necessary
@@ -672,11 +670,24 @@ DataView::DrawSelectionBlock(view_focus which, int32 blockStart, int32 blockEnd)
 			last += kBlockSize;
 
 		if (last > first)
-			FillRect(SelectionFrame(which, first, last - 1));
+			FillRect(RangeFrame(which, first, last - 1));
 		if (end != kBlockSize - 1)
-			FillRect(SelectionFrame(which, last, last + end));
+			FillRect(RangeFrame(which, last, last + end));
 	}
 
+}
+
+
+void
+DataView::DrawSelectionBlock(view_focus which, int32 blockStart, int32 blockEnd)
+{
+	if (fFileSize == 0)
+		return;
+
+	// draw first line
+
+	SetDrawingMode(B_OP_INVERT);
+	_DrawRangeBlock(which, blockStart, blockEnd);
 	SetDrawingMode(B_OP_COPY);
 }
 
@@ -699,6 +710,30 @@ DataView::DrawSelection(bool frameOnly)
 		DrawSelectionFrame(kHexFocus);
 		DrawSelectionFrame(kAsciiFocus);
 	}
+}
+
+
+void
+DataView::_DrawHighlightRanges(int32 lineNum)
+{
+	rgb_color color = HighColor();
+
+	for (int32 index = 0; index < fHighlightRanges.CountItems(); index++) {
+		highlight_range& range = *fHighlightRanges.ItemAt(index);
+		SetHighColor(range.color);
+		int32 rangeStartLine = range.start / kBlockSize;
+		int32 rangeEndLine = range.end / kBlockSize;
+		if (rangeStartLine <= lineNum && rangeEndLine >= lineNum) {
+			int32 rangeStartPos = rangeStartLine == lineNum
+				? range.start : lineNum * kBlockSize;
+			int32 rangeEndPos = rangeEndLine == lineNum
+				? range.end : (lineNum + 1) * kBlockSize - 1;
+			_DrawRangeBlock(kHexFocus, rangeStartPos, rangeEndPos);
+			_DrawRangeBlock(kAsciiFocus, rangeStartPos, rangeEndPos);
+		}
+	}
+
+	SetHighColor(color);
 }
 
 
@@ -803,13 +838,13 @@ DataView::InvalidateRange(int32 start, int32 end)
 	}
 
 	// the part with focus
-	BRect rect = SelectionFrame(fFocus, start, end);
+	BRect rect = RangeFrame(fFocus, start, end);
 	rect.bottom++;
 	rect.right++;
 	Invalidate(rect);
 
 	// the part without focus
-	rect = SelectionFrame(fFocus == kHexFocus ? kAsciiFocus : kHexFocus, start, end);
+	rect = RangeFrame(fFocus == kHexFocus ? kAsciiFocus : kHexFocus, start, end);
 	rect.bottom++;
 	rect.right++;
 	Invalidate(rect);
@@ -822,7 +857,7 @@ DataView::MakeVisible(int32 position)
 	if (position < 0 || position > int32(fDataSize) - 1)
 		return;
 
-	BRect frame = SelectionFrame(fFocus, position, position);
+	BRect frame = RangeFrame(fFocus, position, position);
 	BRect bounds = Bounds();
 	if (bounds.Contains(frame))
 		return;
@@ -1028,7 +1063,7 @@ DataView::InitiateDrag(view_focus focus)
 	if (is_valid_utf8(data, length))
 		drag->AddData("text/plain", B_MIME_TYPE, data, length);
 
-	// get a frame that contains the whole selection - SelectionFrame()
+	// get a frame that contains the whole selection - RangeFrame()
 	// only spans a rectangle between the start and the end point, so
 	// we have to pass it the correct input values
 
@@ -1037,9 +1072,9 @@ DataView::InitiateDrag(view_focus focus)
 	int32 first = fStart & ~width;
 	int32 last = ((fEnd + width) & ~width) - 1;
 	if (first == (last & ~width))
-		frame = SelectionFrame(focus, fStart, fEnd);
+		frame = RangeFrame(focus, fStart, fEnd);
 	else
-		frame = SelectionFrame(focus, first, last);
+		frame = RangeFrame(focus, first, last);
 
 	BRect bounds = Bounds();
 	if (!bounds.Contains(frame))
@@ -1258,7 +1293,7 @@ DataView::KeyDown(const char *bytes, int32 numBytes)
 		{
 			// scroll one page up, but keep the same cursor column
 
-			BRect frame = SelectionFrame(fFocus, fStart, fStart);
+			BRect frame = RangeFrame(fFocus, fStart, fStart);
 			frame.OffsetBy(0, -Bounds().Height());
 			if (frame.top <= kVerticalSpace)
 				frame.top = kVerticalSpace + 1;
@@ -1272,7 +1307,7 @@ DataView::KeyDown(const char *bytes, int32 numBytes)
 		{
 			// scroll one page down, but keep the same cursor column
 
-			BRect frame = SelectionFrame(fFocus, fStart, fStart);
+			BRect frame = RangeFrame(fFocus, fStart, fStart);
 			frame.OffsetBy(0, Bounds().Height());
 
 			float lastLine = DataBounds().Height() - 1 - kVerticalSpace;
