@@ -646,7 +646,7 @@ BlockAllocator::~BlockAllocator()
 
 
 status_t
-BlockAllocator::Initialize(bool full, bool alreadyLocked)
+BlockAllocator::Initialize(bool full)
 {
 	fNumGroups = fVolume->AllocationGroups();
 	fBlocksPerGroup = fVolume->SuperBlock().BlocksPerAllocationGroup();
@@ -659,10 +659,8 @@ BlockAllocator::Initialize(bool full, bool alreadyLocked)
 	if (!full)
 		return B_OK;
 
-	if (!alreadyLocked) {
-		recursive_lock_lock(&fLock);
-			// the lock will be released by the _Initialize() method
-	}
+	recursive_lock_lock(&fLock);
+		// the lock will be released by the _Initialize() method
 
 	thread_id id = spawn_kernel_thread((thread_func)BlockAllocator::_Initialize,
 		"bfs block allocator", B_LOW_PRIORITY, this);
@@ -751,8 +749,17 @@ BlockAllocator::Reinitialize()
 		// starts a transaction before we get the allocator lock, as that
 		// would cause a deadlock
 
+	recursive_lock_lock(&fLock);
+
 	delete[] fGroups;
-	return Initialize(true, true);
+	status = Initialize(false);
+	if (status != B_OK) {
+		recursive_lock_unlock(&fLock);
+		return status;
+	}
+
+	// Start _Initialize() synchronously; it will release the lock
+	return _Initialize(this);
 }
 
 
@@ -1226,13 +1233,14 @@ BlockAllocator::Allocate(Transaction& transaction, Inode* inode,
 
 
 /*!	Attempts to allocate a specific block run.
+	This method ignores the range constraint on purpose.
 */
 status_t
 BlockAllocator::AllocateBlockRun(Transaction& transaction, block_run run)
 {
 	RecursiveLocker lock(fLock);
 
-	if (run.AllocationGroup() >= fNumGroups || !IsBlockRunInRange(run))
+	if (run.AllocationGroup() >= fNumGroups)
 		return B_BAD_VALUE;
 
 	AllocationGroup& group = fGroups[run.AllocationGroup()];

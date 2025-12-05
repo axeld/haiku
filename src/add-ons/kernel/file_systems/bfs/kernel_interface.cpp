@@ -1,5 +1,5 @@
 /*
- * Copyright 2001-2020, Axel Dörfler, axeld@pinc-software.de.
+ * Copyright 2001-2025, Axel Dörfler, axeld@pinc-software.de.
  * This file may be used under the terms of the MIT License.
  */
 
@@ -15,7 +15,6 @@
 #include "Index.h"
 #include "BPlusTree.h"
 #include "Query.h"
-#include "ResizeVisitor.h"
 #include "bfs_control.h"
 #include "bfs_disk_system.h"
 
@@ -23,6 +22,8 @@
 #ifndef FS_SHELL
 #	include <io_requests.h>
 #	include <util/fs_trim_support.h>
+#else
+#	include "ResizeVisitor.h"
 #endif
 
 
@@ -781,6 +782,7 @@ bfs_ioctl(fs_volume* _volume, fs_vnode* _node, void* _cookie, uint32 cmd,
 
 			return volume->WriteSuperBlock();
 		}
+#ifdef FS_SHELL
 		case BFS_IOCTL_RESIZE:
 		{
 			if (bufferLength != sizeof(resize_control))
@@ -793,6 +795,7 @@ bfs_ioctl(fs_volume* _volume, fs_vnode* _node, void* _cookie, uint32 cmd,
 			ResizeVisitor resizer(volume);
 			return resizer.Resize(control.new_size, control.dry_run, -1);
 		}
+#endif
 
 #ifdef DEBUG_FRAGMENTER
 		case 56741:

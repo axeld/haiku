@@ -26,8 +26,7 @@ public:
 							BlockAllocator(Volume* volume);
 							~BlockAllocator();
 
-			status_t		Initialize(bool full = true,
-								bool alreadyLocked = false);
+			status_t		Initialize(bool full = true);
 			status_t		InitializeAndClearBitmap(Transaction& transaction);
 			status_t		Reinitialize();
 
