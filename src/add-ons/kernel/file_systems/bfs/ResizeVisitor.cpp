@@ -239,10 +239,11 @@ ResizeVisitor::_CalculateNewSizes(off_t size)
 		// divide total number of blocks by the number of bits in a bitmap
 		// block, rounding up
 
-	off_t logLength = Volume::CalculateLogSize(fNumBlocks, size);
+	off_t logSize = Volume::CalculateLogSize(fNumBlocks, size);
 
-	fNewLog.SetTo(0, 1 + fBitmapBlocks, logLength);
-	fReservedLength = 1 + fBitmapBlocks + logLength;
+	fNewLog = GetVolume()->ToBlockRun(1 + fBitmapBlocks);
+	fNewLog.length = HOST_ENDIAN_TO_BFS_INT16(logSize);
+	fReservedLength = 1 + fBitmapBlocks + logSize;
 
 	fBeginBlock = fReservedLength;
 
@@ -278,13 +279,6 @@ ResizeVisitor::_IsResizePossible(off_t size) const
 		return B_BAD_VALUE;
 	}
 
-	// The new size is limited by what we can fit into the first allocation group
-	off_t groupSize = (off_t)(1UL << GetVolume()->AllocationGroupShift());
-	if (fReservedLength > groupSize) {
-		FATAL(("Resize: Reserved area is too large for allocation group!\n"));
-		return B_BAD_VALUE;
-	}
-
 	if (GetVolume()->UsedBlocks() > fNumBlocks) {
 		FATAL(("Resize: Not enough free space for resize!\n"));
 		return B_BAD_VALUE;
@@ -294,8 +288,10 @@ ResizeVisitor::_IsResizePossible(off_t size) const
 		return B_OK;
 
 	// We cannot change the allocation group size
-	if (groupSize * 65535 < fNumBlocks) {
-		FATAL(("Resize: Cannot grow further than %" B_PRIdOFF " blocks!", groupSize * 65535));
+	off_t numGroups = (off_t)fNumBlocks >> GetVolume()->AllocationGroupShift();
+	if (numGroups > INT32_MAX) {
+		FATAL(("Resize: Cannot grow further than %" B_PRIdOFF " blocks!",
+			(off_t)INT32_MAX << GetVolume()->AllocationGroupShift()));
 		return B_BAD_VALUE;
 	}
 
